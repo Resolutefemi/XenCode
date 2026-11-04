@@ -1,0 +1,112 @@
+name: CI
+
+# Triggers on push to main or PR: build the universal debug APK (single-flavor smoke) + run unit tests.
+# Acts as a gate before merges so compile errors/regressions surface early instead of on release day.
+# Release builds for v* tags run in android-release.yml, not here.
+on:
+  push:
+    branches: [ main ]
+    # Docs-only/asset changes do not affect build artifacts; skip CI to save time (public repos are not billed anyway, but this saves ~11 minutes of waiting).
+    # Note: CI still runs if the push touches any non-ignored path.
+    paths-ignore:
+      - '**.md'
+      - 'docs/**'
+      - 'docs-site/**'
+      - 'LICENSE'
+      - '.gitignore'
+  pull_request:
+    branches: [ main ]
+    paths-ignore:
+      - '**.md'
+      - 'docs/**'
+      - 'docs-site/**'
+      - 'LICENSE'
+      - '.gitignore'
+  workflow_dispatch:
+
+# Cancel older runs on the same branch when new commits arrive, to save CI minutes.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: Build & Test
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          # versionCode comes from gitCommitCount() in build.gradle.kts, which reads
+          # `git rev-list --count HEAD` at configuration time; a shallow clone (default depth=1) returns 1, so full history is required.
+          fetch-depth: 0
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      # The preinstalled SDK only goes up to android-36, but compileSdk is 37 (required by PrismalAGSL), so the platform must be installed.
+      # Avoid android-actions/setup-android: it runs the deprecated `sdkmanager tools` and always fails.
+      - name: Install Android platform 37 & build-tools 36
+        run: |
+          set -e
+          SDK="${ANDROID_HOME:-${ANDROID_SDK_ROOT:-/usr/local/lib/android/sdk}}"
+          SM=""
+          for c in "$SDK/cmdline-tools/latest/bin/sdkmanager" "$SDK/cmdline-tools/16.0/bin/sdkmanager"; do
+            if [ -x "$c" ]; then SM="$c"; break; fi
+          done
+          if [ -z "$SM" ]; then SM="$(command -v sdkmanager 2>/dev/null || true)"; fi
+          echo "sdkmanager=$SM"
+          if [ -z "$SM" ]; then echo "::error::sdkmanager not found"; exit 1; fi
+          yes 2>/dev/null | "$SM" --sdk_root="$SDK" --install "build-tools;36.0.0"
+          # Google's remote no longer hosts platforms;android-37 (the Android 17 platform was renamed to android-37.0/37.1/37.2),
+          # while the local dev machine still has the original Platform 37 package installed (api-level=37 rev=2).
+          # Any knock-off "patched 37.0 metadata" package fails AGP's validation:
+          #   package.xml path=37.0 -> inconsistent location; the whole directory gets ignored;
+          #   source.properties ApiLevel=37.0 -> the platform resolves to API 0;
+          #   removing both -> AGP has no registry to consult and reports Failed to find Platform SDK.
+          # The genuine package is attached as an asset to the v1.0.1 Release (android-platform-37.zip);
+          # download and extract it directly; it is byte-identical to the locally compilable form.
+          rm -rf "$SDK/platforms/android-37"
+          curl -sSL --retry 3 -o /tmp/android-37.zip             "https://github.com/hwsyyds666/AiCode/releases/download/v1.0.1/android-platform-37.zip"
+          unzip -q -o /tmp/android-37.zip -d "$SDK/platforms/"
+          rm -f /tmp/android-37.zip
+          echo "--- platforms ---"
+          ls -1 "$SDK/platforms" | grep -E "android-3[5-9]" || true
+          grep -E "^ro.build.version.sdk=" "$SDK/platforms/android-37/build.prop"
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          # PRs use a read-only cache; only pushes to main write back, so PR runs cannot poison the cache.
+          cache-read-only: ${{ github.ref != 'refs/heads/main' }}
+
+      - name: Grant execute permission for gradlew
+        run: chmod +x ./gradlew
+
+      # Migration reconciliation: consecutive numbering, SCHEMA_VERSION in sync, published migrations untouched and not reused
+      # (a merge back to main that did not renumber unreleased migrations after a published hotfix is blocked here).
+      - name: Check migration versions
+        run: python3 scripts/check_migrations.py
+
+      # Single-flavor smoke: build only the universal debug variant (per CLAUDE.md, the default verification after code changes);
+      # skip the other two flavors to save two-thirds of the Kotlin compilation.
+      - name: Build universal debug (smoke)
+        run: ./gradlew :app:assembleUniversalDebug --stacktrace
+
+      # Upload the APK to Actions Artifacts for on-device install and debugging.
+      - name: Upload universal debug APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: aicode-universal-debug-${{ github.sha }}
+          path: app/build/outputs/apk/universal/debug/app-universal-debug.apk
+          if-no-files-found: error
+
+      # Unit tests (Kotlin tests under app/src/test).
+      # Run only the universal debug variant: unit tests are flavor-independent (flavors only affect abiFilters/assets),
+      # running all 6 flavor variants would just recompile the same code for no extra coverage.
+      - name: Run unit tests
+        run: ./gradlew :app:testUniversalDebugUnitTest

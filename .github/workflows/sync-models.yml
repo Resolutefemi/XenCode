@@ -1,0 +1,60 @@
+name: Sync Models Metadata
+
+on:
+  schedule:
+    # Runs automatically once a day at UTC 04:00 (noon Beijing time)
+    - cron: '0 4 * * *'
+  workflow_dispatch: # can also be triggered manually from the GitHub Actions UI
+
+permissions:
+  contents: write
+
+# Allow only one sync at a time so concurrent runs cannot clobber each other on the data branch.
+concurrency:
+  group: sync-models
+  cancel-in-progress: false
+
+jobs:
+  sync-models:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Fetch full models.dev metadata to data/models.json
+        run: |
+          python3 scripts/sync-models-dev.py
+
+      - name: Publish to data branch
+        run: |
+          set -e
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+          # Back up the newly generated files, then clear the workspace and publish as an orphan single commit, keeping machine-generated output off main.
+          cp data/models.json "$RUNNER_TEMP/models.json"
+
+          # Compare against the data branch's existing files; skip when nothing changed (avoid no-op commits).
+          git fetch origin data || true
+          if git show origin/data:data/models.json > "$RUNNER_TEMP/models.old.json" 2>/dev/null; then
+            if cmp -s "$RUNNER_TEMP/models.old.json" data/models.json; then
+              echo "Model metadata unchanged; skipping commit"
+              exit 0
+            fi
+          fi
+
+          # The orphan branch carries the data: it is overwritten into a single commit each run, so the data branch always holds only the latest snapshot.
+          git checkout --orphan data-snapshot
+          git rm -rf --cached . > /dev/null
+          git clean -fdx > /dev/null
+          mkdir -p data
+          cp "$RUNNER_TEMP/models.json" data/models.json
+          git add data/models.json
+          git commit -m "chore(data): sync full models.dev metadata"
+          git push -f origin HEAD:data

@@ -1,0 +1,314 @@
+name: Android Release
+
+# Triggered on tag push (e.g. v1.0.0): build the three signed release APKs
+#   - universal : arm64-v8a + x86_64, with both arm and x86 container images (universal, largest)
+#   - armsolo    : arm64-v8a only, arm image only (preferred on real devices; roughly half of universal)
+#   - x86solo    : x86_64 only, x86 image only (x86 emulators/Chromebooks; roughly half of universal)
+# Creates a GitHub Release and publishes the three APKs as assets.
+on:
+  push:
+    tags:
+      - 'v*'
+  # Can be triggered manually from the Actions page to verify the build pipeline.
+  workflow_dispatch:
+
+jobs:
+  build:
+    name: Build & Release
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write   # write permission needed to create the Release and upload assets
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          # versionCode comes from gitCommitCount() in build.gradle.kts, which reads `git rev-list --count HEAD`;
+          # a shallow clone (default depth=1) returns 1; full history is required or the release APK version numbering breaks.
+          fetch-depth: 0
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      # The preinstalled Android SDK only goes up to android-36, but compileSdk is 37
+      # (PrismalAGSL's aar-metadata declares minCompileSdk=37 and AGP enforces it).
+      # When the platform is missing, Gradle fails at dependency resolution with
+      # "Failed to find Platform SDK with path: platforms;android-37" before compilation even starts.
+      # Avoid android-actions/setup-android: it hard-runs `sdkmanager tools`,
+      # but the runner's cmdline-tools 16 removed the tools package, so it always exits 1.
+      - name: Install Android platform 37 & build-tools 36
+        run: |
+          set -e
+          SDK="${ANDROID_HOME:-${ANDROID_SDK_ROOT:-/usr/local/lib/android/sdk}}"
+          SM=""
+          for c in "$SDK/cmdline-tools/latest/bin/sdkmanager" "$SDK/cmdline-tools/16.0/bin/sdkmanager"; do
+            if [ -x "$c" ]; then SM="$c"; break; fi
+          done
+          if [ -z "$SM" ]; then SM="$(command -v sdkmanager 2>/dev/null || true)"; fi
+          echo "sdkmanager=$SM"
+          if [ -z "$SM" ]; then echo "::error::sdkmanager not found"; exit 1; fi
+          yes 2>/dev/null | "$SM" --sdk_root="$SDK" --install "build-tools;36.0.0"
+          # Google's remote no longer hosts platforms;android-37 (the Android 17 platform was renamed to android-37.0/37.1/37.2),
+          # while the local dev machine still has the original Platform 37 package (api-level=37 rev=2).
+          # Any knock-off "patched 37.0 metadata" package fails AGP's validation:
+          #   package.xml path=37.0 -> inconsistent location; the whole directory gets ignored;
+          #   source.properties ApiLevel=37.0 -> the platform resolves to API 0;
+          #   removing both -> AGP has no registry to consult and reports Failed to find Platform SDK.
+          # The genuine package is attached as an asset to the v1.0.1 Release (android-platform-37.zip);
+          # download and extract it directly; it is byte-identical to the locally compilable form.
+          rm -rf "$SDK/platforms/android-37"
+          curl -sSL --retry 3 -o /tmp/android-37.zip             "https://github.com/hwsyyds666/AiCode/releases/download/v1.0.1/android-platform-37.zip"
+          unzip -q -o /tmp/android-37.zip -d "$SDK/platforms/"
+          rm -f /tmp/android-37.zip
+          echo "--- platforms ---"
+          ls -1 "$SDK/platforms" | grep -E "android-3[5-9]" || true
+          grep -E "^ro.build.version.sdk=" "$SDK/platforms/android-37/build.prop"
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          # Reuse the Gradle build cache to speed up later builds.
+          cache-read-only: ${{ github.ref != 'refs/heads/main' }}
+
+      # Print the current tag; the tag directly drives versionName.
+      # Validate only when triggered by a tag; skip on workflow_dispatch (manual, no tag).
+      - name: Display release tag info
+        if: startsWith(github.ref, 'refs/tags/v')
+        run: |
+          set -e
+          tag_ver="${GITHUB_REF_NAME#v}"            # 1.7.0 / 1.7.0-rc1 / ...
+          echo "tag version (without v) = $tag_ver"
+          echo "✓ Tag will directly drive the app versionName ($tag_ver)"
+
+      # Verify versionCode monotonicity: versionCode = git commit count, and rebases/squashes rewriting history
+      # can shrink the count, making a new build's versionCode older than the previous one and breaking upgrade detection.
+      # Take the most recent tag (by commit time) that is not the current one, compute its commit count, and require HEAD's count to be no lower than the previous release.
+      # Equality is allowed: promoting an RC to stable often tags the same commit, so equal versionCode is normal.
+      # Validate only when triggered by a tag; skip on workflow_dispatch (manual, no tag).
+      - name: Verify versionCode monotonic
+        if: startsWith(github.ref, 'refs/tags/v')
+        run: |
+          set -e
+          cur_vc=$(git rev-list --count HEAD)
+          prev_tag=$(git tag --sort=-creatordate | grep -vE "^${GITHUB_REF_NAME}$" | head -1)
+          if [[ -z "$prev_tag" ]]; then
+            echo "No previous tags; skipping versionCode monotonicity check (first release)"
+            echo "Current versionCode (commit count) = $cur_vc"
+            exit 0
+          fi
+          prev_vc=$(git rev-list --count "$prev_tag")
+          echo "Previous release ($prev_tag) versionCode = $prev_vc"
+          echo "Current (${GITHUB_REF_NAME}) versionCode = $cur_vc"
+          if [[ "$cur_vc" -lt "$prev_vc" ]]; then
+            echo "::error::versionCode regression: current $cur_vc < previous release ($prev_tag) $prev_vc. Usually caused by rebase/squash shrinking the commit count. Ensure new releases build linearly on top of the old tag."
+            exit 1
+          fi
+          echo "✓ versionCode monotonic: $prev_vc -> $cur_vc"
+
+      - name: Restore release keystore
+        env:
+          # The keystore file is stored base64-encoded in a secret so the binary is not corrupted in transit.
+          # Restored to app/aicode.jks, matching the path build.gradle.kts expects.
+          KEYSTORE_BASE64: ${{ secrets.AICODE_KEYSTORE_BASE64 }}
+        run: |
+          echo "$KEYSTORE_BASE64" | base64 -d > app/aicode.jks
+          echo "keystore restored ($(stat -c%s app/aicode.jks) bytes)"
+
+      - name: Generate keystore.properties
+        env:
+          KEYSTORE_PASSWORD: ${{ secrets.AICODE_KEYSTORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.AICODE_KEY_ALIAS }}
+          KEY_PASSWORD: ${{ secrets.AICODE_KEY_PASSWORD }}
+        run: |
+          cat > app/keystore.properties <<EOF
+          storeFile=aicode.jks
+          storePassword=$KEYSTORE_PASSWORD
+          keyAlias=$KEY_ALIAS
+          keyPassword=$KEY_PASSWORD
+          EOF
+          echo "app/keystore.properties generated"
+
+      - name: Grant execute permission for gradlew
+        run: chmod +x ./gradlew
+
+      # Migration version reconciliation (the last gate before release): consecutive numbering, SCHEMA_VERSION in sync,
+      # published migrations untouched and not reused. Tags are the boundary for migration versions; this must pass before release.
+      - name: Check migration versions
+        run: python3 scripts/check_migrations.py
+
+      # Release quality gate: run unit tests and abort on failure so a regressed build never ships.
+      # Run only the universal debug variant: unit tests are flavor-independent, and all 6 flavor variants would just recompile.
+      - name: Run unit tests
+        run: ./gradlew :app:testUniversalDebugUnitTest
+
+      # Build the release APKs for all flavors in one go (universal/armsolo/x86solo)
+      # --stacktrace: print the full stack on failure to help pinpoint OOM/memory-related root causes in CI.
+      - name: Build all flavor Release APKs
+        run: ./gradlew assembleRelease --stacktrace
+
+      # Rename the three APKs to the <package>-<abi>-<version> scheme, using real ABI names so users can identify them:
+      #   aicode-arm64-v1.0.0-rc1.apk      (armsolo)
+      #   aicode-x86_64-v1.0.0-rc1.apk     (x86solo)
+      #   aicode-universal-v1.0.0-rc1.apk  (universal, with both image sets)
+      - name: Rename APKs by flavor
+        run: |
+          mkdir -p dist
+          ver="${GITHUB_REF_NAME:-manual}"   # tag like v1.0.0-rc1; manual runs use manual-N
+          declare -A abi=( [armsolo]=arm64 [x86solo]=x86_64 [universal]=universal )
+          for f in universal armsolo x86solo; do
+            src="app/build/outputs/apk/$f/release/app-$f-release.apk"
+            if [[ -f "$src" ]]; then
+              out="dist/aicode-${abi[$f]}-${ver}.apk"
+              cp "$src" "$out"
+              echo "packaged $out"
+            else
+              echo "::warning::missing $src"
+            fi
+          done
+
+          # Keep the R8 mapping (mapping.txt) in dist/ and publish it with the Release for de-obfuscating crash stacks.
+          # All three flavors share the same bytecode and obfuscation result, so universal's mapping suffices;
+          # gzipped it is only a few MB (about 90MB raw); gunzip before feeding it to retrace/Android Studio.
+          # Follows the aicode-<abi>-<ver> naming; grab the matching mapping by the version shown in the crash report.
+          # On AGP 8.x the mapping output directory uses the variant's camelCase name (flavor + BuildType),
+          # i.e. outputs/mapping/universalRelease/, not outputs/mapping/universal/release/.
+          if [[ -f "app/build/outputs/mapping/universalRelease/mapping.txt" ]]; then
+            gzip -c "app/build/outputs/mapping/universalRelease/mapping.txt" > "dist/aicode-universal-${ver}-mapping.txt.gz"
+            echo "packaged aicode-universal-${ver}-mapping.txt.gz"
+          else
+            echo "::warning::missing mapping.txt (R8 mapping)"
+          fi
+          ls -lh dist/
+
+      # AGP 8 Signflinger writes META-INF/MANIFEST.MF + CERT.* but the v1 JAR
+      # scheme does not actually verify (apksigner reports "v1 scheme: false").
+      # MT Manager and some OEM package installers then show
+      # "Signature: Verified failed" / "App not installed as package appears to be invalid".
+      # Re-sign with the platform apksigner so v1+v2+v3 are all real signatures.
+      - name: Re-sign APKs with v1+v2+v3
+        env:
+          KEYSTORE_PASSWORD: ${{ secrets.AICODE_KEYSTORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.AICODE_KEY_ALIAS }}
+          KEY_PASSWORD: ${{ secrets.AICODE_KEY_PASSWORD }}
+        run: |
+          set -e
+          SDK="${ANDROID_HOME:-${ANDROID_SDK_ROOT:-/usr/local/lib/android/sdk}}"
+          APKSIGNER=""
+          for c in "$SDK/build-tools/36.0.0/apksigner" "$SDK/build-tools/35.0.0/apksigner"; do
+            if [ -x "$c" ]; then APKSIGNER="$c"; break; fi
+          done
+          if [ -z "$APKSIGNER" ]; then
+            APKSIGNER="$(find "$SDK/build-tools" -name apksigner -type f | sort | tail -1)"
+          fi
+          echo "apksigner=$APKSIGNER"
+          if [ -z "$APKSIGNER" ] || [ ! -x "$APKSIGNER" ]; then
+            echo "::error::apksigner not found under $SDK/build-tools"
+            exit 1
+          fi
+          for apk in dist/aicode-*.apk; do
+            echo "=== re-signing $apk ==="
+            tmp="${apk}.resigned"
+            "$APKSIGNER" sign \
+              --ks app/aicode.jks \
+              --ks-pass "pass:${KEYSTORE_PASSWORD}" \
+              --ks-key-alias "$KEY_ALIAS" \
+              --key-pass "pass:${KEY_PASSWORD}" \
+              --v1-signing-enabled true \
+              --v2-signing-enabled true \
+              --v3-signing-enabled true \
+              --min-sdk-version 1 \
+              --out "$tmp" \
+              "$apk"
+            mv "$tmp" "$apk"
+            # Default verify ignores v1 when the APK's minSdk >= 24; force min-sdk 1 so JAR signing is checked.
+            "$APKSIGNER" verify --verbose --min-sdk-version 1 "$apk" 2>&1 | tee /tmp/apk-verify.txt
+            if ! grep -q "Verified using v1 scheme (JAR signing): true" /tmp/apk-verify.txt; then
+              echo "::error::$apk still has no valid v1 JAR signature"
+              exit 1
+            fi
+          done
+
+      - name: Determine release name
+        id: release
+        run: |
+          # On manual runs (no tag), use the run id as a temporary name to avoid disturbing tag releases.
+          if [[ "${{ github.ref }}" == refs/tags/* ]]; then
+            echo "tag=${GITHUB_REF#refs/tags/}" >> "$GITHUB_OUTPUT"
+          else
+            echo "tag=manual-${GITHUB_RUN_NUMBER}" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Determine prerelease flag
+        id: prerelease
+        run: |
+          tag="${{ steps.release.outputs.tag }}"
+          if [[ "$tag" =~ -(rc|dev|beta|alpha)([.0-9]*)?$ ]]; then
+            echo "is_prerelease=true" >> "$GITHUB_OUTPUT"
+            echo "Pre-release suffix detected; marking as pre-release"
+          else
+            echo "is_prerelease=false" >> "$GITHUB_OUTPUT"
+            echo "Stable release; not marked as pre-release"
+          fi
+
+      # GitHub's generate_release_notes only lists merged PRs; direct push commits never appear.
+      # This repo commits directly to main without PRs, so generate the changelog manually via git log.
+      - name: Generate changelog from git log
+        id: changelog
+        if: startsWith(github.ref, 'refs/tags/v')
+        run: |
+          cur_tag="${GITHUB_REF_NAME}"
+          # Stable releases (vX.Y.Z, no suffix) count from the previous stable, covering the whole release cycle (including all RCs),
+          # so the in-app update check shows the full log; RC/pre-releases count from the most recently created tag (incremental).
+          if [[ "$cur_tag" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            prev_tag=$(git tag --sort=-creatordate | grep -E "^v[0-9]+\.[0-9]+\.[0-9]+$" | grep -vE "^${cur_tag}$" | head -1)
+            echo "Stable: changelog from previous stable ${prev_tag:-none} (includes all RC commits)"
+          else
+            prev_tag=$(git tag --sort=-creatordate | grep -vE "^${cur_tag}$" | head -1)
+            echo "Pre-release: changelog from the latest tag ${prev_tag:-none}"
+          fi
+          if [[ -z "$prev_tag" ]]; then
+            echo "No previous tags; listing the last 30 commits"
+            log=$(git log --oneline --no-decorate -30)
+          else
+            echo "Generating changelog for ${prev_tag}..${cur_tag}"
+            log=$(git log --oneline --no-decorate "${prev_tag}..HEAD")
+          fi
+          # Escape for GitHub Actions outputs (multi-line via an EOF delimiter)
+          delimiter="EOF_$(date +%s)"
+          echo "body<<${delimiter}" >> "$GITHUB_OUTPUT"
+          echo "## What's Changed" >> "$GITHUB_OUTPUT"
+          echo "" >> "$GITHUB_OUTPUT"
+          if [[ -z "$log" ]]; then
+            echo "- No new commits (same commit as the previous release)" >> "$GITHUB_OUTPUT"
+          else
+            echo "$log" | while IFS= read -r line; do
+              # Extract commit hash and message, formatting them as list items
+              sha=$(echo "$line" | cut -d' ' -f1)
+              msg=$(echo "$line" | cut -d' ' -f2-)
+              echo "- ${msg} (${sha})" >> "$GITHUB_OUTPUT"
+            done
+          fi
+          echo "" >> "$GITHUB_OUTPUT"
+          echo "**Full Changelog**: https://github.com/${{ github.repository }}/compare/${prev_tag}...${cur_tag}" >> "$GITHUB_OUTPUT"
+          echo "${delimiter}" >> "$GITHUB_OUTPUT"
+
+      - name: Create GitHub Release & Upload assets
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.release.outputs.tag }}
+          name: Release ${{ steps.release.outputs.tag }}
+          body: ${{ steps.changelog.outputs.body }}
+          prerelease: ${{ steps.prerelease.outputs.is_prerelease }}
+          # Artifacts follow the aicode-<abi>-<version>.apk naming (see the Rename step), so the glob puts the ABI segment right after aicode- with a trailing * for the version.
+          # Do NOT write aicode-*-<abi>.apk — that puts the ABI in the last segment and never matches aicode-<abi>-<ver> (the rc3 failure).
+          files: |
+            dist/aicode-universal-*.apk
+            dist/aicode-arm64-*.apk
+            dist/aicode-x86_64-*.apk
+            # Publish the R8 mapping with the same version as the APK; the key to de-obfuscating crash reports (gzipped, small)
+            dist/aicode-universal-*mapping.txt.gz
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
