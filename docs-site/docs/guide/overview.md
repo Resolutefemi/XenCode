@@ -11,6 +11,7 @@ Entries marked with a version (e.g. "since 1.11.0") were introduced in that vers
 | Feature | Description |
 | --- | --- |
 | Chat & workspace | Title bar, sidebar, toolbar, message queue, workspace switching → [Docs](/guide/chat) |
+| Desktop & CLI (PC) | The same agent on Windows / macOS / Linux: desktop app, `xencode` CLI, swimlanes, .mjs automation → [Docs](/guide/pc) |
 | Modes (three modes) | Permission control and use cases for Build / Plan / Auto → [Docs](/guide/modes) |
 | Checkpoints & undo | Automatic snapshot before AI edits, one-tap safe rollback → [Docs](/guide/checkpoint) |
 | Terminal | Multi-tab sessions, auxiliary key bar, color and font settings → [Docs](/guide/terminal) |

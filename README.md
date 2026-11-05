@@ -199,27 +199,33 @@ Head to [GitHub Releases](https://github.com/Resolutefemi/XenCode/releases/lates
 
 ## Desktop App & CLI (PC line)
 
-XenCode ships beyond Android: the same goal-driven workflow on every desktop, plus a terminal-native CLI.
+XenCode ships beyond Android: the same goal-driven workflow on every desktop, plus a terminal-native CLI — both carrying the full coding-agent feature set (tools, permissions, MCP, checkpoints, sessions, `.mjs` automation, telemetry).
 
-**Desktop (Windows / macOS / Linux)** — a Compose Desktop app with chat streaming, the local tool loop (read/write/list/run), a live Goal DAG board, XP progress tracking, and provider management. Build it yourself (see below) — native installers (`msi` / `dmg` / `deb`) are produced by CI.
+**Desktop (Windows / macOS / Linux)** — a Compose Desktop app with chat streaming, the permission-gated tool loop (read/write/edit/glob/grep/run + MCP), decision-card banners, a live Goal DAG board with the parallel swimlane runner, command-streak & spec-radar telemetry, the `.mjs` Automation pane, and provider management (OpenAI-compatible, native Anthropic, native Gemini). Build it yourself (see below) — native installers (`msi` / `exe` / `dmg` / `deb` / `rpm`) are produced by CI for all three operating systems simultaneously.
 
 ```bash
 ./gradlew :desktop:run            # launch the app
-./gradlew :desktop:packageDmg     # or packageMsi / packageDeb
+./gradlew :desktop:packageDeb     # or packageMsi / packageExe / packageDmg / packageRpm
 ```
 
-**CLI** — a single Gradle-built binary-style distribution with the same brain:
+**CLI** — a single Gradle-built distribution with the same brain and the full command surface:
 
 ```bash
 ./gradlew :cli:installDist
-cli/build/install/xencode/bin/xencode chat        # interactive agent REPL
+export PATH=$PATH:$(pwd)/cli/build/install/xencode/bin
+xencode chat                                 # REPL with /help /compact /todo /checkpoint /decide ...
+xencode exec "fix the failing test" --output-format json   # non-interactive
 xencode config add --name zai --kind openai --base-url https://api.z.ai --api-key <KEY> --model glm-4.7
 xencode goal add "Ship v1"                   # goal DAG at .xencode/GOAL_DAG.json
-xencode goal done g1 && xencode xp               # +50 XP, streaks and levels
-xencode doctor                              # environment self-check
+xencode goal run --parallel 4                # swimlanes: READY nodes run in isolated git worktrees
+xencode checkpoint list && xencode session list
+xencode mcp init && xencode mcp tools        # Model Context Protocol (stdio)
+xencode run --example > .xencode/scripts/report.mjs && xencode run .xencode/scripts/report.mjs
+xencode todo add "write release notes" && xencode decide && xencode events
+xencode xp && xencode doctor                 # +50 XP per goal, streaks and levels
 ```
 
-Both PC clients talk to any OpenAI-compatible endpoint or native Anthropic API, persist goals in the same `.xencode/GOAL_DAG.json` as the Android app, and award XP on the same curve (`100·n²`) — levels mean the same thing everywhere.
+**Shared agent runtime** — both PC clients run the same core: any OpenAI-compatible endpoint, native Anthropic or native Gemini; a permission policy (read-only / default / yolo + `tool:`/`cmd:` rules, deny>ask>allow) with interactive decision cards; pre/post tool hooks; automatic git checkpoints before risky edits (Time-Machine restore); persisted & resumable sessions; context compaction; the shared TODO list; MCP servers over stdio; the embedded `.mjs` automation engine (`import { fs, ast, pty, git, sync } from "xencode:core"`); and an ndjson event stream (`.xencode/events.ndjson`) that keeps every surface in sync. Goals persist in the same `.xencode/GOAL_DAG.json` as the Android app and XP uses the same curve (`100·n²`) — levels mean the same thing everywhere.
 
 ## Building from Source
 

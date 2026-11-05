@@ -98,6 +98,15 @@ There is nothing to set up beforehand: install the app, configure a model under 
 - **Network proxy** — Configure a global proxy and per-provider proxies separately
 - **Backup & Restore** — Encrypted export/import of provider configs, credentials, chat history and workspace files
 
+### Desktop & CLI (PC line)
+
+The same agent platform on every desktop and terminal, sharing `.xencode/` state with the Android app:
+
+- **Desktop app (Windows / macOS / Linux)** — Compose Desktop with streaming chat, permission-gated tools + MCP, decision-card banners, the Goal DAG board with a parallel swimlane runner, streak/radar telemetry, an `.mjs` Automation pane and provider management; CI builds `msi` / `exe` / `dmg` / `deb` / `rpm` installers
+- **CLI** — `xencode chat` (slash-command REPL), `exec` (non-interactive, JSON output), `goal run --parallel N` (agent swimlanes in isolated git worktrees), `checkpoint`, `session`, `todo`, `mcp`, `run` (.mjs automation), `decide`, `events`, `worktree`, `xp`, `doctor`
+- **Agent runtime** — read/write/edit/glob/grep/run_command tools, permission policy (read-only/default/yolo + rules) with decision cards, pre/post hooks, auto git checkpoints, resumable sessions, context compaction, MCP over stdio, and the embedded `.mjs` engine (`xencode:core` bindings: fs / ast / pty / git / sync)
+- **Providers** — any OpenAI-compatible endpoint, native Anthropic and native Gemini, all configured in `~/.xencode/pc-config.json`
+
 ## Getting Started
 
 | Item | Description |

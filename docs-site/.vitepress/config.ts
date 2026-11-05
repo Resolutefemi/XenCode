@@ -45,6 +45,7 @@ export default defineConfig({
           items: [
             { text: 'Quick Start', link: '/guide/quick-start' },
             { text: 'Feature Overview', link: '/guide/overview' },
+            { text: 'Desktop & CLI (PC)', link: '/guide/pc' },
             { text: 'Video Tutorials', link: '/guide/video-tutorials' },
             { text: 'Free Vendors', link: '/guide/free-providers' }
           ]
