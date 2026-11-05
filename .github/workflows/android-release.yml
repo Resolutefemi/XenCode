@@ -60,7 +60,7 @@ jobs:
           # The genuine package is attached as an asset to the v1.0.1 Release (android-platform-37.zip);
           # download and extract it directly; it is byte-identical to the locally compilable form.
           rm -rf "$SDK/platforms/android-37"
-          curl -sSL --retry 3 -o /tmp/android-37.zip             "https://github.com/hwsyyds666/XenCode/releases/download/v1.0.1/android-platform-37.zip"
+          curl -sSL --retry 3 -o /tmp/android-37.zip             "https://github.com/Resolutefemi/XenCode/releases/download/ci-assets-v1/android-platform-37.zip"
           unzip -q -o /tmp/android-37.zip -d "$SDK/platforms/"
           rm -f /tmp/android-37.zip
           echo "--- platforms ---"
