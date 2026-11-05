@@ -91,6 +91,8 @@ pub fn build_body(
 pub struct AnthropicAccumulator {
     active_tool: Option<(usize, String, String)>, // (index, id, name)
     args_buf: String,
+    input_tokens: i64,
+    output_tokens: i64,
 }
 
 impl AnthropicAccumulator {
@@ -118,7 +120,12 @@ impl AnthropicAccumulator {
         let type_field = v.get("type").and_then(|t| t.as_str()).unwrap_or("").to_string();
         match (kind.as_str(), type_field.as_str()) {
             (_, "error") => { /* already emitted */ }
-            ("message_start", _) | ("ping", _) => {}
+            // message_start.usage.input_tokens = the whole prompt size.
+            ("message_start", _) | ("ping", _) => {
+                if let Some(n) = v.pointer("/message/usage/input_tokens").and_then(|n| n.as_i64()) {
+                    self.input_tokens = n;
+                }
+            }
             ("content_block_start", _) | (_, "content_block_start") => {
                 let block = v.get("content_block").cloned().unwrap_or(serde_json::Value::Null);
                 if block.get("type").and_then(|t| t.as_str()) == Some("tool_use") {
@@ -162,12 +169,24 @@ impl AnthropicAccumulator {
                 }
             }
             ("message_delta", _) | (_, "message_delta") => {
+                if let Some(u) = v.get("usage") {
+                    if let Some(n) = u.get("output_tokens").and_then(|n| n.as_i64()) {
+                        self.output_tokens = n;
+                    }
+                    if let Some(n) = u.get("input_tokens").and_then(|n| n.as_i64()) {
+                        self.input_tokens = n;
+                    }
+                }
                 if let Some(reason) = v
                     .get("delta")
                     .and_then(|d| d.get("stop_reason"))
                     .and_then(|r| r.as_str())
                 {
-                    out.push(ChatEvent::Completed { finish_reason: reason.to_string() });
+                    out.push(ChatEvent::Completed {
+                        finish_reason: reason.to_string(),
+                        input_tokens: self.input_tokens,
+                        output_tokens: self.output_tokens,
+                    });
                 }
             }
             ("message_stop", _) | (_, "message_stop") => {}
@@ -242,6 +261,23 @@ mod tests {
     }
 
     #[test]
+    fn usage_from_message_start_and_message_delta() {
+        let mut acc = AnthropicAccumulator::default();
+        let mut out = vec![];
+        out.extend(acc.feed("message_start", r#"data: {"type":"message_start","message":{"usage":{"input_tokens":77}}}"#));
+        out.extend(acc.feed("content_block_delta", r#"data: {"type":"content_block_delta","delta":{"type":"text_delta","text":"working"}}"#));
+        out.extend(acc.feed("message_delta", r#"data: {"type":"message_delta","delta":{"stop_reason":"end_turn"},"usage":{"output_tokens":31}}"#));
+        let done = out.iter().filter_map(|e| match e {
+            ChatEvent::Completed { finish_reason, input_tokens, output_tokens } => {
+                Some((finish_reason.clone(), *input_tokens, *output_tokens))
+            }
+            _ => None,
+        }).collect::<Vec<_>>();
+        assert_eq!(1, done.len(), "{done:?}");
+        assert_eq!(("end_turn".to_string(), 77, 31), done[0]);
+    }
+
+    #[test]
     fn accumulator_full_stream() {
         let mut acc = AnthropicAccumulator::default();
         let mut out = vec![];
@@ -260,6 +296,6 @@ mod tests {
             ChatEvent::ToolCall { id, name, args_json } => Some((id.clone(), name.clone(), args_json.clone())), _ => None,
         }).collect();
         assert_eq!(tools, vec![("tu_9".to_string(), "edit_file".to_string(), r#"{"path":"a.rb"}"#.to_string())]);
-        assert!(matches!(out.last(), Some(ChatEvent::Completed { finish_reason }) if finish_reason == "tool_use"));
+        assert!(matches!(out.last(), Some(ChatEvent::Completed { finish_reason, .. }) if finish_reason == "tool_use"));
     }
 }

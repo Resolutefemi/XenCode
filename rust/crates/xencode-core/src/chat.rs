@@ -82,7 +82,9 @@ impl ChatMessage {
 pub enum ChatEvent {
     TextDelta(String),
     ToolCall { id: String, name: String, args_json: String },
-    Completed { finish_reason: String },
+    /// Stream finished. `input_tokens`/`output_tokens` carry the provider's
+    /// reported usage when the stream included it (0 when it did not).
+    Completed { finish_reason: String, input_tokens: i64, output_tokens: i64 },
     Failed { message: String },
 }
 

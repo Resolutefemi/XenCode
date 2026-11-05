@@ -68,8 +68,12 @@ pub fn build_body(
     body
 }
 
+/// Carries the last seen usageMetadata across chunks (final chunk wins).
 #[derive(Default)]
-pub struct GeminiAccumulator;
+pub struct GeminiAccumulator {
+    input_tokens: i64,
+    output_tokens: i64,
+}
 
 impl GeminiAccumulator {
     pub fn feed(&mut self, data: &str) -> Vec<ChatEvent> {
@@ -116,9 +120,22 @@ impl GeminiAccumulator {
                         }
                     }
                 }
+                // usageMetadata rides on every chunk; the last one carries the totals.
+                if let Some(u) = v.get("usageMetadata") {
+                    if let Some(n) = u.get("promptTokenCount").and_then(|n| n.as_i64()) {
+                        self.input_tokens = n;
+                    }
+                    if let Some(n) = u.get("candidatesTokenCount").and_then(|n| n.as_i64()) {
+                        self.output_tokens = n;
+                    }
+                }
                 if let Some(reason) = cand.get("finishReason").and_then(|f| f.as_str()) {
                     if !reason.is_empty() {
-                        out.push(ChatEvent::Completed { finish_reason: reason.to_string() });
+                        out.push(ChatEvent::Completed {
+                            finish_reason: reason.to_string(),
+                            input_tokens: self.input_tokens,
+                            output_tokens: self.output_tokens,
+                        });
                     }
                 }
             }
@@ -143,7 +160,7 @@ impl ChatTransport for GeminiTransport {
         for (k, v) in &cfg.extra_headers {
             headers.push((k.clone(), v.clone()));
         }
-        let mut acc = GeminiAccumulator;
+        let mut acc = GeminiAccumulator::default();
         Box::pin(http_sse_events(url, headers, body, move |_event, data| acc.feed(data)))
     }
 }
@@ -151,6 +168,19 @@ impl ChatTransport for GeminiTransport {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn usage_metadata_last_chunk_wins() {
+        let mut acc = GeminiAccumulator::default();
+        let mut out = vec![];
+        out.extend(acc.feed(r#"data: {"candidates":[{"content":{"parts":[{"text":"Hi "}]}},{"finishReason":"STOP"}],"usageMetadata":{"promptTokenCount":50,"candidatesTokenCount":14}}"#));
+        let done = out.iter().filter_map(|e| match e {
+            ChatEvent::Completed { input_tokens, output_tokens, .. } => Some((*input_tokens, *output_tokens)),
+            _ => None,
+        }).collect::<Vec<_>>();
+        assert_eq!(1, done.len(), "{done:?}");
+        assert_eq!((50, 14), done[0]);
+    }
 
     #[test]
     fn url_and_body_shape() {
@@ -200,12 +230,12 @@ mod tests {
 
     #[test]
     fn accumulator_text_and_function_call() {
-        let mut acc = GeminiAccumulator;
+        let mut acc = GeminiAccumulator::default();
         let mut out = vec![];
         out.extend(acc.feed(r#"data: {"candidates":[{"content":{"parts":[{"text":"Looking"}],"role":"model"}}]}"#));
         out.extend(acc.feed(r#"data: {"candidates":[{"content":{"parts":[{"functionCall":{"name":"glob","args":{"pattern":"*.rs"}}}],"role":"model"}},{"finishReason":"STOP"}]}"#));
         assert!(matches!(&out[0], ChatEvent::TextDelta(t) if t == "Looking"));
         assert!(matches!(&out[1], ChatEvent::ToolCall { name, args_json, .. } if name == "glob" && args_json.contains("*.rs")));
-        assert!(matches!(out.last(), Some(ChatEvent::Completed { finish_reason }) if finish_reason == "STOP"));
+        assert!(matches!(out.last(), Some(ChatEvent::Completed { finish_reason, .. }) if finish_reason == "STOP"));
     }
 }

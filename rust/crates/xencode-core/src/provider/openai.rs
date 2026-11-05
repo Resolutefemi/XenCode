@@ -47,6 +47,9 @@ pub fn build_body(
         }
     }
     let mut body = serde_json::json!({ "model": cfg.model, "messages": msgs, "stream": true });
+    // OpenAI-documented opt-in: the final chunk then carries the usage object.
+    // Gateways that predate the field ignore it (usage stays 0/0).
+    body["stream_options"] = serde_json::json!({ "include_usage": true });
     if let Some(t) = cfg.temperature {
         body["temperature"] = serde_json::json!(t);
     }
@@ -73,6 +76,10 @@ pub fn build_body(
 #[derive(Default)]
 pub struct OpenAiAccumulator {
     tools: std::collections::BTreeMap<u64, (String, String, String)>, // idx -> (id, name, args)
+    input_tokens: i64,
+    output_tokens: i64,
+    completed_seen: bool,
+    usage_emitted: bool,
 }
 
 impl OpenAiAccumulator {
@@ -132,7 +139,8 @@ impl OpenAiAccumulator {
                                 args_json: if args.trim().is_empty() { "{}".into() } else { args },
                             });
                         }
-                        out.push(ChatEvent::Completed { finish_reason: reason });
+                        self.completed_seen = true;
+                        out.push(ChatEvent::Completed { finish_reason: reason, input_tokens: self.input_tokens, output_tokens: self.output_tokens });
                     }
                 }
             }
@@ -230,6 +238,45 @@ mod tests {
         assert_eq!(tool[0].1, "glob");
         assert_eq!(tool[0].2, r#"{"pattern":"*.rs"}"#);
         assert!(matches!(out.last(), Some(ChatEvent::Completed { .. })));
+
+    #[test]
+    fn body_requests_stream_options_include_usage() {
+        let body = build_body(&cfg(), &[], &[], "sys");
+        assert_eq!(body["stream_options"]["include_usage"], true);
+    }
+
+    #[test]
+    fn usage_chunk_after_finish_reason_flushes_a_supplementary_completed() {
+        let mut acc = OpenAiAccumulator::default();
+        let mut out = vec![];
+        out.extend(acc.feed(r#"data: {"choices":[{"delta":{"content":"hey"}}]}"#));
+        out.extend(acc.feed(r#"data: {"choices":[{"delta":{},"finish_reason":"stop"}]}"#));
+        // Usage arrives in its own final chunk (no choices).
+        out.extend(acc.feed(r#"data: {"usage":{"prompt_tokens":111,"completion_tokens":22}}"#));
+        out.extend(acc.feed("data: [DONE]"));
+        let completed: Vec<_> = out.iter().filter_map(|e| match e {
+            ChatEvent::Completed { input_tokens, output_tokens, .. } => Some((*input_tokens, *output_tokens)),
+            _ => None,
+        }).collect();
+        // The finish_reason Completed carries 0/0; the usage chunk flushes 111/22.
+        // The agent sums tokens across all Completed events.
+        assert_eq!(2, completed.len(), "{completed:?}");
+        assert_eq!((111, 22), completed[1]);
+    }
+
+    #[test]
+    fn usage_missing_defaults_to_zero() {
+        let mut acc = OpenAiAccumulator::default();
+        let mut out = vec![];
+        out.extend(acc.feed(r#"data: {"choices":[{"delta":{"content":"hey"}}]}"#));
+        out.extend(acc.feed(r#"data: {"choices":[{"delta":{},"finish_reason":"stop"}]}"#));
+        let done = out.iter().filter_map(|e| match e {
+            ChatEvent::Completed { input_tokens, output_tokens, .. } => Some((*input_tokens, *output_tokens)),
+            _ => None,
+        }).collect::<Vec<_>>();
+        assert_eq!(1, done.len());
+        assert_eq!((0, 0), done[0]);
+    }
     }
 
     #[test]

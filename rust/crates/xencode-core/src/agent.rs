@@ -9,13 +9,20 @@ use crate::hooks::{self, Hooks};
 use crate::mcp::McpRegistry;
 use crate::permissions::{Decision, PermissionGate};
 use crate::state::events::{types as evt, EventLog};
-use crate::telemetry::XpLedger;
+use crate::telemetry::XpSink;
 use crate::tools::compactor;
 use crate::tools::LocalTools;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 
 pub const MAX_TOOL_ROUNDS: u32 = 20;
+
+/// Provider-reported token usage of one user turn (all tool rounds summed).
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct TurnUsage {
+    pub input_tokens: i64,
+    pub output_tokens: i64,
+}
 
 pub struct AgentSession {
     pub provider: ProviderConfig,
@@ -27,12 +34,20 @@ pub struct AgentSession {
     pub permission: PermissionGate,
     pub hooks: Hooks,
     pub events: Option<EventLog>,
-    pub xp: Option<Arc<XpLedger>>,
+    pub xp: Option<Arc<dyn XpSink>>,
     pub mcp: Option<Arc<Mutex<McpRegistry>>>,
     pub max_tool_rounds: u32,
     pub tokens_in: u64,
     pub tokens_out: u64,
     pub last_failure: Option<String>,
+    /// Provider-reported token usage for the most recent turn (summed across
+    /// the tool rounds of that turn); zeros when the provider reported none.
+    /// Read by the desktop/CLI persistence layer for llm_call_records and the
+    /// chat_sessions token totals.
+    pub last_turn_usage: TurnUsage,
+    /// Optional front-end hook fired after each tool execution (DB TOOL rows,
+    /// UI rendering). Args: (tool name, args json, result text).
+    pub on_tool_result: Option<Box<dyn Fn(&str, &str, &str) + Send + Sync>>,
     /// Enable the `task` subagent tool (disabled inside subagents).
     pub subagents_enabled: bool,
 }
@@ -45,7 +60,7 @@ impl AgentSession {
         system_prompt: String,
         permission: PermissionGate,
         events: Option<EventLog>,
-        xp: Option<Arc<XpLedger>>,
+        xp: Option<Arc<dyn XpSink>>,
         mcp: Option<Arc<Mutex<McpRegistry>>>,
     ) -> Self {
         let workspace_root = workspace_root.into();
@@ -66,6 +81,8 @@ impl AgentSession {
             tokens_in: 0,
             tokens_out: 0,
             last_failure: None,
+            last_turn_usage: TurnUsage::default(),
+            on_tool_result: None,
             subagents_enabled: true,
         }
     }
@@ -117,6 +134,9 @@ impl AgentSession {
         }
         let mut final_text = String::new();
         let mut round: u32 = 0;
+        let mut used_in: i64 = 0;
+        let mut used_out: i64 = 0;
+        let mut saw_usage = false;
 
         loop {
             round += 1;
@@ -150,13 +170,24 @@ impl AgentSession {
                             on_tool_call(&tc);
                             tool_calls.push(tc);
                         }
-                        ChatEvent::Completed { finish_reason: _ } => {}
+                        ChatEvent::Completed { input_tokens, output_tokens, .. } => {
+                            used_in += input_tokens;
+                            used_out += output_tokens;
+                            if input_tokens > 0 || output_tokens > 0 {
+                                saw_usage = true;
+                            }
+                        }
                         ChatEvent::Failed { message } => failure = Some(message),
                     }
                 }
             }
             final_text.clone_from(&text);
 
+            self.last_turn_usage = if saw_usage {
+                TurnUsage { input_tokens: used_in, output_tokens: used_out }
+            } else {
+                TurnUsage::default()
+            };
             if let Some(message) = failure {
                 self.last_failure = Some(message);
                 return None;
@@ -172,17 +203,29 @@ impl AgentSession {
 
             if tool_calls.is_empty() {
                 if let Some(xp) = &self.xp {
-                    xp.award_turn("turn", crate::now_ms());
+                    let label: String = {
+                        let s = user_text.trim().replace('\n', " ");
+                        if s.is_empty() { "chat turn".to_string() } else { s.chars().take(50).collect() }
+                    };
+                    xp.award_turn(&label, crate::now_ms());
                 }
                 if let Some(log) = &self.events {
                     log.emit_simple(evt::TURN_COMPLETED, Some(&format!("{} chars", final_text.len())));
                 }
-                self.tokens_out += est_tokens(&final_text);
+                if saw_usage {
+                    self.tokens_in += used_in.max(0) as u64;
+                    self.tokens_out += used_out.max(0) as u64;
+                } else {
+                    self.tokens_out += est_tokens(&final_text);
+                }
                 return Some(final_text);
             }
 
             for tc in &tool_calls {
                 let result = self.execute_tool(&tc.id, &tc.name, &tc.args_json).await;
+                if let Some(hook) = &self.on_tool_result {
+                    hook(&tc.name, &tc.args_json, &result);
+                }
                 self.messages.push(ChatMessage::tool_result(&tc.id, &tc.name, result));
             }
             self.maybe_compact();
@@ -280,6 +323,19 @@ impl AgentSession {
         if name == "task" {
             return self.run_subagent(args_json).await;
         }
+        // web_fetch is async (reqwest) — it cannot run on the blocking tool thread.
+        if name == "web_fetch" {
+            let args: serde_json::Value = serde_json::from_str(args_json).unwrap_or(serde_json::Value::Null);
+            let url = args.get("url").and_then(|v| v.as_str()).unwrap_or("").to_string();
+            if url.is_empty() {
+                return "ERROR: missing url".into();
+            }
+            let max_chars = args.get("max_chars").and_then(|v| v.as_u64()).unwrap_or(8000).clamp(200, 40_000) as usize;
+            return match crate::tools::web::fetch_text(&url, max_chars).await {
+                Ok(text) => text,
+                Err(e) => format!("ERROR: {e}"),
+            };
+        }
         // Local tools (blocking work on a blocking thread).
         let tools = self.tools.clone();
         let name = name.to_string();
@@ -354,7 +410,14 @@ pub fn session_from_config(
         .cloned()
         .ok_or_else(|| "no active provider — run `xencode config set-provider`".to_string())?;
     let log = if with_events { Some(EventLog::new(workspace_root)) } else { None };
-    let xp = Some(Arc::new(XpLedger::default()));
+    // XP lands in the shared database (xp_events in aicode_agent_db) — the
+    // same table the Android app writes; the legacy JSON ledger is imported
+    // once on first use. Falls back to the file ledger when the DB cannot be
+    // opened (read-only home, corrupt file) so chatting never breaks.
+    let xp: Option<Arc<dyn XpSink>> = match crate::store::xp::DbXpLedger::open_default() {
+        Ok(db) => Some(Arc::new(db)),
+        Err(_) => Some(Arc::new(crate::telemetry::XpLedger::default())),
+    };
     let mut session = AgentSession::new(
         provider,
         workspace_root,
@@ -426,7 +489,7 @@ mod tests {
         let mut s = mock_session(dir.path(), vec![vec![
             ChatEvent::TextDelta("Hello".into()),
             ChatEvent::TextDelta(" world".into()),
-            ChatEvent::Completed { finish_reason: "stop".into() },
+            ChatEvent::Completed { finish_reason: "stop".into(), input_tokens: 0, output_tokens: 0 },
         ]], crate::permissions::PermissionMode::Yolo);
         let mut seen = String::new();
         let out = s.send("hi", &mut |d| seen.push_str(d), &mut |_| {}).await;
@@ -434,6 +497,45 @@ mod tests {
         assert_eq!(seen, "Hello world");
         assert_eq!(s.messages.len(), 2);
         assert!(s.last_failure.is_none());
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn turn_usage_is_summed_across_rounds_and_exposed() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut s = mock_session(dir.path(), vec![vec![
+            ChatEvent::ToolCall { id: "c1".into(), name: "list_files".into(), args_json: "{}".into() },
+            ChatEvent::Completed { finish_reason: "tool_calls".into(), input_tokens: 10, output_tokens: 4 },
+        ], vec![
+            ChatEvent::TextDelta("listed".into()),
+            ChatEvent::Completed { finish_reason: "stop".into(), input_tokens: 20, output_tokens: 6 },
+        ]], crate::permissions::PermissionMode::Yolo);
+        let out = s.send("list", &mut |_| {}, &mut |_| {}).await;
+        assert_eq!(out.as_deref(), Some("listed"));
+        let u = s.last_turn_usage;
+        assert_eq!((30, 10), (u.input_tokens, u.output_tokens));
+        assert_eq!((30, 10), (s.tokens_in as i64, s.tokens_out as i64));
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn tool_results_reach_the_hook() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut s = mock_session(dir.path(), vec![vec![
+            ChatEvent::ToolCall { id: "c1".into(), name: "list_files".into(), args_json: "{}".into() },
+            ChatEvent::Completed { finish_reason: "tool_calls".into(), input_tokens: 1, output_tokens: 1 },
+        ], vec![
+            ChatEvent::TextDelta("done".into()),
+            ChatEvent::Completed { finish_reason: "stop".into(), input_tokens: 2, output_tokens: 2 },
+        ]], crate::permissions::PermissionMode::Yolo);
+        let seen: Arc<StdMutex<Vec<(String, String, String)>>> = Arc::new(StdMutex::new(vec![]));
+        let seen2 = seen.clone();
+        s.on_tool_result = Some(Box::new(move |name, args, result| {
+            seen2.lock().unwrap().push((name.to_string(), args.to_string(), result.to_string()));
+        }));
+        let out = s.send("list", &mut |_| {}, &mut |_| {}).await;
+        assert_eq!(out.as_deref(), Some("done"));
+        let seen = seen.lock().unwrap();
+        assert_eq!(1, seen.len());
+        assert_eq!("list_files", seen[0].0);
     }
 
     #[tokio::test(flavor = "multi_thread")]
@@ -447,11 +549,11 @@ mod tests {
                     name: "write_file".into(),
                     args_json: r#"{"path":"out.txt","content":"made by agent"}"#.into(),
                 },
-                ChatEvent::Completed { finish_reason: "tool_calls".into() },
+                ChatEvent::Completed { finish_reason: "tool_calls".into(), input_tokens: 0, output_tokens: 0 },
             ],
             vec![
                 ChatEvent::TextDelta("done writing".into()),
-                ChatEvent::Completed { finish_reason: "stop".into() },
+                ChatEvent::Completed { finish_reason: "stop".into(), input_tokens: 0, output_tokens: 0 },
             ],
         ], crate::permissions::PermissionMode::Yolo);
         let calls: Arc<StdMutex<Vec<String>>> = Arc::new(StdMutex::new(vec![]));
