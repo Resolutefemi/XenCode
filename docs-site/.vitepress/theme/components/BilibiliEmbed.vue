@@ -26,7 +26,7 @@ const src = computed(
           <path d="M8 5v14l11-7z" fill="currentColor" />
         </svg>
       </span>
-      <span class="bili-embed__hint">视频加载中…</span>
+      <span class="bili-embed__hint">Loading video…</span>
     </div>
   </div>
 </template>

@@ -1,5 +1,5 @@
-// 构建后把 docs/**/*.md 镜像到 .vitepress/dist/md/，并在站点根生成 llms.txt。
-// 镜像内指向本站文档页的 Markdown 链接改写为 .md 直链（绝对 URL），让 AI 顺着抓到的都是纯 md。
+// After the build, mirror docs/**/*.md into .vitepress/dist/md/ and generate llms.txt at the site root.
+// In-page Markdown links pointing at this site's doc pages are rewritten to direct .md links (absolute URLs), so an AI crawling them gets plain md.
 import { mkdirSync, readdirSync, readFileSync, statSync, writeFileSync } from 'node:fs'
 import { dirname, join, posix } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -10,7 +10,7 @@ const docsDir = join(here, '..', 'docs')
 const distDir = join(here, '..', '.vitepress', 'dist')
 const mdOutDir = join(distDir, 'md')
 
-/** 递归收集 docs 下所有 .md 的相对路径（posix 分隔）。 */
+/** Recursively collect relative paths (posix separators) of all .md files under docs. */
 function collectMd(dir, base) {
   const out = []
   for (const name of readdirSync(dir)) {
@@ -25,7 +25,7 @@ function collectMd(dir, base) {
   return out
 }
 
-// 站内 HTML 页路径（无 .md 无锚点）→ md 相对路径。仅收录真实存在的页面，其余链接原样保留。
+// Site-internal HTML page paths (no .md, no anchor) mapped to md relative paths. Only existing pages are collected; other links are left untouched.
 const rels = collectMd(docsDir, docsDir).sort()
 const pageToMd = new Map()
 for (const rel of rels) {
@@ -33,7 +33,7 @@ for (const rel of rels) {
 }
 pageToMd.set('/', 'index.md')
 
-/** 行级处理：跳过围栏代码块，仅改写 Markdown 链接语法的站内文档页链接。 */
+/** Line-level processing: skip fenced code blocks, rewrite only Markdown-link-syntax links to internal doc pages. */
 function rewriteLinks(text) {
   let inCode = false
   return text
@@ -55,7 +55,7 @@ function rewriteLinks(text) {
     .join('\n')
 }
 
-/** 提取 { title, description }：title 取 frontmatter 或首个 H1；description 取 frontmatter 或 H1 后首个正文段。 */
+/** Extract { title, description }: title from frontmatter or the first H1; description from frontmatter or the first body paragraph after the H1. */
 function extractMeta(text, fallbackTitle) {
   const lines = text.split('\n')
   let title = ''
@@ -100,11 +100,11 @@ function extractMeta(text, fallbackTitle) {
 
 mkdirSync(mdOutDir, { recursive: true })
 
-// 首页单列「入口」，guide/advanced 各自成节。
+// The home page gets a single Entry row; guide and advanced become their own sections.
 const sections = [
-  { name: '入口', rels: ['index.md'] },
-  { name: '使用手册（guide）', rels: rels.filter((r) => r.startsWith('guide/')) },
-  { name: '进阶教程（advanced）', rels: rels.filter((r) => r.startsWith('advanced/')) },
+  { name: 'Entry', rels: ['index.md'] },
+  { name: 'Guide (guide)', rels: rels.filter((r) => r.startsWith('guide/')) },
+  { name: 'Advanced (advanced)', rels: rels.filter((r) => r.startsWith('advanced/')) },
   { name: 'English', rels: rels.filter((r) => r.startsWith('en/')) }
 ]
 
@@ -118,15 +118,15 @@ for (const section of sections) {
     mkdirSync(dirname(outPath), { recursive: true })
     writeFileSync(outPath, rewritten)
     const meta = extractMeta(raw, target)
-    if (rel === 'index.md') meta.title = '文档站首页'
+    if (rel === 'index.md') meta.title = 'Docs home'
     metaByRel.set(rel, meta)
   }
 }
 
 const lines = [
-  '# XenCode 文档',
+  '# XenCode Docs',
   '',
-  `> XenCode 用户文档的纯 Markdown 镜像，正文即 .md 原文，可直接整页抓取。HTML 版见 ${SITE_URL}。`,
+  `> Plain-Markdown mirror of the XenCode user docs. Bodies are the original .md files, ready for whole-page fetching. HTML version at ${SITE_URL}.`,
   ''
 ]
 for (const section of sections) {
@@ -139,4 +139,4 @@ for (const section of sections) {
   lines.push('')
 }
 writeFileSync(join(distDir, 'llms.txt'), lines.join('\n'))
-console.log(`export-ai-docs: ${rels.length} markdown 镜像到 ${mdOutDir}，llms.txt 已生成`)
+console.log(`export-ai-docs: ${rels.length} markdown files mirrored to ${mdOutDir}, llms.txt generated`)
