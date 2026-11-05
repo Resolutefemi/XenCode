@@ -197,15 +197,41 @@ Head to [GitHub Releases](https://github.com/Resolutefemi/XenCode/releases/lates
 
 > 📖 For a more detailed quick start, the user manual, and advanced tutorials, see the [online docs](https://xencode.murk.top) (same source as the in-app docs).
 
+## Desktop App & CLI (PC line)
+
+XenCode ships beyond Android: the same goal-driven workflow on every desktop, plus a terminal-native CLI.
+
+**Desktop (Windows / macOS / Linux)** — a Compose Desktop app with chat streaming, the local tool loop (read/write/list/run), a live Goal DAG board, XP progress tracking, and provider management. Build it yourself (see below) — native installers (`msi` / `dmg` / `deb`) are produced by CI.
+
+```bash
+./gradlew :desktop:run            # launch the app
+./gradlew :desktop:packageDmg     # or packageMsi / packageDeb
+```
+
+**CLI** — a single Gradle-built binary-style distribution with the same brain:
+
+```bash
+./gradlew :cli:installDist
+cli/build/install/xencode/bin/xencode chat        # interactive agent REPL
+xencode config add --name zai --kind openai --base-url https://api.z.ai --api-key <KEY> --model glm-4.7
+xencode goal add "Ship v1"                   # goal DAG at .xencode/GOAL_DAG.json
+xencode goal done g1 && xencode xp               # +50 XP, streaks and levels
+xencode doctor                              # environment self-check
+```
+
+Both PC clients talk to any OpenAI-compatible endpoint or native Anthropic API, persist goals in the same `.xencode/GOAL_DAG.json` as the Android app, and award XP on the same curve (`100·n²`) — levels mean the same thing everywhere.
+
 ## Building from Source
 
 ```bash
 git clone https://github.com/Resolutefemi/XenCode.git
 cd XenCode
-./gradlew assembleDebug
+./gradlew assembleDebug          # Android APK
+./gradlew :cli:installDist       # CLI distribution
+./gradlew :desktop:run           # run the desktop app
 ```
 
-Build artifacts land in `app/build/outputs/apk/`. JDK and the Android SDK must be installed beforehand.
+Build artifacts land in `app/build/outputs/apk/` (Android), `cli/build/install/xencode/` (CLI) and `desktop/build/compose/binaries/` (desktop). JDK and the Android SDK must be installed beforehand (JDK 21 for the PC line).
 
 ## Project Structure
 
@@ -214,6 +240,9 @@ XenCode
 ├── app/                # Main Android app
 ├── terminal-emulator/  # Terminal emulator core (based on Termux)
 ├── terminal-view/      # Terminal view component (based on Termux)
+├── core/               # Shared JVM core for the PC line (providers, goal DAG, XP, tools)
+├── cli/                # XenCode CLI (Clikt; chat, goal, dag, xp, config, doctor)
+├── desktop/            # XenCode Desktop (Compose Desktop; Windows/macOS/Linux)
 ├── prismalrepo/        # PrismalAGSL Liquid Glass library (local Maven repository)
 ├── docs/               # Documentation assets such as icons and screenshots
 └── docs-site/          # Online documentation site source

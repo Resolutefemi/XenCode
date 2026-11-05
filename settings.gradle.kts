@@ -26,3 +26,8 @@ include(":app")
 include(":terminal-emulator")
 include(":terminal-view")
 
+// PC line: shared JVM logic + CLI + Compose Desktop (Windows/macOS/Linux)
+include(":core")
+include(":cli")
+include(":desktop")
+
