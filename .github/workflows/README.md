@@ -2,6 +2,17 @@
 
 For CI builds and artifacts, see the "CI Automated Builds" and "Known Limitations" sections of the root [README.md](../../README.md). This file covers one thing the main README does not: **how to hand your local release signing credentials to GitHub Actions**.
 
+## Workflow map
+
+| Workflow | Trigger | Produces |
+|---|---|---|
+| `ci.yml` | push/PR touching `app/**` | Android debug checks + unit tests |
+| `android-release.yml` | tag `v*` | signed release APK/AAB → GitHub Release |
+| `beta.yml` | manual / preview tags | preview APK |
+| `pc.yml` | push/PR touching `core/**` `cli/**` `desktop/**` | PC tests + CLI dists (linux/windows/macos) + desktop packages (deb+rpm / msi+exe / dmg) |
+| `pc-release.yml` | tag `pc-v*` or manual | all PC artifacts attached to one GitHub Release |
+| `docs-deploy.yml`, `sync-*.yml` | push | docs site + mirrors |
+
 ## Required GitHub Secrets
 
 In `Settings → Secrets and variables → Actions → New repository secret`, add these 4:
