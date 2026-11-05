@@ -197,58 +197,52 @@ Head to [GitHub Releases](https://github.com/Resolutefemi/XenCode/releases/lates
 
 > 📖 For a more detailed quick start, the user manual, and advanced tutorials, see the [online docs](https://xencode.murk.top) (same source as the in-app docs).
 
-## Desktop App & CLI (PC line)
+## Desktop App & CLI (PC line — Rust)
 
-XenCode ships beyond Android: the same goal-driven workflow on every desktop, plus a terminal-native CLI — both carrying the full coding-agent feature set (tools, permissions, MCP, checkpoints, sessions, `.mjs` automation, telemetry).
+XenCode ships beyond Android: the same goal-driven workflow on every desktop, plus a terminal-native CLI — both built in **Rust** with the full coding-agent feature set (streaming providers, permission-gated tools, MCP, hooks, subagents, checkpoints, sessions, `.mjs` automation via an embedded **rquickjs** engine, telemetry).
 
-**Desktop (Windows / macOS / Linux)** — a Compose Desktop app with chat streaming, the permission-gated tool loop (read/write/edit/glob/grep/run + MCP), decision-card banners, a live Goal DAG board with the parallel swimlane runner, command-streak & spec-radar telemetry, the `.mjs` Automation pane, and provider management (OpenAI-compatible, native Anthropic, native Gemini). Build it yourself (see below) — native installers (`msi` / `exe` / `dmg` / `deb` / `rpm`) are produced by CI for all three operating systems simultaneously.
+**Desktop (Windows / macOS / Linux)** — a native `eframe`/egui app with chat streaming, the permission-gated tool loop (read/write/edit/glob/grep/run + MCP + `task` subagents), decision-card banners, a live Goal DAG board with the parallel swimlane runner, XP/streak & spec-radar telemetry, the `.mjs` Automation pane, decision-card resolution, a live event log, and provider management (OpenAI-compatible, native Anthropic, native Gemini). The window and taskbar icon is the XenCode mark on every OS — CI packages `deb` (Linux), `zip` (Windows) and a signed-layout `.app` bundle (macOS) from the same commit.
 
-```bash
-./gradlew :desktop:run            # launch the app
-./gradlew :desktop:packageDeb     # or packageMsi / packageExe / packageDmg / packageRpm
-```
-
-**CLI** — a single Gradle-built distribution with the same brain and the full command surface:
+**CLI** — a single static binary with the same brain and the full command surface:
 
 ```bash
-./gradlew :cli:installDist
-export PATH=$PATH:$(pwd)/cli/build/install/xencode/bin
-xencode chat                                 # REPL with /help /compact /todo /checkpoint /decide ...
-xencode exec "fix the failing test" --output-format json   # non-interactive
-xencode config add --name zai --kind openai --base-url https://api.z.ai --api-key <KEY> --model glm-4.7
-xencode goal add "Ship v1"                   # goal DAG at .xencode/GOAL_DAG.json
-xencode goal run --parallel 4                # swimlanes: READY nodes run in isolated git worktrees
-xencode checkpoint list && xencode session list
-xencode mcp init && xencode mcp tools        # Model Context Protocol (stdio)
-xencode run --example > .xencode/scripts/report.mjs && xencode run .xencode/scripts/report.mjs
-xencode todo add "write release notes" && xencode decide && xencode events
-xencode xp && xencode doctor                 # +50 XP per goal, streaks and levels
+cd rust && cargo build --release -p xencode-cli
+export PATH=$PATH:$(pwd)/target/release
+xencode init                                  # .xencode/ workspace scaffolding
+xencode config set-provider zai --kind openai --base-url https://api.z.ai --api-key <KEY> --model glm-4.7
+xencode chat                                  # REPL with /help /compact /todo /checkpoint /decide /run ...
+xencode exec "fix the failing test"           # one-shot, streams + saves a session
+xencode goal add "Ship v2" && xencode goal run --parallel 4   # swimlanes in isolated git worktrees
+xencode checkpoint create g1 "verified drop" && xencode checkpoint restore <id>
+xencode mcp list && xencode events && xencode xp && xencode radar && xencode doctor
+xencode run scripts/report.mjs                # .mjs automation: import { fs, ast, pty, git, sync } from "xencode:core"
 ```
 
-**Shared agent runtime** — both PC clients run the same core: any OpenAI-compatible endpoint, native Anthropic or native Gemini; a permission policy (read-only / default / yolo + `tool:`/`cmd:` rules, deny>ask>allow) with interactive decision cards; pre/post tool hooks; automatic git checkpoints before risky edits (Time-Machine restore); persisted & resumable sessions; context compaction; the shared TODO list; MCP servers over stdio; the embedded `.mjs` automation engine (`import { fs, ast, pty, git, sync } from "xencode:core"`); and an ndjson event stream (`.xencode/events.ndjson`) that keeps every surface in sync. Goals persist in the same `.xencode/GOAL_DAG.json` as the Android app and XP uses the same curve (`100·n²`) — levels mean the same thing everywhere.
+**Shared agent runtime** — both PC clients run the same `xencode-core`: any OpenAI-compatible endpoint, native Anthropic (SSE tool-use blocks) or native Gemini (`streamGenerateContent`); a permission policy (read-only / confirm / yolo) with interactive decision cards; pre/post tool hooks (a failing pre-hook blocks the tool); the git checkpoint time machine (`xencode-checkpoint(<label>): <summary>` atomic commits, restore + diff); persisted & resumable sessions; context compaction; the shared TODO list; MCP servers over stdio (`mcp_<server>_<tool>`); the `task` subagent tool (isolated context, depth-limited); and an ndjson event stream (`.xencode/events.ndjson`) that keeps every surface in sync — Android included. Goals persist in the same `.xencode/GOAL_DAG.json` (format 1) and XP uses the same curve (`100·n²`) — levels mean the same thing everywhere. The `.mjs` engine is real ES modules on QuickJS via rquickjs, with synchronous host bindings (`fs`, `ast`, `pty`, `git`, `sync`) and `await`-friendly async `main()`.
 
 ## Building from Source
 
 ```bash
 git clone https://github.com/Resolutefemi/XenCode.git
 cd XenCode
-./gradlew assembleDebug          # Android APK
-./gradlew :cli:installDist       # CLI distribution
-./gradlew :desktop:run           # run the desktop app
+./gradlew assembleDebug                        # Android APK (JDK + Android SDK)
+cd rust
+cargo build --release -p xencode-cli           # CLI → rust/target/release/xencode
+cargo run -p xencode-desktop                   # desktop app (Windows/macOS/Linux)
+cargo test --workspace                         # 73-check verification gate
 ```
 
-Build artifacts land in `app/build/outputs/apk/` (Android), `cli/build/install/xencode/` (CLI) and `desktop/build/compose/binaries/` (desktop). JDK and the Android SDK must be installed beforehand (JDK 21 for the PC line).
+CI (`.github/workflows/pc.yml`) builds and packages the CLI for all three operating systems and the desktop app (`deb` / `zip` / `.app`) on every push to the PC line; tag `pc-v*` publishes a full release.
 
 ## Project Structure
 
 ```text
 XenCode
-├── app/                # Main Android app
+├── app/                # Main Android app (Kotlin + Compose; existing API & database)
 ├── terminal-emulator/  # Terminal emulator core (based on Termux)
 ├── terminal-view/      # Terminal view component (based on Termux)
-├── core/               # Shared JVM core for the PC line (providers, goal DAG, XP, tools)
-├── cli/                # XenCode CLI (Clikt; chat, goal, dag, xp, config, doctor)
-├── desktop/            # XenCode Desktop (Compose Desktop; Windows/macOS/Linux)
+├── rust/               # PC line (Rust): xencode-core · xencode-automation (rquickjs) · xencode-cli · xencode-desktop
+├── art/                # XenCode icon source (used on every platform)
 ├── prismalrepo/        # PrismalAGSL Liquid Glass library (local Maven repository)
 ├── docs/               # Documentation assets such as icons and screenshots
 └── docs-site/          # Online documentation site source

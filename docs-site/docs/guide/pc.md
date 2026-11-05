@@ -1,98 +1,101 @@
-# XenCode Desktop & CLI (PC)
+# XenCode Desktop & CLI (PC — Rust)
 
-XenCode runs the same agent platform on your PC: a native desktop app for Windows, macOS and Linux, and a terminal-native CLI. Both share one agent runtime and one workspace database (the `.xencode/` directory), so goals, XP, sessions and events mean the same thing on every surface — Android included.
+XenCode runs the same agent platform on your PC: a native desktop app for Windows, macOS and Linux, and a terminal-native CLI — both built in **Rust** with an embedded **rquickjs** (QuickJS) `.mjs` automation engine. Both share one agent runtime and one workspace database (the `.xencode/` directory), so goals, XP, sessions and events mean the same thing on every surface — Android included.
 
 ## Install
 
 | Platform | Source |
 | --- | --- |
-| Windows | `XenCode-<version>.msi` / `.exe` from [Releases](https://github.com/Resolutefemi/XenCode/releases) (PC artifacts are tagged `pc-v*`) |
-| macOS | `XenCode-<version>.dmg` |
-| Linux | `xencode-<version>.deb` / `.rpm` |
-| CLI (all OS) | `xencode-cli-<os>-<arch>.tar.gz` / `.zip` — unpack and add `bin/` to your `PATH` |
+| Windows | `xencode-desktop-windows-amd64.zip` from [Releases](https://github.com/Resolutefemi/XenCode/releases) (PC artifacts are tagged `pc-v*`) |
+| macOS | `xencode-desktop-macos-arm64.zip` (contains `Xencode.app`) |
+| Linux | `xencode-desktop-linux-amd64.deb` |
+| CLI (all OS) | `xencode-cli-<os>-<arch>.tar.gz` / `.zip` — unpack and put `xencode` on your `PATH` |
 
-Or build from source (JDK 21):
+Or build from source (Rust stable):
 
 ```bash
-./gradlew :desktop:run          # launch the desktop app
-./gradlew :desktop:packageDeb   # or packageMsi / packageExe / packageDmg / packageRpm
-./gradlew :cli:installDist      # CLI distribution at cli/build/install/xencode/
+cd rust
+cargo build --release -p xencode-cli     # CLI → rust/target/release/xencode
+cargo run -p xencode-desktop             # desktop app
+cargo test --workspace                   # the 73-check verification gate
 ```
 
 ## First run
 
 ```bash
-xencode init                                        # ~/.xencode/ starter config + AGENTS.md
-xencode config add --name zai --kind openai \
+xencode init                                        # .xencode/ scaffolding
+xencode config set-provider zai --kind openai \
     --base-url https://api.z.ai --api-key <KEY> --model glm-4.7
 xencode doctor                                      # verify the setup
 ```
 
-Three provider kinds are supported: `openai` (any chat-completions-compatible endpoint), `anthropic` (native Messages API) and `gemini` (native Google endpoint). The desktop app configures the same file through Settings.
+Providers can be `openai` (any compatible endpoint), `anthropic` (native Messages SSE) or `gemini` (native `streamGenerateContent`). All of them stream tool calls through the same loop.
 
-## The agent surface
+## Commands
 
-- **Tools** — `read_file` (offset/limit), `write_file`, `edit_file` (unique-match search/replace), `glob`, `grep` (content/count/files modes), `delete_file`, `run_command` (timeout), `todo_write`/`todo_read`. Everything is sandboxed to the workspace: absolute paths and `..` escapes are rejected.
-- **Permissions** — `.xencode/permissions.json`: mode `read-only` / `default` / `yolo` plus `tool:` and `cmd:` glob rules (deny > ask > allow). In `default` mode destructive commands (rm, git push, sudo, …) raise a **decision card** instead of running; resolve it with `xencode decide approve <id>` or the desktop banner.
-- **Hooks** — `.xencode/hooks.json`: pre/post tool shell hooks. A pre-hook exiting non-zero blocks the call; hooks receive `XENCODE_HOOK_TOOL` / `XENCODE_HOOK_ARGS` / `XENCODE_HOOK_RESULT`.
-- **Checkpoints (Time-Machine)** — before risky edits the runtime takes an atomic git commit (`.xencode` excluded). `xencode checkpoint list / restore <id> / diff <id>`.
-- **Sessions** — every chat is persisted under `.xencode/sessions/`; resume with `xencode chat --resume <id>`, `xencode chat --continue`, or inspect with `xencode session list / show`.
-- **Compaction** — long contexts compact deterministically (`/compact` in the chat, or the Compact button) keeping the first ask and recent turns.
-- **TODO list** — one list per workspace (`.xencode/TODO.json`), shared between you and the agent: `xencode todo add …` and the agent's `todo_write` see the same items.
-- **MCP** — stdio Model Context Protocol servers configured in `.xencode/mcp.json` (`xencode mcp init` writes an example). Their tools surface as `mcp_<server>_<tool>`.
+| Command | Purpose |
+| --- | --- |
+| `xencode chat` | Interactive REPL — `/help /tools /mode /todo /goal /dag /xp /radar /checkpoint /session /compact /decide /events /run /quit` |
+| `xencode exec "<prompt>"` | One-shot agent run (streams, saves a session, exits) |
+| `xencode run <script.mjs>` | Execute an automation script on the embedded rquickjs engine |
+| `xencode goal add/list/run/set` | The Goal DAG: add nodes, run READY nodes in parallel swimlanes (isolated `git worktree` per lane) |
+| `xencode dag` | Render the DAG |
+| `xencode checkpoint list/create/restore/diff` | The time machine: atomic `xencode-checkpoint(<label>): <summary>` commits |
+| `xencode session list/show/delete` | Persisted conversations (`.xencode/sessions/`) |
+| `xencode todo set/show` | The shared TODO list |
+| `xencode mcp list/call` | MCP servers over stdio (`.xencode/mcp.json`); tools surface as `mcp_<server>_<tool>` |
+| `xencode decide list/resolve` | Decision cards raised by the agent or scripts |
+| `xencode events --n 20` | Tail the bi-directional sync log (`.xencode/events.ndjson`) |
+| `xencode worktree list/create/remove` | Manage swimlane worktrees |
+| `xencode xp` / `xencode radar` | XP level + streak; compile streak + spec radar |
+| `xencode doctor` | Environment diagnostics |
 
-## Goal swimlanes
+## Agent features
 
-Break work into a DAG and let parallel agents execute it:
+- **Tools** — `read_file` (offset/limit), `write_file`, `edit_file` (exact replace + `replace_all`), `list_files`, `glob`, `grep` (content/files/count, case-insensitive, glob filter, head limit), `delete_file`, `run_command` (timeout), `todo_write/read`, plus `task` (spawn a fresh subagent with its own context; depth-limited) and every connected MCP tool. Results are clipped at 12 000 chars; errors are `ERROR: …` strings.
+- **Permissions** — `read-only` (mutation denied), `confirm` (interactive ask; auto-asks become decision cards in non-interactive runs), `yolo`.
+- **Hooks** — `.xencode/hooks.json`: `pre` hooks (failing exit code blocks the tool) and `post` hooks, matched by tool name or `*`; they receive `XENCODE_TOOL` / `XENCODE_TOOL_ARGS`.
+- **Checkpoints** — every checkpoint is an atomic git commit that excludes `.xencode/`, recorded in `.xencode/checkpoints.json`; `restore` hard-resets, `diff` shows the stat.
+- **Compaction** — past a threshold the loop folds older turns into a digest so long sessions keep going.
+- **Telemetry** — XP (`100·n²` curve, +5 per turn, +50 per goal, daily streak bonus), compile streak, and the spec radar (per-spec GREEN/RED) in `.xencode/telemetry.json`.
 
-```bash
-xencode goal add "Set up the repo" note "git init, README"
-xencode goal add "Write tests" after g1
-xencode goal run --parallel 4      # READY nodes run concurrently
-```
+## The .mjs automation engine
 
-Each READY node gets its own agent turn; in a git workspace every lane runs in an isolated worktree on branch `xencode/<id>` (see `xencode worktree list`). Completed lanes are checkpoint-committed but **never merged back automatically** — review and merge the branch yourself. XP (+50 per goal) lands on the same curve as the Android app; streaks and the RED/GREEN spec radar live in `.xencode/telemetry.json` and the Progress pane.
-
-## `.mjs` automation
-
-Repetitive multi-file work belongs in a script, not in chat turns. Scripts run on the embedded engine with the `xencode:core` bindings:
+Automation scripts are real ES modules executed by QuickJS (via rquickjs) with native host bindings — the same shape as the Android runtime uses:
 
 ```js
-import { fs, pty, sync } from "xencode:core";
+import { fs, ast, pty, git, sync } from "xencode:core";
 
 export async function main() {
-  const kt = await fs.glob("src/**/*.kt");
-  const status = await pty.exec("git status --short");
-  await fs.writeAtomic(".xencode/mjs-report.txt",
-    `files=${kt.length}\n${status.output}`);
-  await sync.emitMobileAndDesktop("STATE_SYNC", { summary: "report written" });
-  return `tracked ${kt.length} files`;
+  // surgical read (1-based, inclusive)
+  const head = fs.readRange("src/lib.rs", 1, 40);
+  // atomic write inside the workspace sandbox
+  fs.writeAtomic("report.md", `# Report\n\n${head.length} chars\n`);
+  // regex-lite symbol surgery
+  ast.replaceSymbol("src/lib.rs", "old_fn", "fn old_fn() { /* new */ }");
+  // run a command with a timeout
+  const build = pty.exec("cargo test --workspace", { timeoutMs: 120000 });
+  sync.recordTest("cargo-test", build.exit === 0);
+  // gate on the Iron Laws: no verification, no completion
+  if (build.exit !== 0) throw new Error("tests failed");
+  // checkpoint the verified state
+  git.checkpoint("g1", "verified drop");
+  // ask the user (decision card on desktop/CLI/phone)
+  sync.requestUserDecision({ title: "Push?", body: "tests are green", options: ["push", "hold"] });
+  // bi-directional sync event (desktop + phone pick this up)
+  sync.emitMobileAndDesktop("REPORT_READY", { summary: "report.md written" });
 }
 ```
 
-- `fs` — `glob`, `readRange(path, start, end)`, `writeAtomic`, `applyPatch` (strict unified diff)
-- `ast` — `symbols`, `findPattern`, `replaceSymbol` (surgical declaration replacement)
-- `pty` — `exec(command, { cwd, timeoutMs })` → `{ exit, output }`
-- `git` — `worktreeCreate(id)`, `checkpoint(nodeId, message)`, `diffStat()`
-- `sync` — `emitMobileAndDesktop(type, payload)`, `requestUserDecision({title, body, options})`, `recordTest(id, passed)`
+Rules of the engine: all host bindings are synchronous (blocking with internal timeouts), so `await` on them resolves immediately and an `async main()` settles before the engine returns. Paths are sandboxed to the workspace. Errors come back as `ERROR: …` strings.
 
-Run with `xencode run <script.mjs>` (or the Automation pane). `xencode run --example` prints a full template.
+## The Iron Laws (what the agent enforces)
 
-## Events
-
-Every state transition lands in `.xencode/events.ndjson` — `xencode events` tails it, and the desktop Progress / Automation panes render it live. The event log is the backbone of the Windows-desktop / CLI parity: whatever ran where, the feed tells the same story.
-
-## Where things live
-
-| Path | Contents |
-| --- | --- |
-| `~/.xencode/pc-config.json` | providers + default workspace (global) |
-| `<workspace>/.xencode/GOAL_DAG.json` | goal DAG (shared with Android) |
-| `<workspace>/.xencode/sessions/` | resumable chat sessions |
-| `<workspace>/.xencode/checkpoints.json` | Time-Machine ledger |
-| `<workspace>/.xencode/decisions.json` | decision cards |
-| `<workspace>/.xencode/events.ndjson` | sync event stream |
-| `<workspace>/.xencode/TODO.json` | shared TODO list |
-| `<workspace>/.xencode/permissions.json` / `hooks.json` / `mcp.json` | agent policy |
-| `<workspace>/.xencode/telemetry.json` | streaks, radar, counters |
-| `<workspace>/.xencode/scripts/` | your `.mjs` workflows |
+1. Zero placeholders, zero truncation.
+2. The disk is the persistent brain (`.xencode/`).
+3. 100% parity: Mobile, Windows, macOS, Linux, CLI.
+4. Automate multi-file work with `.mjs` first.
+5. No completion without exit code 0.
+6. Surgical reads (grep/glob/ranges), never dump big files.
+7. Isolated worktrees + atomic `xencode-checkpoint(<node>): <summary>` commits.
+8. 3-strike self-healing, then `.xencode/BLOCKERS.md` and a decision card.
