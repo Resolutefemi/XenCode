@@ -7,12 +7,14 @@ import com.xencode.feature.agent.data.local.dao.ChatSessionDao
 import com.xencode.feature.agent.data.local.dao.CheckpointDao
 import com.xencode.feature.agent.data.local.dao.LlmCallRecordDao
 import com.xencode.feature.agent.data.local.dao.TodoItemDao
+import com.xencode.feature.agent.data.local.dao.XpEventDao
 import com.xencode.feature.agent.data.local.entity.AgentMessageEntity
 import com.xencode.feature.agent.data.local.entity.ChatSessionEntity
 import com.xencode.feature.agent.data.local.entity.CheckpointEntity
 import com.xencode.feature.agent.data.local.entity.CheckpointFileSnapshotEntity
 import com.xencode.feature.agent.data.local.entity.LlmCallRecordEntity
 import com.xencode.feature.agent.data.local.entity.TodoItemEntity
+import com.xencode.feature.agent.data.local.entity.XpEventEntity
 import com.xencode.feature.settings.data.local.dao.AIProviderDao
 import com.xencode.feature.settings.data.local.entity.AIProviderEntity
 import com.xencode.feature.workspace.data.local.dao.RemoteConnectionDao
@@ -20,7 +22,7 @@ import com.xencode.feature.workspace.data.local.entity.RemoteConnectionEntity
 import com.xencode.feature.workspace.data.local.entity.RemoteMountEntity
 
 @Database(
-    entities = [AgentMessageEntity::class, ChatSessionEntity::class, AIProviderEntity::class, RemoteConnectionEntity::class, RemoteMountEntity::class, TodoItemEntity::class, CheckpointEntity::class, CheckpointFileSnapshotEntity::class, LlmCallRecordEntity::class],
+    entities = [AgentMessageEntity::class, ChatSessionEntity::class, AIProviderEntity::class, RemoteConnectionEntity::class, RemoteMountEntity::class, TodoItemEntity::class, CheckpointEntity::class, CheckpointFileSnapshotEntity::class, LlmCallRecordEntity::class, XpEventEntity::class],
     version = AgentDatabase.SCHEMA_VERSION,
     exportSchema = true
 )
@@ -32,9 +34,10 @@ abstract class AgentDatabase : RoomDatabase() {
     abstract fun todoItemDao(): TodoItemDao
     abstract fun checkpointDao(): CheckpointDao
     abstract fun llmCallRecordDao(): LlmCallRecordDao
+    abstract fun xpEventDao(): XpEventDao
 
     companion object {
-        const val SCHEMA_VERSION = 58
+        const val SCHEMA_VERSION = 59
 
         /** Database file name (lives under `databases/`, plus the `-wal`/`-shm` files produced by Room's default WAL mode). */
         const val DATABASE_NAME = "aicode_agent_db"

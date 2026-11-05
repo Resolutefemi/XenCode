@@ -9,6 +9,7 @@ import com.xencode.feature.agent.data.local.dao.ChatSessionDao
 import com.xencode.feature.agent.data.local.dao.CheckpointDao
 import com.xencode.feature.agent.data.local.dao.LlmCallRecordDao
 import com.xencode.feature.agent.data.local.dao.TodoItemDao
+import com.xencode.feature.agent.data.local.dao.XpEventDao
 import com.xencode.feature.settings.data.local.dao.AIProviderDao
 import com.xencode.feature.settings.domain.repository.AIProviderRepository
 import com.xencode.feature.agent.data.local.database.AgentDatabase
@@ -165,6 +166,12 @@ object AgentModule {
     @Singleton
     fun provideTodoItemDao(database: AgentDatabase): TodoItemDao {
         return database.todoItemDao()
+    }
+
+    @Provides
+    @Singleton
+    fun provideXpEventDao(database: AgentDatabase): XpEventDao {
+        return database.xpEventDao()
     }
 
     @Provides

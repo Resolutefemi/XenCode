@@ -21,6 +21,12 @@ import com.xencode.core.util.toUserMessage
 import com.xencode.core.util.formatCostUsd
 import com.xencode.feature.agent.data.local.dao.AgentMessageDao
 import com.xencode.feature.agent.domain.checkpoint.CheckpointManager
+import com.xencode.feature.agent.domain.goal.GoalDag
+import com.xencode.feature.agent.domain.goal.GoalDagEngine
+import com.xencode.feature.agent.domain.goal.GoalDagRepository
+import com.xencode.feature.agent.domain.goal.GoalStatus
+import com.xencode.feature.agent.domain.telemetry.XpRecorder
+import com.xencode.feature.agent.domain.telemetry.XpTelemetry
 import com.xencode.feature.agent.domain.device.RootNetworkGuard
 import com.xencode.feature.agent.data.local.dao.CheckpointDao
 import com.xencode.feature.agent.data.local.dao.ChatSessionDao
@@ -158,6 +164,8 @@ class AIAgentViewModel @Inject constructor(
     private val agentNotificationCenter: AgentNotificationCenter,
     private val agentDefinitionRepository: AgentDefinitionRepository,
     private val todoItemDao: TodoItemDao,
+    private val goalDagRepository: GoalDagRepository,
+    private val xpRecorder: XpRecorder,
     val fileAccess: FileAccessProvider,
     private val fileChangeHub: FileChangeHub,
     private val rootNetworkGuard: RootNetworkGuard,
@@ -1236,6 +1244,7 @@ class AIAgentViewModel @Inject constructor(
 
     private companion object {
         const val TAG = "AIAgentViewModel"
+        val WHITESPACE = Regex("\\s+")
         const val AGENT_COMPLETE_CHANNEL = "agent_complete"
         const val AGENT_COMPLETE_NOTIFICATION_ID = 100
         /** wakeLock timeout safety net: build and dependency-install tools easily run over ten minutes, so allow a full 60; released proactively when the task ends normally. */
@@ -1978,6 +1987,12 @@ class AIAgentViewModel @Inject constructor(
                         if (!inForeground && agentSoundSettings.isEnabled()) {
                             showAgentCompletedNotification(modelRequest)
                         }
+                        // Telemetry: award XP for a completed user-facing turn (subagent turns are skipped).
+                        if (!isSub) {
+                            viewModelScope.launch {
+                                runCatching { xpRecorder.recordTurnCompleted(sessionId, "Agent turn") }
+                            }
+                        }
                     }
                     is AgentEvent.ModeChanged -> {
                         // Mode-switch event: PlanApprovalManager has already suspended at the workflow layer awaiting user approval;
@@ -2318,6 +2333,210 @@ class AIAgentViewModel @Inject constructor(
             sessionUseCase.touch(sid, messagePersistenceUseCase.nextTimestamp())
             messagePersistenceUseCase.persist(sid, MessageRole.ASSISTANT, table.trimEnd(), isContextExcluded = true)
         }
+    }
+
+    // ------------------------------------------------------------------
+    // Goal DAG + XP telemetry (/goal, /dag, /xp)
+    // ------------------------------------------------------------------
+
+    /** /goal — list or mutate the workspace goal DAG (persisted at `.xencode/GOAL_DAG.json`). */
+    override fun manageGoals(args: String) {
+        val sid = _currentSessionId.value ?: return
+        val root = _currentWorkspace.value
+        if (root.isBlank()) {
+            emitCommandNotice(sid, "No active workspace — open a workspace first.")
+            return
+        }
+        viewModelScope.launch {
+            val dag = goalDagRepository.load(root)
+                ?: return@launch emitCommandNotice(sid, "Goal DAG is unavailable on this channel (workspace: `$root`).")
+            val tokens = args.trim().split(WHITESPACE).filter { it.isNotBlank() }
+            when (tokens.firstOrNull()?.lowercase()) {
+                null, "", "list", "ls" ->
+                    emitCommandNotice(sid, renderGoalDag(root, dag))
+
+                "add" -> {
+                    val afterIdx = tokens.indexOfFirst { it.equals("after", true) }
+                    val noteIdx = tokens.indexOfFirst { it.equals("note", true) }
+                    val titleEnd = minOf(
+                        afterIdx.takeIf { it > 0 } ?: tokens.size,
+                        noteIdx.takeIf { it > 0 } ?: tokens.size
+                    )
+                    val title = tokens.subList(1, titleEnd).joinToString(" ").trim()
+                    val deps = if (afterIdx in 1 until tokens.size) {
+                        tokens.subList(afterIdx + 1, noteIdx.takeIf { it in 1 until tokens.size } ?: tokens.size)
+                            .map { it.lowercase() }.filter { it.isNotBlank() }
+                    } else emptyList()
+                    val note = if (noteIdx in 1 until tokens.size) {
+                        tokens.subList(noteIdx + 1, tokens.size).joinToString(" ").trim().takeIf { it.isNotEmpty() }
+                    } else null
+                    applyGoalMutation(sid, root, dag) { g -> GoalDagEngine.addGoal(g, title, note ?: "", deps, System.currentTimeMillis()) }
+                }
+
+                "done" -> applyGoalById(sid, root, dag, tokens) { g, id, n ->
+                    GoalDagEngine.completeGoal(g, id, n, System.currentTimeMillis())
+                }
+                "fail" -> applyGoalById(sid, root, dag, tokens) { g, id, n ->
+                    GoalDagEngine.failGoal(g, id, n, System.currentTimeMillis())
+                }
+                "retry" -> applyGoalById(sid, root, dag, tokens) { g, id, _ ->
+                    GoalDagEngine.retryGoal(g, id, System.currentTimeMillis())
+                }
+                "start" -> applyGoalById(sid, root, dag, tokens) { g, id, _ ->
+                    GoalDagEngine.activateGoal(g, id, System.currentTimeMillis())
+                }
+                "drop" -> applyGoalById(sid, root, dag, tokens) { g, id, _ ->
+                    GoalDagEngine.cancelGoal(g, id, System.currentTimeMillis())
+                }
+
+                else -> emitCommandNotice(
+                    sid,
+                    "Unknown subcommand `${tokens.first()}`.\n\n" +
+                        "Usage: `/goal list` · `/goal add <title> [after g2 g5] [note <text>]` · " +
+                        "`/goal done <id> [note <text>]` · `/goal fail|retry|start|drop <id>`"
+                )
+            }
+        }
+    }
+
+    /** Shared tail for verb-with-id subcommands: id from tokens[1], note from `note ...`. */
+    private fun applyGoalById(
+        sid: String,
+        root: String,
+        dag: GoalDag,
+        tokens: List<String>,
+        op: (GoalDag, String, String?) -> com.xencode.feature.agent.domain.goal.GoalDagResult
+    ) {
+        val id = tokens.getOrNull(1)?.lowercase()
+        if (id.isNullOrBlank()) {
+            emitCommandNotice(sid, "Missing goal id. Usage: `/goal ${tokens.firstOrNull()} <id> [note <text>]`")
+            return
+        }
+        val noteIdx = tokens.indexOfFirst { it.equals("note", true) }
+        val note = if (noteIdx in 2 until tokens.size) {
+            tokens.subList(noteIdx + 1, tokens.size).joinToString(" ").trim().takeIf { it.isNotEmpty() }
+        } else null
+        applyGoalMutation(sid, root, dag) { g -> op(g, id, note) }
+    }
+
+    /** Runs one engine mutation, saves, and reports; awarding XP on successful completions. */
+    private fun applyGoalMutation(
+        sid: String,
+        root: String,
+        dag: GoalDag,
+        op: (GoalDag) -> com.xencode.feature.agent.domain.goal.GoalDagResult
+    ) {
+        when (val result = op(dag)) {
+            is com.xencode.feature.agent.domain.goal.GoalDagResult.Ok -> {
+                if (!goalDagRepository.save(root, result.graph)) {
+                    emitCommandNotice(sid, "Could not write `.xencode/GOAL_DAG.json` on this channel.")
+                    return
+                }
+                val completed = result.graph.nodes.firstOrNull {
+                    it.status == GoalStatus.DONE && dag.nodes.firstOrNull { n -> n.id == it.id }?.status != GoalStatus.DONE
+                }
+                val lines = mutableListOf(result.message)
+                if (completed != null) {
+                    runCatching { xpRecorder.recordGoalCompleted(sid, completed.title) }
+                    lines += " (+${XpTelemetry.GOAL_AWARD} XP)"
+                }
+                lines += renderGoalDag(root, result.graph, headerOnly = true)
+                emitCommandNotice(sid, lines.joinToString("\n"))
+            }
+            is com.xencode.feature.agent.domain.goal.GoalDagResult.Rejected ->
+                emitCommandNotice(sid, result.reason)
+        }
+    }
+
+    /** /dag — read-only render of the goal DAG. */
+    override fun showDag() {
+        val sid = _currentSessionId.value ?: return
+        val root = _currentWorkspace.value
+        if (root.isBlank()) {
+            emitCommandNotice(sid, "No active workspace — open a workspace first.")
+            return
+        }
+        viewModelScope.launch {
+            val dag = goalDagRepository.load(root)
+                ?: return@launch emitCommandNotice(sid, "Goal DAG is unavailable on this channel (workspace: `$root`).")
+            emitCommandNotice(sid, renderGoalDag(root, dag))
+        }
+    }
+
+    /** /xp — level, totals, streak, recent events. */
+    override fun showXp() {
+        val sid = _currentSessionId.value ?: return
+        viewModelScope.launch {
+            val s = xpRecorder.summary()
+            val table = buildString {
+                appendLine("**XP** — Level ${s.level} · ${s.totalXp} XP total · ${s.streakDays}d streak")
+                appendLine()
+                appendLine("| Item | Value |")
+                appendLine("|---|---|")
+                appendLine("| Level | ${s.level} (next at ${s.nextLevelXp} XP) |")
+                appendLine("| Total XP | ${s.totalXp} |")
+                appendLine("| Earned today | +${s.todayXp} |")
+                appendLine("| Streak | ${s.streakDays} day(s) |")
+                if (s.recent.isNotEmpty()) {
+                    appendLine()
+                    appendLine("Recent events:")
+                    for (e in s.recent) {
+                        val kind = XpTelemetry.Kind.fromName(e.kind)?.label ?: e.kind
+                        appendLine("- $kind +${e.amount} — ${e.label}")
+                    }
+                }
+            }
+            sessionUseCase.touch(sid, messagePersistenceUseCase.nextTimestamp())
+            messagePersistenceUseCase.persist(sid, MessageRole.ASSISTANT, table.trimEnd(), isContextExcluded = true)
+        }
+    }
+
+    /** Persists a command result bubble (excluded from context, like /usage). */
+    private fun emitCommandNotice(sid: String, markdown: String) {
+        viewModelScope.launch {
+            sessionUseCase.touch(sid, messagePersistenceUseCase.nextTimestamp())
+            messagePersistenceUseCase.persist(sid, MessageRole.ASSISTANT, markdown.trimEnd(), isContextExcluded = true)
+        }
+    }
+
+    /** Markdown render of a goal DAG snapshot. */
+    private fun renderGoalDag(root: String, dag: GoalDag, headerOnly: Boolean = false): String = buildString {
+        if (dag.nodes.isEmpty()) {
+            appendLine("**Goal DAG** — no goals yet for this workspace.")
+            appendLine()
+            appendLine("Add one with `/goal add <title> [after g2 g5] [note <text>]`.")
+            return@buildString
+        }
+        appendLine("**Goal DAG** — ${dag.doneCount}/${dag.nodes.size} done (${dag.progressPercent}%)")
+        if (!headerOnly) {
+            appendLine()
+            val byId = dag.nodes.associateBy { it.id }
+            for (n in dag.nodes.sortedBy { it.id }) {
+                val glyph = when (n.status) {
+                    GoalStatus.DONE -> "✓"
+                    GoalStatus.ACTIVE -> "●"
+                    GoalStatus.READY -> "▸"
+                    GoalStatus.FAILED -> "✗"
+                    GoalStatus.CANCELLED -> "⊘"
+                    else -> "·"
+                }
+                val deps = if (n.dependsOn.isEmpty()) "" else " _(${n.dependsOn.joinToString(" ")})_"
+                appendLine("- $glyph `${n.id}` ${n.title}$deps — **${n.status}**")
+                if (n.status == GoalStatus.PENDING) {
+                    val waiting = n.dependsOn.mapNotNull { byId[it] }.filter { it.status != GoalStatus.DONE }
+                    if (waiting.isNotEmpty()) {
+                        appendLine("    - waiting on: " + waiting.joinToString(" · ") { "`${it.id}` ${it.title}" })
+                    }
+                }
+            }
+            val ready = GoalDagEngine.readyNodes(dag)
+            if (ready.isNotEmpty()) {
+                appendLine()
+                appendLine("Next up: " + ready.joinToString(" · ") { "`${it.id}` ${it.title}" })
+            }
+        }
+        appendLine()
+        appendLine("_File: `${root.trimEnd('/')}/.xencode/GOAL_DAG.json`_")
     }
 
     private data class UsageSummary(

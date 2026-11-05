@@ -70,6 +70,15 @@ interface SlashCommandContext {
     /** /init — triggers one agent turn that analyzes the codebase and generates/improves the project rules file; [prompt] is the command body. */
     fun initProject(prompt: String)
 
+    /** /goal — mutate or list the workspace goal DAG; [args] is the raw argument text (may be blank). */
+    fun manageGoals(args: String)
+
+    /** /dag — render the goal DAG read-only. */
+    fun showDag()
+
+    /** /xp — render XP level / streak / recent events. */
+    fun showXp()
+
     /** Skill trigger: executes the [skill] body as this turn's instruction; [args] holds the extra arguments. */
     fun runSkill(skill: Skill, args: String)
 }

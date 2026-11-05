@@ -796,6 +796,9 @@
     <string name="slash_command_compress_desc">Manually compact this session context</string>
     <string name="slash_command_init_desc">Analyze the workspace codebase and generate or improve the AGENTS.md project rules</string>
     <string name="slash_command_usage_desc">View today and all-time call count, token usage and estimated cost</string>
+    <string name="slash_command_goal_desc">Manage workspace goals: list, add, complete, fail, retry or drop</string>
+    <string name="slash_command_dag_desc">Render the goal DAG with statuses, ready goals and blockers</string>
+    <string name="slash_command_xp_desc">Show XP level, streak and recent award events</string>
     <string name="retry_error_rate_limit">Rate limit</string>
     <string name="retry_error_server_overloaded">Server overloaded</string>
     <string name="retry_error_server">Server error</string>
