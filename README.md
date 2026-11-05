@@ -1,6 +1,6 @@
 <div align="center">
 
-<img src="docs/icon.webp" alt="XenCode" width="120" />
+<img src="art/xencode-icon-512.png" alt="XenCode" width="120" />
 
 # XenCode
 
