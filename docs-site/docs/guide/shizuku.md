@@ -1,6 +1,6 @@
 # Shizuku 工具
 
-Shizuku 让普通应用在**不 root** 的前提下，以 adb shell（uid 2000）身份执行命令。AiCode 接入后，AI 获得一个名为 `Shizuku` 的工具，可直接在手机系统上运行 `pm`、`am`、`cmd` 等命令、读写 `/sdcard`，弥补本地容器（PRoot）拿不到系统权限的短板。
+Shizuku 让普通应用在**不 root** 的前提下，以 adb shell（uid 2000）身份执行命令。XenCode 接入后，AI 获得一个名为 `Shizuku` 的工具，可直接在手机系统上运行 `pm`、`am`、`cmd` 等命令、读写 `/sdcard`，弥补本地容器（PRoot）拿不到系统权限的短板。
 
 Shizuku 是 shell 身份，**无法读取其他应用的私有数据目录**（那是 root 才能做的）。
 
@@ -11,7 +11,7 @@ Shizuku 是 shell 身份，**无法读取其他应用的私有数据目录**（�
    - Android 11 及以上：开启「无线调试」后可直接在手机上启动；
    - Android 10 及以下：需连接电脑用 adb 启动。
 
-## 在 AiCode 中授权
+## 在 XenCode 中授权
 
 打开「设置 → 软件权限 → Shizuku」，页面显示当前状态：
 
@@ -20,7 +20,7 @@ Shizuku 是 shell 身份，**无法读取其他应用的私有数据目录**（�
 - **未授权**：点击申请授权，Shizuku 弹出授权框，选择「允许」。
 - **已就绪**：授权完成，AI 即可使用 `Shizuku` 工具。
 
-从 Shizuku 应用返回 AiCode 时，状态会自动刷新。
+从 Shizuku 应用返回 XenCode 时，状态会自动刷新。
 
 ## 使用与安全
 

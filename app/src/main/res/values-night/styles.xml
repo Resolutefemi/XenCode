@@ -1,10 +1,10 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <style name="Theme.AICode" parent="android:Theme.Material.NoActionBar">
+    <style name="Theme.XenCode" parent="android:Theme.Material.NoActionBar">
         <item name="android:colorPrimary">@color/primary</item>
     </style>
 
-    <style name="Theme.AICode.Splash" parent="Theme.AICode">
+    <style name="Theme.XenCode.Splash" parent="Theme.XenCode">
         <item name="android:windowBackground">@drawable/splash_background</item>
     </style>
 

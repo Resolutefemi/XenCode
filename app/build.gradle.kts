@@ -71,7 +71,7 @@ fun gitCommitCount(): Int = try {
     1
 }
 
-// The AI's built-in docs (~/.aicode/docs) are sourced from docs-site/docs at the repo root: the same Markdown builds the VitePress
+// The AI's built-in docs (~/.xencode/docs) are sourced from docs-site/docs at the repo root: the same Markdown builds the VitePress
 // site and is also copied into assets/docs to ship inside the APK, so what the site shows and what the AI reads always match.
 // Implemented as a plain Gradle Copy so APK builds need no Node — CI and F-Droid only require JDK + Gradle.
 val aiDocsGeneratedDir = layout.buildDirectory.dir("generated/aiDocs")
@@ -86,7 +86,7 @@ val syncAiDocs = tasks.register<Sync>("syncAiDocs") {
 }
 
 android {
-    namespace = "com.aicode"
+    namespace = "com.xencode"
     // compileSdk 36→37: PrismalAGSL (Liquid Glass) declares minCompileSdk=37 in its aar-metadata;
     // below that AGP fails at dependency resolution/resource merging with "requires compileSdk 37". The android-37.0 SDK is installed.
     // Note: targetSdk stays locked at 28 (reasons in the defaultConfig block); compileSdk is independent and does not conflict.
@@ -113,7 +113,7 @@ android {
     }
 
     defaultConfig {
-        applicationId = "com.aicode"
+        applicationId = "com.xencode"
         minSdk = 26
         // targetSdk stays at 28, but PRoot is no longer the blocker: the full proot set is now shipped via jniLibs into nativeLibraryDir
         // (see the sourceSets and packaging.jniLibs comments), so W^X no longer blocks container startup. Before upgrading, still to resolve:
@@ -179,9 +179,9 @@ android {
     }
 
     buildTypes {
-        // debug appends the .debug suffix → applicationId becomes com.aicode.debug, so it can coexist on one device
-        // with the release build (com.aicode) without overwriting it. The IDE no longer uninstalls the installed release when launching debug due to signature mismatch.
-        // Note: with a different applicationId, the debug variant uses /data/data/com.aicode.debug/ as its private directory,
+        // debug appends the .debug suffix → applicationId becomes com.xencode.debug, so it can coexist on one device
+        // with the release build (com.xencode) without overwriting it. The IDE no longer uninstalls the installed release when launching debug due to signature mismatch.
+        // Note: with a different applicationId, the debug variant uses /data/data/com.xencode.debug/ as its private directory,
         // so the rootfs extracted by release and release workspace projects are invisible to debug (they must be re-extracted/re-cloned) — expected isolation.
         debug {
             applicationIdSuffix = ".debug"
@@ -218,7 +218,7 @@ android {
             }
         }
         // beta test build: inherits all release configuration (signing/R8/resource shrinking/proguard) and only appends the .beta suffix
-        // → applicationId becomes com.aicode.beta, coexisting with the release build without overwriting it.
+        // → applicationId becomes com.xencode.beta, coexisting with the release build without overwriting it.
         // Built and uploaded to Artifacts by .github/workflows/beta.yml on push to main, for verification on test devices.
         create("beta") {
             initWith(getByName("release"))

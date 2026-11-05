@@ -45,7 +45,7 @@
 # none of them start with "OpenAIModels". ProGuard's `*` matches only class-name suffixes and will not keep every class in a file.
 # If field names get obfuscated to a/b/c, the JSON keys Gson emits turn to gibberish -> server responds 400.
 # So keep every DTO class and its fields under the whole remote package.
--keep class com.aicode.feature.agent.data.remote.** { *; }
+-keep class com.xencode.feature.agent.data.remote.** { *; }
 # Any field carrying @SerializedName
 -keepclassmembers class * {
     @com.google.gson.annotations.SerializedName <fields>;
@@ -57,7 +57,7 @@
 -keep class * implements com.google.gson.JsonDeserializer
 -keep,allowobfuscation class com.google.gson.reflect.TypeToken { *; }
 # Gson uses sun.misc.Unsafe (older versions) to create uninitialized instances; keep constructors to avoid crashes on some devices
--keepclassmembers class com.aicode.** {
+-keepclassmembers class com.xencode.** {
     <init>();
 }
 
@@ -70,11 +70,11 @@
     kotlinx.serialization.KSerializer serializer(...);
 }
 # Serializers for every @Serializable class in this project
--keep,includedescriptorclasses class com.aicode.**$$serializer { *; }
--keepclassmembers class com.aicode.** {
+-keep,includedescriptorclasses class com.xencode.**$$serializer { *; }
+-keepclassmembers class com.xencode.** {
     *** Companion;
 }
--keepclasseswithmembers class com.aicode.** {
+-keepclasseswithmembers class com.xencode.** {
     kotlinx.serialization.KSerializer serializer(...);
 }
 
@@ -87,17 +87,17 @@
 # ---- Room ----
 -keep class * extends androidx.room.RoomDatabase
 -dontwarn androidx.room.paging.**
--keep class com.aicode.**.entity.** { *; }   # Room @Entity column-name mappings must not be obfuscated
+-keep class com.xencode.**.entity.** { *; }   # Room @Entity column-name mappings must not be obfuscated
 
 # ---- Compose ----
 -dontwarn androidx.compose.**
 
 # ---- Shizuku (UserService runs commands as the adb shell user) ----
 # The UserService implementation is loaded reflectively by class name inside Shizuku's shell process; class names and constructors must survive.
--keep class com.aicode.feature.agent.domain.shizuku.ShizukuShellService { *; }
+-keep class com.xencode.feature.agent.domain.shizuku.ShizukuShellService { *; }
 # AIDL interfaces and Stubs cross process boundaries; keep them unobfuscated.
--keep interface com.aicode.feature.agent.domain.shizuku.IShizukuShellService { *; }
--keep class com.aicode.feature.agent.domain.shizuku.IShizukuShellService$Stub { *; }
+-keep interface com.xencode.feature.agent.domain.shizuku.IShizukuShellService { *; }
+-keep class com.xencode.feature.agent.domain.shizuku.IShizukuShellService$Stub { *; }
 -keep class rikka.shizuku.** { *; }
 -dontwarn rikka.shizuku.**
 

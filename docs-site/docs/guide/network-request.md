@@ -51,4 +51,4 @@ Response 页顶部是标签栏（没有关闭按钮）：
 
 点顶栏右侧三点菜单里的 History，会弹出底栏列出本次及以往保存的请求。当前载入的那一条右侧有对勾，点任意一条会把 URL、方法、Query、Headers、Body、Authorization 和 Settings 填回去。
 
-这些历史文件保存在应用主目录的 `network-history` 下，容器终端里对应 `~/.aicode/network-history/`。也可以到「设置 → 存储空间」展开「AI 配置与产物」，勾选「Network request history」清理。
+这些历史文件保存在应用主目录的 `network-history` 下，容器终端里对应 `~/.xencode/network-history/`。也可以到「设置 → 存储空间」展开「AI 配置与产物」，勾选「Network request history」清理。

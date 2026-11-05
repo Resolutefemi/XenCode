@@ -1,6 +1,6 @@
 <p align="center">
-  <img src="docs/icon.webp" width="112" alt="AiCode" />
-  <h1 align="center">AiCode</h1>
+  <img src="docs/icon.webp" width="112" alt="XenCode" />
+  <h1 align="center">XenCode</h1>
   <p align="center">
     Universal AI Coding Agent for Android · Linux dev environment · Local & remote SSH
     <br />
@@ -8,33 +8,33 @@
   </p>
 </p>
 
-> **Fork Notice**: This is a fork of the original project [jieapi/AiCode](https://github.com/jieapi/aicode),
+> **Fork Notice**: This is a fork of the original project [jieapi/XenCode](https://github.com/jieapi/xencode),
 > adding **Liquid Glass UI (PrismalAGSL refraction / chromatic dispersion / gradient glass)**,
 > **AI todo display position preferences**, **floating glass title bar**, and other enhancements,
 > plus container channel and performance fixes. All credit to the original author; this fork
 > is released under the same [GPL-3.0](LICENSE) license.
 >
-> Original project: https://github.com/jieapi/aicode
+> Original project: https://github.com/jieapi/xencode
 
 <p align="center">
   <a href="LICENSE"><img src="https://img.shields.io/badge/License-GPL--3.0-blue.svg" alt="License GPL-3.0" /></a>
   <img src="https://img.shields.io/badge/Platform-Android-green.svg" alt="Android Platform" />
-  <a href="https://github.com/hwsyyds666/Aicode-Glass/releases"><img src="https://img.shields.io/github/v/release/hwsyyds666/Aicode-Glass?display_name=tag&include_prereleases" alt="Latest Release" /></a>
+  <a href="https://github.com/Resolutefemi/XenCode/releases"><img src="https://img.shields.io/github/v/release/Resolutefemi/XenCode?display_name=tag&include_prereleases" alt="Latest Release" /></a>
 </p>
 
 <p align="center">
   <table>
     <tr>
-      <td align="center"><img src="docs/screenshots/home.png" alt="AiCode home - AI chat interface with code generation and Markdown rendering" width="270"/></td>
-      <td align="center"><img src="docs/screenshots/git.png" alt="AiCode Git integration - visual commit history and branch management" width="270"/></td>
+      <td align="center"><img src="docs/screenshots/home.png" alt="XenCode home - AI chat interface with code generation and Markdown rendering" width="270"/></td>
+      <td align="center"><img src="docs/screenshots/git.png" alt="XenCode Git integration - visual commit history and branch management" width="270"/></td>
     </tr>
     <tr>
       <td align="center">Home · AI Chat</td>
       <td align="center">Git · Commit History</td>
     </tr>
     <tr>
-      <td align="center"><img src="docs/screenshots/container.png" alt="AiCode container settings - container image management" width="270"/></td>
-      <td align="center"><img src="docs/screenshots/models.png" alt="AiCode model list - multi-provider model management" width="270"/></td>
+      <td align="center"><img src="docs/screenshots/container.png" alt="XenCode container settings - container image management" width="270"/></td>
+      <td align="center"><img src="docs/screenshots/models.png" alt="XenCode model list - multi-provider model management" width="270"/></td>
     </tr>
     <tr>
       <td align="center">Container · Image Manager</td>
@@ -47,9 +47,9 @@
 
 ## Overview
 
-AiCode is a universal AI coding agent that runs on Android, packing a full Linux development environment into your phone: it bundles an Alpine Linux container and terminal, and the AI agent can read and write files, run shell commands and run build tools, so writing, debugging and building all happen on-device. A remote SSH server can also serve as the execution backend, turning your phone into a mobile workstation for remote projects.
+XenCode is a universal AI coding agent that runs on Android, packing a full Linux development environment into your phone: it bundles an Alpine Linux container and terminal, and the AI agent can read and write files, run shell commands and run build tools, so writing, debugging and building all happen on-device. A remote SSH server can also serve as the execution backend, turning your phone into a mobile workstation for remote projects.
 
-There is nothing to set up beforehand: install the app, configure a model under AI Vendors, and you can start coding — no computer, no environment to build yourself. AiCode ships no models and locks you into no vendor: it supports the OpenAI / Anthropic / Gemini protocols plus custom providers, with models, keys and endpoints all configured by you.
+There is nothing to set up beforehand: install the app, configure a model under AI Vendors, and you can start coding — no computer, no environment to build yourself. XenCode ships no models and locks you into no vendor: it supports the OpenAI / Anthropic / Gemini protocols plus custom providers, with models, keys and endpoints all configured by you.
 
 ## Sponsors
 
@@ -104,35 +104,35 @@ There is nothing to set up beforehand: install the app, configure a model under 
 | Item | Description |
 |------|-------------|
 | System requirements | Android 8.0+ (API 26), arm64-v8a / x86_64 |
-| Download | [GitHub Releases](https://github.com/hwsyyds666/Aicode-Glass/releases/latest): pick `armsolo` for real devices, `x86solo` for emulators, `universal` for both |
+| Download | [GitHub Releases](https://github.com/Resolutefemi/XenCode/releases/latest): pick `armsolo` for real devices, `x86solo` for emulators, `universal` for both |
 | Quick start | Settings → AI Vendors to add a model → Container & Images to pick local or SSH → new session and chat |
-| Changelog | [Releases](https://github.com/hwsyyds666/Aicode-Glass/releases) (all versions & notes) |
-| User guide | [Online docs](https://aicode.murk.top): quick start, user manual and advanced guides (same content as the in-app docs) |
+| Changelog | [Releases](https://github.com/Resolutefemi/XenCode/releases) (all versions & notes) |
+| User guide | [Online docs](https://xencode.murk.top): quick start, user manual and advanced guides (same content as the in-app docs) |
 
 ## Star
 
-If AiCode is helpful to you, give it a [Star](https://github.com/hwsyyds666/Aicode-Glass) — it helps more developers discover the project.
+If XenCode is helpful to you, give it a [Star](https://github.com/Resolutefemi/XenCode) — it helps more developers discover the project.
 
 ## Star History
 
-<a href="https://www.star-history.com/?repos=jieapi%2Faicode&type=date&legend=top-left">
+<a href="https://www.star-history.com/?repos=jieapi%2Fxencode&type=date&legend=top-left">
  <picture>
-   <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/chart?repos=jieapi/aicode&type=date&theme=dark&legend=top-left" />
-   <source media="(prefers-color-scheme: light)" srcset="https://api.star-history.com/chart?repos=jieapi/aicode&type=date&legend=top-left" />
-   <img alt="Star History Chart" src="https://api.star-history.com/chart?repos=jieapi/aicode&type=date&legend=top-left" />
+   <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/chart?repos=jieapi/xencode&type=date&theme=dark&legend=top-left" />
+   <source media="(prefers-color-scheme: light)" srcset="https://api.star-history.com/chart?repos=jieapi/xencode&type=date&legend=top-left" />
+   <img alt="Star History Chart" src="https://api.star-history.com/chart?repos=jieapi/xencode&type=date&legend=top-left" />
  </picture>
 </a>
 
 ## Feedback & Contribution
 
-- **QQ group**: join the [AiCode QQ group](https://qm.qq.com/q/ByvqODJdIs) (group number: 1107110698) to share tips and feedback
-- **Bug reports**: open an [Issue](https://github.com/hwsyyds666/Aicode-Glass/issues) with reproduction steps, device model and OS version
-- **Feature requests**: discuss your ideas in [Issues](https://github.com/hwsyyds666/Aicode-Glass/issues)
-- **Contributing**: submit a [Pull Request](https://github.com/hwsyyds666/Aicode-Glass/pulls)
+- **QQ group**: join the [XenCode QQ group](https://qm.qq.com/q/ByvqODJdIs) (group number: 1107110698) to share tips and feedback
+- **Bug reports**: open an [Issue](https://github.com/Resolutefemi/XenCode/issues) with reproduction steps, device model and OS version
+- **Feature requests**: discuss your ideas in [Issues](https://github.com/Resolutefemi/XenCode/issues)
+- **Contributing**: submit a [Pull Request](https://github.com/Resolutefemi/XenCode/pulls)
 
 ## Acknowledgements
 
-- **[jieapi/AiCode](https://github.com/jieapi/aicode)** — Original project, the foundation of this fork
+- **[jieapi/XenCode](https://github.com/jieapi/xencode)** — Original project, the foundation of this fork
 - [OpenCode](https://github.com/anomalyco/opencode) — Terminal-based AI coding tool, the core inspiration for this project
 - [Termux](https://github.com/termux/termux-app) — Android terminal emulator, provided terminal components and PRoot solution
 - [Kelivo](https://github.com/Chevey339/kelivo) — Cross-platform LLM chat client, AI conversation UI design reference

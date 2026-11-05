@@ -1,8 +1,8 @@
 <div align="center">
 
-<img src="docs/icon.webp" alt="AiCode" width="120" />
+<img src="docs/icon.webp" alt="XenCode" width="120" />
 
-# AiCode
+# XenCode
 
 **把完整的 AI 编程工作站装进你的手机**
 
@@ -12,20 +12,20 @@ Android 上的通用 AI Coding Agent · Linux 开发环境 · 支持本地与远
 
 <br/>
 
-[![License](https://img.shields.io/github/license/hwsyyds666/Aicode-Glass?color=blue)](LICENSE)
-[![Platform](https://img.shields.io/badge/Android-8.0%2B-3DDC84?logo=android&logoColor=white)](https://github.com/hwsyyds666/Aicode-Glass/releases/latest)
-[![Release](https://img.shields.io/github/v/release/hwsyyds666/Aicode-Glass?include_prereleases&display_name=tag&color=orange)](https://github.com/hwsyyds666/Aicode-Glass/releases)
-[![Stars](https://img.shields.io/github/stars/hwsyyds666/Aicode-Glass?style=flat&color=yellow)](https://github.com/hwsyyds666/Aicode-Glass/stargazers)
-[![Forks](https://img.shields.io/github/forks/hwsyyds666/Aicode-Glass?style=flat)](https://github.com/hwsyyds666/Aicode-Glass/forks)
+[![License](https://img.shields.io/github/license/Resolutefemi/XenCode?color=blue)](LICENSE)
+[![Platform](https://img.shields.io/badge/Android-8.0%2B-3DDC84?logo=android&logoColor=white)](https://github.com/Resolutefemi/XenCode/releases/latest)
+[![Release](https://img.shields.io/github/v/release/Resolutefemi/XenCode?include_prereleases&display_name=tag&color=orange)](https://github.com/Resolutefemi/XenCode/releases)
+[![Stars](https://img.shields.io/github/stars/Resolutefemi/XenCode?style=flat&color=yellow)](https://github.com/Resolutefemi/XenCode/stargazers)
+[![Forks](https://img.shields.io/github/forks/Resolutefemi/XenCode?style=flat)](https://github.com/Resolutefemi/XenCode/forks)
 
-[快速开始](#快速开始) · [功能特性](#功能特性) · [使用文档](https://aicode.murk.top) · [下载](https://github.com/hwsyyds666/Aicode-Glass/releases/latest) · [反馈](#反馈与贡献)
+[快速开始](#快速开始) · [功能特性](#功能特性) · [使用文档](https://xencode.murk.top) · [下载](https://github.com/Resolutefemi/XenCode/releases/latest) · [反馈](#反馈与贡献)
 
 </div>
 
 <div align="center">
 
 > **关于本仓库**
-> 本项目是基于原作者 [jieapi/AiCode](https://github.com/jieapi/aicode) 的二次开发分支，在原项目基础上新增了 **Liquid Glass 液态玻璃 UI**、**AI 待办任务显示位置偏好**、**悬浮玻璃标题栏**等功能，并修复了容器通道与性能问题。
+> 本项目是基于原作者 [jieapi/XenCode](https://github.com/jieapi/xencode) 的二次开发分支，在原项目基础上新增了 **Liquid Glass 液态玻璃 UI**、**AI 待办任务显示位置偏好**、**悬浮玻璃标题栏**等功能，并修复了容器通道与性能问题。
 > 原项目版权归原作者所有，本分支遵循相同的 [GPL-3.0](LICENSE) 协议开源。
 
 ---
@@ -50,11 +50,11 @@ Android 上的通用 AI Coding Agent · Linux 开发环境 · 支持本地与远
 
 ## 简介
 
-AiCode 是运行在 Android 上的通用 AI Coding Agent。它把一套完整的 Linux 开发环境装进手机：内置 Alpine Linux 容器与终端，AI Agent 可以读写文件、执行 Shell 命令、运行构建工具，**写代码、调试到构建，全程在手机本地完成**。
+XenCode 是运行在 Android 上的通用 AI Coding Agent。它把一套完整的 Linux 开发环境装进手机：内置 Alpine Linux 容器与终端，AI Agent 可以读写文件、执行 Shell 命令、运行构建工具，**写代码、调试到构建，全程在手机本地完成**。
 
 也可以把执行后端切换为远程 SSH 服务器，让手机变成远程项目的移动工作站。
 
-上手无需任何准备：装上 App，在「AI 供应商」里配好模型，就可以直接开发 —— 不用电脑，也不用自己搭建环境。AiCode **不内置模型、不绑定供应商**，模型、密钥与端点完全由你自己掌控。
+上手无需任何准备：装上 App，在「AI 供应商」里配好模型，就可以直接开发 —— 不用电脑，也不用自己搭建环境。XenCode **不内置模型、不绑定供应商**，模型、密钥与端点完全由你自己掌控。
 
 ## 核心亮点
 
@@ -93,7 +93,7 @@ AiCode 是运行在 Android 上的通用 AI Coding Agent。它把一套完整的
 
 ```mermaid
 flowchart LR
-    U(["你 · 手机 / 平板"]) --> A["AiCode App"]
+    U(["你 · 手机 / 平板"]) --> A["XenCode App"]
     A --> AG{{"AI Agent"}}
     AG <--> M["模型供应商<br/>OpenAI · Anthropic · Gemini · 自定义"]
     AG --> T["内置工具<br/>文件 · Shell · 终端 · 搜索 · 图片 · 待办"]
@@ -183,7 +183,7 @@ flowchart LR
 
 **1. 下载安装**
 
-前往 [GitHub Releases](https://github.com/hwsyyds666/Aicode-Glass/releases/latest) 下载对应安装包：
+前往 [GitHub Releases](https://github.com/Resolutefemi/XenCode/releases/latest) 下载对应安装包：
 
 | 安装包 | 适用设备 |
 | :-- | :-- |
@@ -197,13 +197,13 @@ flowchart LR
 2. 在「**容器与镜像**」中选择使用本地容器或远程 SSH
 3. **新建会话**，开始对话
 
-> 📖 更详细的快速上手、使用手册与进阶教程，请查看 [在线文档](https://aicode.murk.top)（与 App 内置文档同源）。
+> 📖 更详细的快速上手、使用手册与进阶教程，请查看 [在线文档](https://xencode.murk.top)（与 App 内置文档同源）。
 
 ## 从源码构建
 
 ```bash
-git clone https://github.com/hwsyyds666/Aicode-Glass.git
-cd AiCode
+git clone https://github.com/Resolutefemi/XenCode.git
+cd XenCode
 ./gradlew assembleDebug
 ```
 
@@ -212,7 +212,7 @@ cd AiCode
 ## 项目结构
 
 ```text
-AiCode
+XenCode
 ├── app/                # Android 主应用
 ├── terminal-emulator/  # 终端模拟器核心（基于 Termux）
 ├── terminal-view/      # 终端视图组件（基于 Termux）
@@ -223,26 +223,26 @@ AiCode
 
 ## Star History
 
-如果 AiCode 对你有帮助，欢迎点一个 ⭐ Star，让更多开发者看到这个项目。
+如果 XenCode 对你有帮助，欢迎点一个 ⭐ Star，让更多开发者看到这个项目。
 
-[![Star History Chart](https://api.star-history.com/svg?repos=hwsyyds666/Aicode-Glass&type=Date)](https://www.star-history.com/#hwsyyds666/Aicode-Glass&Date)
+[![Star History Chart](https://api.star-history.com/svg?repos=Resolutefemi/XenCode&type=Date)](https://www.star-history.com/#Resolutefemi/XenCode&Date)
 
 ## 反馈与贡献
 
-- 🐞 **Bug 反馈**：到 [Issues](https://github.com/hwsyyds666/Aicode-Glass/issues) 提交，请附上复现步骤、设备型号与系统版本，便于定位
-- 💡 **功能建议**：想加新功能或改进，欢迎先在 [Issues](https://github.com/hwsyyds666/Aicode-Glass/issues) 讨论
-- 🔧 **贡献代码**：欢迎提交 [Pull Request](https://github.com/hwsyyds666/Aicode-Glass/pulls)
-- 💬 **交流群**：原项目 [AiCode QQ 交流群](https://qm.qq.com/q/ByvqODJdIs)（群号：1107110698），可交流使用心得
+- 🐞 **Bug 反馈**：到 [Issues](https://github.com/Resolutefemi/XenCode/issues) 提交，请附上复现步骤、设备型号与系统版本，便于定位
+- 💡 **功能建议**：想加新功能或改进，欢迎先在 [Issues](https://github.com/Resolutefemi/XenCode/issues) 讨论
+- 🔧 **贡献代码**：欢迎提交 [Pull Request](https://github.com/Resolutefemi/XenCode/pulls)
+- 💬 **交流群**：原项目 [XenCode QQ 交流群](https://qm.qq.com/q/ByvqODJdIs)（群号：1107110698），可交流使用心得
 
 ### 贡献者
 
-<a href="https://github.com/hwsyyds666/Aicode-Glass/graphs/contributors">
-  <img src="https://contrib.rocks/image?repo=hwsyyds666/Aicode-Glass" alt="Contributors" />
+<a href="https://github.com/Resolutefemi/XenCode/graphs/contributors">
+  <img src="https://contrib.rocks/image?repo=Resolutefemi/XenCode" alt="Contributors" />
 </a>
 
 ## 致谢
 
-- **[jieapi/AiCode](https://github.com/jieapi/aicode)** — 原作者项目，本分支的基础
+- **[jieapi/XenCode](https://github.com/jieapi/xencode)** — 原作者项目，本分支的基础
 - [OpenCode](https://github.com/anomalyco/opencode) — 终端 AI 编码工具，本项目的核心灵感来源
 - [Termux](https://github.com/termux/termux-app) — Android 终端模拟器，提供了终端组件与 PRoot 方案
 - [Kelivo](https://github.com/Chevey339/kelivo) — 跨平台 LLM 聊天客户端，AI 对话界面设计参考

@@ -4,7 +4,7 @@ import { mkdirSync, readdirSync, readFileSync, statSync, writeFileSync } from 'n
 import { dirname, join, posix } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
-const SITE_URL = 'https://aicode.murk.top'
+const SITE_URL = 'https://xencode.murk.top'
 const here = dirname(fileURLToPath(import.meta.url))
 const docsDir = join(here, '..', 'docs')
 const distDir = join(here, '..', '.vitepress', 'dist')
@@ -124,9 +124,9 @@ for (const section of sections) {
 }
 
 const lines = [
-  '# AiCode 文档',
+  '# XenCode 文档',
   '',
-  `> AiCode 用户文档的纯 Markdown 镜像，正文即 .md 原文，可直接整页抓取。HTML 版见 ${SITE_URL}。`,
+  `> XenCode 用户文档的纯 Markdown 镜像，正文即 .md 原文，可直接整页抓取。HTML 版见 ${SITE_URL}。`,
   ''
 ]
 for (const section of sections) {

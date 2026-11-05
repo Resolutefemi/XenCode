@@ -8,7 +8,7 @@ In `Settings → Secrets and variables → Actions → New repository secret`, a
 
 | Secret name | Value |
 |---|---|
-| `AICODE_KEYSTORE_BASE64` | base64 encoding of the `app/aicode.jks` file (see below) |
+| `AICODE_KEYSTORE_BASE64` | base64 encoding of the `app/xencode.jks` file (see below) |
 | `AICODE_KEYSTORE_PASSWORD` | the keystore's `storePassword` |
 | `AICODE_KEY_ALIAS` | the signing key's `keyAlias` |
 | `AICODE_KEY_PASSWORD` | the key's `keyPassword` (usually the same as the keystore passphrase) |
@@ -20,7 +20,7 @@ In `Settings → Secrets and variables → Actions → New repository secret`, a
 From the repo root, copy to the clipboard with PowerShell:
 
 ```powershell
-[System.Convert]::ToBase64String([System.IO.File]::ReadAllBytes("app\aicode.jks")) | Set-Clipboard
+[System.Convert]::ToBase64String([System.IO.File]::ReadAllBytes("app\xencode.jks")) | Set-Clipboard
 ```
 
 Paste it into `AICODE_KEYSTORE_BASE64`.
@@ -28,7 +28,7 @@ Paste it into `AICODE_KEYSTORE_BASE64`.
 If you do not have a keystore yet, create one with keytool first (pick your own alias/passphrase, then fill the secrets in):
 
 ```powershell
-keytool -genkeypair -v -keystore app\aicode.jks -alias aicode -keyalg RSA -keysize 2048 -validity 10000
+keytool -genkeypair -v -keystore app\xencode.jks -alias xencode -keyalg RSA -keysize 2048 -validity 10000
 ```
 
-> Both `aicode.jks` and `keystore.properties` are in `.gitignore`, never committed, and local signing keeps working as before.
+> Both `xencode.jks` and `keystore.properties` are in `.gitignore`, never committed, and local signing keeps working as before.

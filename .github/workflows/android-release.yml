@@ -60,7 +60,7 @@ jobs:
           # The genuine package is attached as an asset to the v1.0.1 Release (android-platform-37.zip);
           # download and extract it directly; it is byte-identical to the locally compilable form.
           rm -rf "$SDK/platforms/android-37"
-          curl -sSL --retry 3 -o /tmp/android-37.zip             "https://github.com/hwsyyds666/AiCode/releases/download/v1.0.1/android-platform-37.zip"
+          curl -sSL --retry 3 -o /tmp/android-37.zip             "https://github.com/hwsyyds666/XenCode/releases/download/v1.0.1/android-platform-37.zip"
           unzip -q -o /tmp/android-37.zip -d "$SDK/platforms/"
           rm -f /tmp/android-37.zip
           echo "--- platforms ---"
@@ -111,11 +111,11 @@ jobs:
       - name: Restore release keystore
         env:
           # The keystore file is stored base64-encoded in a secret so the binary is not corrupted in transit.
-          # Restored to app/aicode.jks, matching the path build.gradle.kts expects.
+          # Restored to app/xencode.jks, matching the path build.gradle.kts expects.
           KEYSTORE_BASE64: ${{ secrets.AICODE_KEYSTORE_BASE64 }}
         run: |
-          echo "$KEYSTORE_BASE64" | base64 -d > app/aicode.jks
-          echo "keystore restored ($(stat -c%s app/aicode.jks) bytes)"
+          echo "$KEYSTORE_BASE64" | base64 -d > app/xencode.jks
+          echo "keystore restored ($(stat -c%s app/xencode.jks) bytes)"
 
       - name: Generate keystore.properties
         env:
@@ -124,7 +124,7 @@ jobs:
           KEY_PASSWORD: ${{ secrets.AICODE_KEY_PASSWORD }}
         run: |
           cat > app/keystore.properties <<EOF
-          storeFile=aicode.jks
+          storeFile=xencode.jks
           storePassword=$KEYSTORE_PASSWORD
           keyAlias=$KEY_ALIAS
           keyPassword=$KEY_PASSWORD
@@ -150,9 +150,9 @@ jobs:
         run: ./gradlew assembleRelease --stacktrace
 
       # Rename the three APKs to the <package>-<abi>-<version> scheme, using real ABI names so users can identify them:
-      #   aicode-arm64-v1.0.0-rc1.apk      (armsolo)
-      #   aicode-x86_64-v1.0.0-rc1.apk     (x86solo)
-      #   aicode-universal-v1.0.0-rc1.apk  (universal, with both image sets)
+      #   xencode-arm64-v1.0.0-rc1.apk      (armsolo)
+      #   xencode-x86_64-v1.0.0-rc1.apk     (x86solo)
+      #   xencode-universal-v1.0.0-rc1.apk  (universal, with both image sets)
       - name: Rename APKs by flavor
         run: |
           mkdir -p dist
@@ -161,7 +161,7 @@ jobs:
           for f in universal armsolo x86solo; do
             src="app/build/outputs/apk/$f/release/app-$f-release.apk"
             if [[ -f "$src" ]]; then
-              out="dist/aicode-${abi[$f]}-${ver}.apk"
+              out="dist/xencode-${abi[$f]}-${ver}.apk"
               cp "$src" "$out"
               echo "packaged $out"
             else
@@ -172,12 +172,12 @@ jobs:
           # Keep the R8 mapping (mapping.txt) in dist/ and publish it with the Release for de-obfuscating crash stacks.
           # All three flavors share the same bytecode and obfuscation result, so universal's mapping suffices;
           # gzipped it is only a few MB (about 90MB raw); gunzip before feeding it to retrace/Android Studio.
-          # Follows the aicode-<abi>-<ver> naming; grab the matching mapping by the version shown in the crash report.
+          # Follows the xencode-<abi>-<ver> naming; grab the matching mapping by the version shown in the crash report.
           # On AGP 8.x the mapping output directory uses the variant's camelCase name (flavor + BuildType),
           # i.e. outputs/mapping/universalRelease/, not outputs/mapping/universal/release/.
           if [[ -f "app/build/outputs/mapping/universalRelease/mapping.txt" ]]; then
-            gzip -c "app/build/outputs/mapping/universalRelease/mapping.txt" > "dist/aicode-universal-${ver}-mapping.txt.gz"
-            echo "packaged aicode-universal-${ver}-mapping.txt.gz"
+            gzip -c "app/build/outputs/mapping/universalRelease/mapping.txt" > "dist/xencode-universal-${ver}-mapping.txt.gz"
+            echo "packaged xencode-universal-${ver}-mapping.txt.gz"
           else
             echo "::warning::missing mapping.txt (R8 mapping)"
           fi
@@ -208,11 +208,11 @@ jobs:
             echo "::error::apksigner not found under $SDK/build-tools"
             exit 1
           fi
-          for apk in dist/aicode-*.apk; do
+          for apk in dist/xencode-*.apk; do
             echo "=== re-signing $apk ==="
             tmp="${apk}.resigned"
             "$APKSIGNER" sign \
-              --ks app/aicode.jks \
+              --ks app/xencode.jks \
               --ks-pass "pass:${KEYSTORE_PASSWORD}" \
               --ks-key-alias "$KEY_ALIAS" \
               --key-pass "pass:${KEY_PASSWORD}" \
@@ -302,13 +302,13 @@ jobs:
           name: Release ${{ steps.release.outputs.tag }}
           body: ${{ steps.changelog.outputs.body }}
           prerelease: ${{ steps.prerelease.outputs.is_prerelease }}
-          # Artifacts follow the aicode-<abi>-<version>.apk naming (see the Rename step), so the glob puts the ABI segment right after aicode- with a trailing * for the version.
-          # Do NOT write aicode-*-<abi>.apk — that puts the ABI in the last segment and never matches aicode-<abi>-<ver> (the rc3 failure).
+          # Artifacts follow the xencode-<abi>-<version>.apk naming (see the Rename step), so the glob puts the ABI segment right after xencode- with a trailing * for the version.
+          # Do NOT write xencode-*-<abi>.apk — that puts the ABI in the last segment and never matches xencode-<abi>-<ver> (the rc3 failure).
           files: |
-            dist/aicode-universal-*.apk
-            dist/aicode-arm64-*.apk
-            dist/aicode-x86_64-*.apk
+            dist/xencode-universal-*.apk
+            dist/xencode-arm64-*.apk
+            dist/xencode-x86_64-*.apk
             # Publish the R8 mapping with the same version as the APK; the key to de-obfuscating crash reports (gzipped, small)
-            dist/aicode-universal-*mapping.txt.gz
+            dist/xencode-universal-*mapping.txt.gz
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

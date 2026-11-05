@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <string name="app_name">AiCode Pro</string>
+    <string name="app_name">XenCode</string>
     <string name="chat_context_usage_estimated">Estimated input budget usage: %1$d%%</string>
     <string name="agent_input_budget_exceeded">Context exceeds the model input budget. Shorten the input or reduce tool definitions.</string>
 
@@ -249,7 +249,7 @@
     <!-- Storage page -->
     <string name="settings_storage">Storage</string>
     <string name="storage_refresh">Rescan</string>
-    <string name="storage_total_title">Used by AiCode Pro</string>
+    <string name="storage_total_title">Used by XenCode Pro</string>
     <string name="storage_scanning">Calculating…</string>
     <string name="storage_device_free">%1$s free of %2$s</string>
     <string name="storage_section_breakdown">Breakdown</string>
@@ -337,7 +337,7 @@
     <string name="provider_test_resp_body">Response Body</string>
     <string name="provider_test_error_detail">Error Stack</string>
     <string name="provider_dashboard_test_failed">Execution Failed</string>
-    <string name="provider_dashboard_no_scripts">No scripts found in ~/.aicode/scripts/</string>
+    <string name="provider_dashboard_no_scripts">No scripts found in ~/.xencode/scripts/</string>
     <string name="provider_dashboard_select_title">Select Dashboard Script</string>
     <string name="provider_dashboard_clear_script">None (Clear script)</string>
     <string name="provider_dashboard_loading">Loading dashboard...</string>
@@ -448,7 +448,7 @@
     <string name="credential_auto_inject_title">Auto-inject credentials</string>
     <string name="credential_auto_inject_hint">Sync git credentials saved in the app to this remote server, effective only for repositories under the current workspace root. Does not affect your manual git usage on the server.</string>
     <string name="credential_auto_inject_prompt_title">Auto-inject git credentials?</string>
-    <string name="credential_auto_inject_prompt_body">Allow AiCode Pro to sync git credentials saved in the app to this remote server? It only applies to repositories under the current workspace root and will not modify the server\'s global git config.</string>
+    <string name="credential_auto_inject_prompt_body">Allow XenCode Pro to sync git credentials saved in the app to this remote server? It only applies to repositories under the current workspace root and will not modify the server\'s global git config.</string>
     <string name="credential_auto_inject_enable">Enable</string>
     <string name="common_rename">Rename</string>
     <string name="common_hide">Hide</string>
@@ -1229,7 +1229,7 @@
     <!-- Skills marketplace -->
     <string name="skills_market_title">Skills marketplace</string>
     <string name="skills_add_market">Skills marketplace</string>
-    <string name="skills_add_market_desc">Browse and install skills from the AiCode marketplace</string>
+    <string name="skills_add_market_desc">Browse and install skills from the XenCode marketplace</string>
     <string name="skills_market_all">All</string>
     <string name="skills_market_refresh">Refresh marketplace</string>
     <string name="skills_market_error_network">Can\'t reach the marketplace server</string>
@@ -1247,7 +1247,7 @@
     <string name="prompts_market_scope_note">Will be saved to the current project\'s prompt fragments (global prompts when no workspace is open)</string>
     <string name="subagents_market_scope_note">Will be saved to the current project\'s subagents</string>
     <string name="prompts_add_market">Prompt marketplace</string>
-    <string name="prompts_add_market_desc">Browse and install prompt templates from the AiCode marketplace</string>
+    <string name="prompts_add_market_desc">Browse and install prompt templates from the XenCode marketplace</string>
     <string name="subagents_market_open">Browse marketplace</string>
     <string name="prompts_market_empty">No prompt templates on the server yet</string>
     <string name="subagents_market_empty">No subagents on the server yet</string>
@@ -1260,7 +1260,7 @@
     <!-- Subagent Settings -->
     <string name="settings_subagents">Subagents</string>
     <string name="subagents_empty">No custom subagents yet</string>
-    <string name="subagents_empty_hint">Tap + in the top bar to create one, or drop an agent\'s .md definition into ~/.aicode/agents/</string>
+    <string name="subagents_empty_hint">Tap + in the top bar to create one, or drop an agent\'s .md definition into ~/.xencode/agents/</string>
     <string name="subagents_no_project">No subagents in this project</string>
     <string name="subagents_no_global">No global subagents</string>
     <string name="subagents_delete_confirm_title">Delete subagent</string>
@@ -1703,7 +1703,7 @@
     <string name="crash_restart">Restart app</string>
     <string name="crash_exit">Exit app</string>
     <string name="crash_log_hint">Full log files at: %1$s</string>
-    <string name="crash_report_title">AiCode Pro Crash Report</string>
+    <string name="crash_report_title">XenCode Pro Crash Report</string>
     <string name="crash_report_time">Time: %1$s</string>
     <string name="crash_report_version">Version: %1$s</string>
     <string name="crash_report_device">Device: %1$s</string>

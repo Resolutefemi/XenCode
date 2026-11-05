@@ -30,7 +30,7 @@ Tap any tool to open its detail page, which shows:
 
 `renderLayout` turns an Android XML layout file (`res/layout/*.xml`) into a PNG preview:
 
-- Auto-approved and read-only; the PNG is saved under `~/workspace/.aicode/previews/`
+- Auto-approved and read-only; the PNG is saved under `~/workspace/.xencode/previews/`
   (one file per layout, latest render wins) and shown in chat — tap the preview row in the
   tool card (or the phone frame in the editor) to open it full screen.
 - Optional parameters: `theme` (light / dark), `width_dp` and `height_dp` for the viewport.

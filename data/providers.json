@@ -102,8 +102,8 @@
     ]
   },
   {
-    "id": "aicode",
-    "name": "AiCode",
+    "id": "xencode",
+    "name": "XenCode",
     "type": "OPENAI",
     "baseUrl": "https://ai.murk.top/v1",
     "isRecommended": true,

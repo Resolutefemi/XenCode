@@ -22,7 +22,7 @@ keystore.properties
 .claude/
 /.kotlin/
 /.agents/
-/.aicode/
+/.xencode/
 
 # 临时调试文件
 /*.log

@@ -20,7 +20,7 @@ dependencyResolutionManagement {
         mavenCentral()
     }
 }
-rootProject.name = "app"
+rootProject.name = "XenCode"
 
 include(":app")
 include(":terminal-emulator")
