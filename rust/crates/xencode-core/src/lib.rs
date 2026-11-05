@@ -13,6 +13,7 @@ pub mod goal;
 pub mod hooks;
 pub mod mcp;
 pub mod permissions;
+pub mod skills;
 pub mod prompt;
 pub mod provider;
 pub mod state;

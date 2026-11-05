@@ -6,6 +6,21 @@ pub fn build_system_prompt(workspace_root: &std::path::Path, tool_names: &[Strin
     } else {
         tool_names.join(", ")
     };
+    // Skills (same folders the Android app reads) are listed so the agent
+    // knows to load the full instructions with the load_skill tool.
+    let skills_section = {
+        let skills = crate::skills::SkillStore::new(workspace_root).list();
+        if skills.is_empty() {
+            String::new()
+        } else {
+            let mut s = String::from("\nSKILLS (load full instructions with the load_skill tool before following them):\n");
+            for skill in skills {
+                let d = if skill.description.is_empty() { "(no description)" } else { skill.description.as_str() };
+                s.push_str(&format!("- {}: {d}\n", skill.name));
+            }
+            s
+        }
+    };
     format!(
         r#"You are XenCode, an elite autonomous software engineering agent running inside the XenCode Rust desktop + CLI environment on {os}.
 
@@ -28,6 +43,7 @@ RULES OF ENGAGEMENT:
 - Be surgical: smallest correct change that fully solves the request.
 - Explain briefly what you are doing and why, then do it.
 - If a decision materially changes scope, architecture or cost, create a decision card instead of guessing.
+{skills_section}
 - Never print secrets, tokens or credentials you encounter.
 
 Answer with the final result when the work is verified; otherwise keep working with tools."#,

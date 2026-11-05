@@ -5,6 +5,7 @@
 
 pub mod compactor;
 pub mod todo;
+pub mod web;
 
 use crate::chat::ToolSpec;
 use crate::error::tool_err;
@@ -81,7 +82,51 @@ impl LocalTools {
                 description: "Read the persisted todo list.".into(),
                 parameters: serde_json::json!({"type":"object","properties":{},"required":[]}),
             },
+            ToolSpec {
+                name: "web_fetch".into(),
+                description: "Fetch a public http(s) URL and return its text content (HTML stripped, max 8000 chars). Loopback, private and link-local addresses are blocked.".into(),
+                parameters: serde_json::json!({"type":"object","properties":{"url":{"type":"string","description":"Absolute http(s) URL"},"max_chars":{"type":"integer","description":"Maximum characters to return (default 8000)"}},"required":["url"]}),
+            },
+            ToolSpec {
+                name: "load_skill".into(),
+                description: "Load a skill's full instructions into context (skills live in .xencode/skills/<name>/SKILL.md). Without a name, lists the available skills instead.".into(),
+                parameters: serde_json::json!({"type":"object","properties":{"name":{"type":"string","description":"Skill folder name"}},"required":[]}),
+            },
         ]
+    }
+
+    /// `load_skill`: no name lists the available skills; a name returns the
+    /// skill body (same folders the Android app reads).
+    fn load_skill(&self, args: &serde_json::Value) -> Result<String, String> {
+        let store = crate::skills::SkillStore::new(&self.root);
+        let requested = args.get("name").and_then(|v| v.as_str()).map(|s| s.trim().to_string());
+        match requested {
+            None => {
+                let skills = store.list();
+                if skills.is_empty() {
+                    Ok(format!(
+                        "(no skills found; add one at {}/<name>/SKILL.md)",
+                        store.project_root().display()
+                    ))
+                } else {
+                    let lines = skills
+                        .iter()
+                        .map(|s| {
+                            let d = if s.description.is_empty() { "(no description)" } else { &s.description };
+                            format!("- {}: {d}", s.name)
+                        })
+                        .collect::<Vec<_>>()
+                        .join("\n");
+                    Ok(format!("Available skills (load one with {{\"name\": \"<name>\"}}):\n{lines}"))
+                }
+            }
+            Some(name) => {
+                let skill = store
+                    .load(&name)
+                    .ok_or_else(|| format!("no skill named `{name}` (call load_skill without a name to list them)"))?;
+                Ok(if skill.body.is_empty() { "(empty skill body)".into() } else { skill.body })
+            }
+        }
     }
 
     /// Resolve a workspace-relative path, refusing escapes outside the root.
@@ -117,6 +162,7 @@ impl LocalTools {
             "run_command" => self.run_command(&args),
             "todo_write" => self.todo_write(&args),
             "todo_read" => Ok(self.todo.render()),
+            "load_skill" => self.load_skill(&args),
             other => Err(format!("unknown tool `{other}`")),
         };
         match result {
