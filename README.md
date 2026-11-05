@@ -215,10 +215,13 @@ xencode exec "fix the failing test"           # one-shot, streams + saves a sess
 xencode goal add "Ship v2" && xencode goal run --parallel 4   # swimlanes in isolated git worktrees
 xencode checkpoint create g1 "verified drop" && xencode checkpoint restore <id>
 xencode mcp list && xencode events && xencode xp && xencode radar && xencode doctor
-xencode run scripts/report.mjs                # .mjs automation: import { fs, ast, pty, git, sync } from "xencode:core"
+xencode db doctor && xencode db sessions    # shared agent DB (the Kotlin app's aicode_agent_db)
+xencode run scripts/report.mjs              # .mjs automation: import { fs, ast, pty, git, sync } from "xencode:core"
 ```
 
 **Shared agent runtime** — both PC clients run the same `xencode-core`: any OpenAI-compatible endpoint, native Anthropic (SSE tool-use blocks) or native Gemini (`streamGenerateContent`); a permission policy (read-only / confirm / yolo) with interactive decision cards; pre/post tool hooks (a failing pre-hook blocks the tool); the git checkpoint time machine (`xencode-checkpoint(<label>): <summary>` atomic commits, restore + diff); persisted & resumable sessions; context compaction; the shared TODO list; MCP servers over stdio (`mcp_<server>_<tool>`); the `task` subagent tool (isolated context, depth-limited); and an ndjson event stream (`.xencode/events.ndjson`) that keeps every surface in sync — Android included. Goals persist in the same `.xencode/GOAL_DAG.json` (format 1) and XP uses the same curve (`100·n²`) — levels mean the same thing everywhere. The `.mjs` engine is real ES modules on QuickJS via rquickjs, with synchronous host bindings (`fs`, `ast`, `pty`, `git`, `sync`) and `await`-friendly async `main()`.
+
+**One shared brain: the same API, DB and env on mobile & PC** — the PC line opens the Kotlin app's own Room database (`aicode_agent_db`, schema v59) directly with bundled SQLite: identical tables (`chat_sessions`, `agent_messages`, `ai_providers`, `todo_items`, `session_checkpoints`, `checkpoint_file_snapshots`, `llm_call_records`, `xp_events`, `remote_connections`, `remote_mounts`), identical columns/defaults/indices, and the Room `room_master_table` identity stamp — a DB created by the PC opens on the phone as a native Room database and vice versa (`xencode db doctor` verifies). Provider configs (`ai_providers` rows) are shared too: configure an endpoint once, use it from both clients against the same wire formats. The environment contract stays `AICODE_*` (`AICODE_HOME`, `AICODE_WORKSPACE`, plus additive `XENCODE_*` / `XENCODE_DB` / `AICODE_DB`). A Room-exported schema fixture (`59.json`) is replayed in CI-style tests to prove byte-compatibility — 86 tests + zero clippy warnings is the gate.
 
 ## Building from Source
 
@@ -229,7 +232,7 @@ cd XenCode
 cd rust
 cargo build --release -p xencode-cli           # CLI → rust/target/release/xencode
 cargo run -p xencode-desktop                   # desktop app (Windows/macOS/Linux)
-cargo test --workspace                         # 73-check verification gate
+cargo test --workspace                         # 86-check verification gate
 ```
 
 CI (`.github/workflows/pc.yml`) builds and packages the CLI for all three operating systems and the desktop app (`deb` / `zip` / `.app`) on every push to the PC line; tag `pc-v*` publishes a full release.

@@ -144,6 +144,27 @@ pub fn xp_ledger_path() -> PathBuf {
     xencode_home().join("pc-xp-ledger.json")
 }
 
+/// Path of the **shared** agent database — the Kotlin app's own Room database
+/// (`aicode_agent_db`, schema v59), opened directly by the PC line so mobile
+/// and PC read/write the same brain.
+///
+/// Resolution order: `XENCODE_DB` → `AICODE_DB` → `~/.xencode/aicode_agent_db`.
+/// The new `*_DB` variables are additive; the established `AICODE_*` contract
+/// is unchanged.
+pub fn db_path() -> PathBuf {
+    if let Ok(p) = std::env::var("XENCODE_DB") {
+        if !p.trim().is_empty() {
+            return PathBuf::from(p);
+        }
+    }
+    if let Ok(p) = std::env::var("AICODE_DB") {
+        if !p.trim().is_empty() {
+            return PathBuf::from(p);
+        }
+    }
+    xencode_home().join(crate::store::DATABASE_NAME)
+}
+
 /// Load config, returning `Ok(default)` when the file does not exist yet.
 pub fn load_config() -> Result<PcConfig> {
     let path = config_path();

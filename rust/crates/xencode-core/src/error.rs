@@ -35,6 +35,9 @@ pub enum XeError {
 
     #[error("automation error: {0}")]
     Automation(String),
+
+    #[error("db error: {0}")]
+    Db(String),
 }
 
 pub type Result<T> = std::result::Result<T, XeError>;

@@ -30,6 +30,10 @@ pub struct Cli {
     #[arg(long, global = true)]
     pub workspace: Option<PathBuf>,
 
+    /// Override the shared agent DB path (env: XENCODE_DB / AICODE_DB)
+    #[arg(long, global = true)]
+    pub db: Option<PathBuf>,
+
     /// Permission mode: read-only | confirm | yolo
     #[arg(long, global = true, default_value = "confirm")]
     pub mode: String,
@@ -112,6 +116,42 @@ pub enum Command {
     Doctor,
     /// Initialize a workspace (.xencode/ scaffolding)
     Init,
+    /// Shared agent database (the Kotlin app's `aicode_agent_db`)
+    Db {
+        #[command(subcommand)]
+        cmd: DbCmd,
+    },
+}
+
+#[derive(Subcommand)]
+pub enum DbCmd {
+    /// Schema doctor: Room identity stamp, user_version, row counts
+    Doctor,
+    /// List chat sessions (shared with the mobile app)
+    Sessions {
+        /// Only root sessions (hide subagent lanes)
+        #[arg(long)]
+        roots: bool,
+    },
+    /// Show the messages of one session (replay order)
+    Session { id: String },
+    /// List provider configs (the shared API settings)
+    Providers {
+        /// Show only enabled providers
+        #[arg(long)]
+        enabled: bool,
+    },
+    /// Recent LLM call records (token stats from the shared ledger)
+    Calls {
+        #[arg(long, default_value = "10")]
+        n: i64,
+    },
+    /// XP totals from the shared xp_events ledger
+    Xp {
+        /// Only count events at or after this epoch millisecond
+        #[arg(long, default_value = "0")]
+        since: i64,
+    },
 }
 
 #[derive(Subcommand)]
@@ -239,6 +279,7 @@ pub fn main() -> anyhow::Result<()> {
 
 async fn run(cli: Cli) -> anyhow::Result<()> {
     let workspace = resolve_workspace(&cli)?;
+    let db_override = cli.db.clone();
     std::fs::create_dir_all(workspace.join(".xencode")).ok();
     let mode = parse_mode(&cli.mode)?;
 
@@ -272,6 +313,92 @@ async fn run(cli: Cli) -> anyhow::Result<()> {
         Command::Config { cmd } => config_cmd(cmd)?,
         Command::Doctor => doctor(&workspace)?,
         Command::Init => init_workspace(&workspace)?,
+        Command::Db { cmd } => {
+            let path = db_override.unwrap_or_else(xencode_core::config::db_path);
+            db_cmd(&path, cmd)?
+        }
+    }
+    Ok(())
+}
+
+fn db_cmd(path: &Path, cmd: DbCmd) -> anyhow::Result<()> {
+    use xencode_core::store::SharedStore;
+    let store = SharedStore::open(path).map_err(anyhow::Error::msg)?;
+    match cmd {
+        DbCmd::Doctor => {
+            println!("shared db: {}", path.display());
+            println!("  room identity: {}", store.stamped_identity().map_err(anyhow::Error::msg)?.unwrap_or_default());
+            println!("  user_version: {}", store.user_version().map_err(anyhow::Error::msg)?);
+            for (table, n) in store.table_counts().map_err(anyhow::Error::msg)? {
+                println!("  {table}: {n}");
+            }
+        }
+        DbCmd::Sessions { roots } => {
+            let mut rows = store.session_list_all().map_err(anyhow::Error::msg)?;
+            if roots {
+                rows.retain(|s| s.parent_id.is_none());
+            }
+            if rows.is_empty() {
+                println!("(no chat sessions in the shared db)");
+            }
+            for s in rows {
+                println!("{}  {}  in:{} out:{}  {}", s.id, s.mode, s.total_input_tokens, s.total_output_tokens, s.title);
+            }
+        }
+        DbCmd::Session { id } => {
+            let s = store
+                .session_get(&id)
+                .map_err(anyhow::Error::msg)?
+                .ok_or_else(|| anyhow::anyhow!("no chat session `{id}` in the shared db"))?;
+            println!("# {} ({}) — {}", s.title, s.id, s.workspace_path);
+            for m in store.message_list(&id).map_err(anyhow::Error::msg)? {
+                println!("[{}] {}", m.role, m.content);
+            }
+        }
+        DbCmd::Providers { enabled } => {
+            let rows = if enabled {
+                store.provider_list_enabled().map_err(anyhow::Error::msg)?
+            } else {
+                store.provider_list().map_err(anyhow::Error::msg)?
+            };
+            if rows.is_empty() {
+                println!("(no ai_providers rows — configure on mobile or `xencode db providers`)");
+            }
+            for p in rows {
+                println!(
+                    "{}  {}  {}  model:{}  url:{}{}",
+                    p.id,
+                    p.name,
+                    p.kind,
+                    if p.selected_model.is_empty() { &p.default_model } else { &p.selected_model },
+                    p.base_url,
+                    if p.is_enabled { "" } else { " (disabled)" }
+                );
+            }
+        }
+        DbCmd::Calls { n } => {
+            let rows = store.llm_calls_recent(n).map_err(anyhow::Error::msg)?;
+            if rows.is_empty() {
+                println!("(no llm_call_records yet)");
+            }
+            for c in rows {
+                println!(
+                    "{}  {}  in:{} out:{} cached:{}  {}  {}",
+                    c.created_at,
+                    c.kind,
+                    c.input_tokens,
+                    c.output_tokens,
+                    c.cached_input_tokens,
+                    c.model.as_deref().unwrap_or("-"),
+                    c.status
+                );
+            }
+        }
+        DbCmd::Xp { since } => {
+            let total = store.xp_total().map_err(anyhow::Error::msg)?;
+            let part = store.xp_total_since(since).map_err(anyhow::Error::msg)?;
+            println!("xp total: {total}  since({since}): {part}");
+        }
     }
     Ok(())
 }
@@ -614,6 +741,13 @@ fn doctor(workspace: &Path) -> anyhow::Result<()> {
     }
     let in_git = xencode_core::gitx::is_git_repo(workspace);
     println!("  git repo: {in_git}");
+    let db = xencode_core::config::db_path();
+    match xencode_core::store::SharedStore::open(&db) {
+        Ok(s) => {
+            println!("  shared db: {} (identity ok, uv={})", db.display(), s.user_version().unwrap_or(-1));
+        }
+        Err(e) => println!("  shared db: {} ({e})", db.display()),
+    }
     let has_mcp = xencode_core::mcp::McpConfig::load(workspace);
     println!("  mcp servers: {}", has_mcp.servers.len());
     let t = Telemetry::load(workspace);

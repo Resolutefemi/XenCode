@@ -29,6 +29,7 @@ walkdir = "2"
 glob = "0.3"
 uuid = { version = "1", features = ["v4"] }
 rquickjs = { version = "0.9", features = ["loader", "allocator", "futures"] }
+rusqlite = { version = "0.32", features = ["bundled"] }
 rustyline = "15"
 eframe = "0.29"
 image = { version = "0.25", default-features = false, features = ["png"] }

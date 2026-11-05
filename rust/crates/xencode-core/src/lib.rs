@@ -16,6 +16,7 @@ pub mod permissions;
 pub mod prompt;
 pub mod provider;
 pub mod state;
+pub mod store;
 pub mod telemetry;
 pub mod tools;
 
