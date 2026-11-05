@@ -2,13 +2,17 @@ package com.xencode.desktop
 
 import com.xencode.core.agent.AgentRuntime
 import com.xencode.core.agent.SlashCommands
+import com.xencode.core.db.DbXpLedger
+import com.xencode.core.db.SharedChatStore
+import com.xencode.core.db.SharedDb
 import com.xencode.core.goal.GoalDagFile
 import com.xencode.core.provider.ChatClient
+import com.xencode.core.provider.ChatTransport
 import com.xencode.core.provider.ProviderConfig
 import com.xencode.core.state.XenEventLog
 import com.xencode.core.telemetry.Telemetry
-import com.xencode.core.telemetry.XpLedger
 import com.xencode.core.telemetry.XpMath
+import com.xencode.core.telemetry.XpStore
 import com.xencode.core.tools.AgentSession
 import com.xencode.core.tools.Permissions
 import kotlinx.coroutines.CoroutineScope
@@ -23,8 +27,13 @@ import kotlinx.coroutines.launch
 import java.io.File
 
 /**
- * Per-machine XP ledger location for the desktop app: ~/.xencode/pc-xp-ledger.json,
- * the same file the CLI line uses, so both front ends feed one level.
+ * XP + persistence home for the desktop front end.
+ *
+ * XP: the shared database is the source of truth (xp_events in
+ * `aicode_agent_db`, the same table the Android app writes through Room); the
+ * old per-machine JSON ledger (`~/.xencode/pc-xp-ledger.json`) is imported
+ * once so switching to the DB never loses a level or streak. The JSON file is
+ * still written by the CLI, which keeps feeding the same curve.
  */
 object DesktopXp {
 
@@ -32,7 +41,29 @@ object DesktopXp {
 
     fun ledgerPath(): String = File(ledgerDir(), "pc-xp-ledger.json").path
 
-    fun defaultLedger(): XpLedger = XpLedger(File(ledgerPath()))
+    fun defaultLedger(): com.xencode.core.telemetry.XpLedger = com.xencode.core.telemetry.XpLedger(File(ledgerPath()))
+
+    /** `~/.xencode/aicode_agent_db` — the shared database path on this machine. */
+    fun dbPath(): String = SharedDb.defaultPath()
+
+    @Volatile
+    private var sharedDb: SharedDb? = null
+
+    /** Process-wide shared database connection (never closed; lives with the app). */
+    fun sharedDb(): SharedDb {
+        sharedDb?.let { return it }
+        synchronized(this) {
+            sharedDb?.let { return it }
+            return SharedDb.open(SharedDb.defaultPath()).also { sharedDb = it }
+        }
+    }
+
+    /** The XP ledger backed by the shared database, with one-time legacy JSON import. */
+    fun defaultXpStore(): XpStore {
+        val ledger = DbXpLedger(sharedDb())
+        runCatching { ledger.importLegacyJson(File(ledgerPath())) }
+        return ledger
+    }
 
     /** +5 per successfully completed chat turn (a non-tool final round), 0 otherwise. */
     fun turnAwardFor(turnSuccessful: Boolean): Long = if (turnSuccessful) XpMath.turnAward() else 0L
@@ -56,23 +87,33 @@ sealed class ChatEntry {
  * autosave and the slash-command surface — the same feature set as the CLI
  * REPL, rendered as Compose state instead of stdout.
  *
+ * Every turn is persisted into the shared database (`aicode_agent_db`, the
+ * Kotlin app's DB contract): a `chat_sessions` row per conversation, USER /
+ * ASSISTANT / TOOL rows in `agent_messages`, one `llm_call_records` row per
+ * turn (tokens, duration, status) and the XP award in `xp_events`. The
+ * model-side history stays in `.xencode/sessions/` (the resume format).
+ *
  * One controller per (provider, workspace) pair is created by
  * [DesktopAppState.buildController] and disposed when either changes.
  */
 class DesktopAgentController(
     val provider: ProviderConfig,
     val workspaceRoot: String,
-    private val ledger: XpLedger = DesktopXp.defaultLedger(),
-    client: ChatClient = ChatClient(),
+    private val db: SharedDb = DesktopXp.sharedDb(),
+    client: ChatTransport = ChatClient(),
     scope: CoroutineScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 ) {
     private val ioScope: CoroutineScope = scope
+    private val chatStore = SharedChatStore(db)
+
+    /** The XP ledger in the shared database; goal awards (GoalRunner) land here too. */
+    private val xp: DbXpLedger = DbXpLedger(db)
 
     val runtime: AgentRuntime = AgentRuntime(
         workspaceRoot = File(workspaceRoot),
         provider = provider,
         client = client,
-        ledgerFile = ledger.backingFile()
+        xpStore = xp
     )
 
     private val _messages = MutableStateFlow<List<ChatEntry>>(emptyList())
@@ -102,6 +143,10 @@ class DesktopAgentController(
         listener = object : AgentSession.Listener {
             override suspend fun onToolCall(name: String, argsJson: String) {
                 _messages.value = _messages.value + ChatEntry.ToolCall(name, argsJson)
+            }
+
+            override suspend fun onToolResult(name: String, argsJson: String, result: String) {
+                recordToolRow(name, argsJson, result)
             }
         }
     )
@@ -146,7 +191,9 @@ class DesktopAgentController(
         _busy.value = true
         _streamingText.value = ""
         ensureMcpWithStatus()
+        recordUserRow(prompt)
         sendJob = ioScope.launch {
+            val startedAt = System.currentTimeMillis()
             val streamed = StringBuilder()
             val outcome = session.send(
                 userText = prompt,
@@ -157,14 +204,19 @@ class DesktopAgentController(
                     }
                 }
             )
+            val durationMillis = (System.currentTimeMillis() - startedAt).toInt()
             _streamingText.value = ""
             if (outcome != null) {
                 _messages.value = _messages.value + ChatEntry.Assistant(outcome)
+                recordAssistantRow(outcome)
+                recordLlmCall(status = "success", durationMillis = durationMillis, errorMessage = null)
+                addSessionTokenTotals()
                 awardTurnXp(turnSuccessful = true, prompt = prompt)
             } else {
                 val failure = session.lastFailure ?: "The model returned an empty reply."
                 _error.value = failure
                 _messages.value = _messages.value + ChatEntry.ErrorLine(failure)
+                recordLlmCall(status = "error", durationMillis = durationMillis, errorMessage = failure)
             }
             _busy.value = false
             persistSession()
@@ -221,7 +273,11 @@ class DesktopAgentController(
                         "tool calls: ${t.toolCalls} · files written: ${t.filesWritten}"
                 )
             }
-            "/xp" -> system(XpMath.summaryLine(ledger.summary().totalXp, ledger.summary().streakDays))
+            "/xp" -> {
+                val s = xp.summary()
+                system(XpMath.summaryLine(s.totalXp, s.streakDays))
+            }
+            "/costs" -> system(costsOutput())
             "/session" -> system(
                 "Session $sessionId (${session.historySnapshot().size} messages) — autosaved under .xencode/sessions/"
             )
@@ -329,6 +385,111 @@ class DesktopAgentController(
         _messages.value = _messages.value + ChatEntry.System(text)
     }
 
+    private fun recordUserRow(prompt: String) {
+        runCatching {
+            upsertDbSession()
+            chatStore.appendMessage(
+                SharedChatStore.MessageRow(
+                    id = chatStore.newMessageId(),
+                    sessionId = sessionId,
+                    role = "USER",
+                    content = prompt,
+                    timestamp = System.currentTimeMillis()
+                )
+            )
+        }
+    }
+
+    private fun recordAssistantRow(text: String) {
+        runCatching {
+            val usage = session.lastTurnUsage
+            chatStore.appendMessage(
+                SharedChatStore.MessageRow(
+                    id = chatStore.newMessageId(),
+                    sessionId = sessionId,
+                    role = "ASSISTANT",
+                    content = text,
+                    timestamp = System.currentTimeMillis(),
+                    inputTokens = usage?.inputTokens ?: 0,
+                    outputTokens = usage?.outputTokens ?: 0
+                )
+            )
+        }
+    }
+
+    private fun recordToolRow(name: String, argsJson: String, result: String) {
+        runCatching {
+            chatStore.appendMessage(
+                SharedChatStore.MessageRow(
+                    id = chatStore.newMessageId(),
+                    sessionId = sessionId,
+                    role = "TOOL",
+                    content = result.take(4000),
+                    timestamp = System.currentTimeMillis(),
+                    toolName = name,
+                    toolArgs = argsJson.take(2000),
+                    isError = result.startsWith("ERROR")
+                )
+            )
+        }
+    }
+
+    private fun recordLlmCall(status: String, durationMillis: Int, errorMessage: String?) {
+        runCatching {
+            val usage = session.lastTurnUsage
+            chatStore.insertLlmCall(
+                SharedChatStore.LlmCallRow(
+                    sessionId = sessionId,
+                    providerId = provider.name,
+                    model = provider.model,
+                    kind = "chat",
+                    inputTokens = usage?.inputTokens ?: 0,
+                    outputTokens = usage?.outputTokens ?: 0,
+                    durationMillis = durationMillis,
+                    status = status,
+                    errorMessage = errorMessage?.take(400),
+                    stopReason = if (status == "success") "end_turn" else null,
+                    createdAt = System.currentTimeMillis()
+                )
+            )
+        }
+    }
+
+    private fun addSessionTokenTotals() {
+        runCatching {
+            val usage = session.lastTurnUsage ?: return
+            chatStore.addSessionTokens(sessionId, usage.inputTokens, usage.outputTokens, usage.inputTokens)
+        }
+    }
+
+    private fun upsertDbSession() {
+        runCatching {
+            chatStore.upsertSession(
+                SharedChatStore.SessionRow(
+                    id = sessionId,
+                    title = runtime.sessions.titleFrom(firstPrompt ?: "session"),
+                    createdAt = sessionCreatedAt,
+                    updatedAt = System.currentTimeMillis(),
+                    workspacePath = workspaceRoot,
+                    providerId = provider.name,
+                    model = provider.model
+                )
+            )
+        }
+    }
+
+    /** Lifetime token usage line for `/costs` (the shared database is the source). */
+    private fun costsOutput(): String {
+        val totals = runCatching { chatStore.llmTotals() }.getOrNull()
+            ?: return "Token usage unavailable (shared database could not be read)."
+        val s = xp.summary()
+        return buildString {
+            appendLine("Lifetime (all front ends on this machine, from the shared DB):")
+            appendLine("  llm calls ${totals.calls} (${totals.errors} errored) · tokens in ${totals.inputTokens} · out ${totals.outputTokens}")
+            append("Level ${s.level} · ${s.totalXp} XP · ${s.streakDays}d streak")
+        }
+    }
+
     private fun persistSession() {
         runCatching {
             runtime.sessions.save(
@@ -345,7 +506,7 @@ class DesktopAgentController(
     private fun awardTurnXp(turnSuccessful: Boolean, prompt: String) {
         if (DesktopXp.turnAwardFor(turnSuccessful) <= 0L) return
         runCatching {
-            ledger.awardTurn(prompt.take(50).ifBlank { "chat turn" })
+            xp.awardTurn(prompt.take(50).ifBlank { "chat turn" })
         }
     }
 }

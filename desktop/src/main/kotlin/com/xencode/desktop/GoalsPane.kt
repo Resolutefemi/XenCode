@@ -42,17 +42,20 @@ import com.xencode.core.goal.GoalDagFile
 import com.xencode.core.goal.GoalDagResult
 import com.xencode.core.goal.GoalNode
 import com.xencode.core.goal.GoalStatus
-import com.xencode.core.telemetry.XpLedger
+import com.xencode.core.telemetry.XpStore
 
 /**
  * Non-UI board behind the Goals pane: loads `.xencode/GOAL_DAG.json` from the
  * workspace, applies all mutations through [GoalDagEngine], saves through
  * [GoalDagFile] and awards the +50 goal XP on completion. Kept free of Compose
  * imports so the whole mutation flow is unit-testable (see XpWiringTest).
+ *
+ * The XP sink is an [XpStore]: production uses the shared database
+ * (DbXpLedger -> xp_events in aicode_agent_db); tests inject a temp ledger.
  */
 class GoalBoard(
     private val workspaceRoot: String,
-    private val ledger: XpLedger = DesktopXp.defaultLedger()
+    private val ledger: XpStore = DesktopXp.defaultXpStore()
 ) {
     var dag: GoalDag = GoalDagFile.load(workspaceRoot)
         private set

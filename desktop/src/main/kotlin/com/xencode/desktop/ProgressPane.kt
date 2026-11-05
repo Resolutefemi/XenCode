@@ -33,6 +33,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.xencode.core.db.SharedChatStore
 import com.xencode.core.state.XenEventLog
 import com.xencode.core.telemetry.Telemetry
 import com.xencode.core.telemetry.XpLedger
@@ -44,7 +45,9 @@ import java.io.File
 /**
  * XP + engineering-telemetry screen: big level card (level, total/today XP,
  * next-level progress bar), streak card, the recent ledger events, plus the
- * workspace telemetry (command streak, spec radar) and the live event log.
+ * workspace telemetry (command streak, spec radar), the live event log and
+ * the lifetime token usage. All XP rows come from the shared database
+ * (xp_events in aicode_agent_db), the same store the Android app uses.
  */
 @Composable
 fun ProgressPane(appState: DesktopAppState) {
@@ -52,11 +55,15 @@ fun ProgressPane(appState: DesktopAppState) {
     var summary by remember { mutableStateOf<XpLedger.Summary?>(null) }
     var telemetry by remember { mutableStateOf<com.xencode.core.telemetry.Telemetry.State?>(null) }
     var events by remember { mutableStateOf<List<String>>(emptyList()) }
+    var tokenTotals by remember { mutableStateOf<SharedChatStore.LlmTotals?>(null) }
 
     // Re-runs every time the pane enters composition, i.e. on every pane open;
     // the event feed keeps refreshing while the pane is visible.
     LaunchedEffect(Unit) {
-        summary = withContext(Dispatchers.IO) { DesktopXp.defaultLedger().summary() }
+        summary = withContext(Dispatchers.IO) { DesktopXp.defaultXpStore().summary() }
+        tokenTotals = withContext(Dispatchers.IO) {
+            runCatching { SharedChatStore(DesktopXp.sharedDb()).llmTotals() }.getOrNull()
+        }
     }
     LaunchedEffect(workspace) {
         while (true) {
@@ -118,6 +125,13 @@ fun ProgressPane(appState: DesktopAppState) {
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
+                tokenTotals?.let { tt ->
+                    Text(
+                        "tokens (shared DB): in ${tt.inputTokens} · out ${tt.outputTokens} · ${tt.calls} llm calls",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
             }
         }
 
@@ -255,7 +269,7 @@ fun ProgressPane(appState: DesktopAppState) {
         }
 
         Text(
-            "Ledger file: ${DesktopXp.ledgerPath()}",
+            "Shared DB: ${DesktopXp.dbPath()} · legacy JSON ledger imported on first run",
             fontFamily = FontFamily.Monospace,
             fontSize = 11.sp,
             color = MaterialTheme.colorScheme.onSurfaceVariant
