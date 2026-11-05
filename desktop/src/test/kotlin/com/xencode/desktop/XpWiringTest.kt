@@ -99,9 +99,30 @@ class XpWiringTest {
 
     @Test
     fun systemPromptNamesWorkspaceAndTools() {
-        val prompt = DesktopAgentController.systemPromptFor("/tmp/xencode-demo")
+        val prompt = com.xencode.core.prompt.SystemPromptBuilder.build(
+            "/tmp/xencode-demo",
+            listOf("read_file", "run_command", "mcp_s_t")
+        )
         assertTrue(prompt.contains("/tmp/xencode-demo"))
         assertTrue(prompt.contains("read_file"))
         assertTrue(prompt.contains("run_command"))
+        assertTrue(prompt.contains("mcp_<server>_<tool>"))
+    }
+
+    @Test
+    fun automationDiscoversWorkspaceScripts() {
+        val ws = createTempDirectory(prefix = "xencode-scripts")
+        try {
+            assertEquals(emptyList<File>(), discoverScripts(ws.toString()))
+            val dir = File(ws.toFile(), ".xencode/scripts").apply { mkdirs() }
+            File(dir, "b.mjs").writeText("// b")
+            File(dir, "a.mjs").writeText("// a")
+            File(ws.toFile(), "root.mjs").writeText("// root")
+            File(ws.toFile(), "notes.txt").writeText("nope")
+            val found = discoverScripts(ws.toString())
+            assertEquals(listOf("a.mjs", "b.mjs", "root.mjs"), found.map { it.name })
+        } finally {
+            ws.toFile().deleteRecursively()
+        }
     }
 }

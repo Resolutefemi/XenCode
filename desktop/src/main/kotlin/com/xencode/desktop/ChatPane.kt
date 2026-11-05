@@ -43,9 +43,10 @@ import androidx.compose.ui.unit.sp
 
 /**
  * Conversation pane: streaming transcript (user right / assistant left, tool
- * calls inline in monospace) plus the input row. Enter sends, Shift+Enter
- * inserts a newline. Without a configured provider it shows a friendly empty
- * state that jumps straight to Settings.
+ * calls and system/command output inline in monospace), the decision-card
+ * banner and the input row with slash-command support. Enter sends,
+ * Shift+Enter inserts a newline. Without a configured provider it shows a
+ * friendly empty state that jumps straight to Settings.
  */
 @Composable
 fun ChatPane(
@@ -62,6 +63,8 @@ fun ChatPane(
     val streamingText by controller.streamingText.collectAsState()
     val busy by controller.busy.collectAsState()
     val error by controller.error.collectAsState()
+    val decisions by controller.openDecisions.collectAsState()
+    val permissionMode by controller.permissionMode.collectAsState()
 
     var input by remember { mutableStateOf("") }
     val listState = rememberLazyListState()
@@ -70,7 +73,9 @@ fun ChatPane(
         val text = input.trim()
         if (text.isNotEmpty() && !busy) {
             input = ""
-            controller.send(text)
+            if (!controller.handleSlash(text)) {
+                controller.send(text)
+            }
         }
     }
 
@@ -81,7 +86,7 @@ fun ChatPane(
     }
 
     Column(modifier = Modifier.fillMaxSize()) {
-        // Pane header: title, workspace hint, clear action.
+        // Pane header: title, workspace hint, compact + clear actions.
         Row(
             modifier = Modifier
                 .fillMaxWidth()
@@ -95,15 +100,31 @@ fun ChatPane(
                     color = MaterialTheme.colorScheme.onBackground
                 )
                 Text(
-                    "The agent can read, write, list files and run commands inside: $workspace",
+                    "Tools: read/write/edit/glob/grep/run_command + MCP · mode ${permissionMode.name.lowercase()} · workspace $workspace",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
             }
             TextButton(
+                onClick = { controller.compactContext() },
+                enabled = messages.isNotEmpty() && !busy
+            ) { Text("Compact") }
+            TextButton(
                 onClick = { controller.clearConversation() },
                 enabled = messages.isNotEmpty()
             ) { Text("Clear") }
+        }
+
+        // Decision-card banner: permission asks and .mjs prompts, approve/reject inline.
+        if (decisions.isNotEmpty()) {
+            decisions.take(2).forEach { card ->
+                DecisionBanner(
+                    title = card.title,
+                    body = card.body,
+                    options = card.options,
+                    onChoose = { controller.resolveDecision(card.id, it) }
+                )
+            }
         }
 
         // Transcript.
@@ -137,6 +158,7 @@ fun ChatPane(
                         is ChatEntry.User -> UserBubble(entry.text)
                         is ChatEntry.Assistant -> AssistantBubble(entry.text)
                         is ChatEntry.ToolCall -> ToolCallRow(entry.name, entry.argsJson)
+                        is ChatEntry.System -> SystemRow(entry.text)
                         is ChatEntry.ErrorLine -> ErrorRow(entry.message)
                     }
                 }
@@ -178,7 +200,7 @@ fun ChatPane(
                     },
                 enabled = !busy,
                 placeholder = {
-                    Text("Message XenCode — Enter to send, Shift+Enter for a new line")
+                    Text("Message XenCode — /help for commands, Enter to send, Shift+Enter for a new line")
                 },
                 maxLines = 8,
                 shape = RoundedCornerShape(12.dp)
@@ -261,6 +283,62 @@ private fun ToolCallRow(name: String, argsJson: String) {
         fontSize = 12.sp,
         color = MaterialTheme.colorScheme.onSurfaceVariant
     )
+}
+
+@Composable
+private fun SystemRow(text: String) {
+    Surface(
+        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.45f),
+        shape = RoundedCornerShape(8.dp),
+        modifier = Modifier.fillMaxWidth()
+    ) {
+        Text(
+            text = text,
+            modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
+            fontFamily = FontFamily.Monospace,
+            fontSize = 12.sp,
+            color = MaterialTheme.colorScheme.onSurfaceVariant
+        )
+    }
+}
+
+@Composable
+private fun DecisionBanner(
+    title: String,
+    body: String,
+    options: List<String>,
+    onChoose: (String) -> Unit
+) {
+    Surface(
+        color = MaterialTheme.colorScheme.tertiary.copy(alpha = 0.12f),
+        shape = RoundedCornerShape(10.dp),
+        border = androidx.compose.foundation.BorderStroke(1.dp, MaterialTheme.colorScheme.tertiary.copy(alpha = 0.5f)),
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 20.dp, vertical = 4.dp)
+    ) {
+        Column(modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp)) {
+            Text(
+                title,
+                style = MaterialTheme.typography.titleSmall,
+                color = MaterialTheme.colorScheme.onSurface
+            )
+            if (body.isNotBlank()) {
+                Text(
+                    body,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.padding(top = 6.dp)) {
+                options.forEach { option ->
+                    OutlinedButton(onClick = { onChoose(option) }) {
+                        Text(option.replaceFirstChar { it.uppercase() })
+                    }
+                }
+            }
+        }
+    }
 }
 
 @Composable

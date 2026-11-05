@@ -73,6 +73,9 @@ class XpLedger(private val file: File) {
 
     private val gson = Gson()
 
+    /** Backing ledger file, for callers that need to share the same store. */
+    fun backingFile(): File = file
+
     fun load(): List<Event> = runCatching {
         val type = object : TypeToken<List<Event>>() {}.type
         gson.fromJson<List<Event>>(file.readText(Charsets.UTF_8), type) ?: emptyList()

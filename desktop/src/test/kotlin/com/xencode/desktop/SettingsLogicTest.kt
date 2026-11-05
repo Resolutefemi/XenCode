@@ -96,7 +96,7 @@ class SettingsLogicTest {
             model = "m"
         )
         assertEquals(
-            "kind must be openai or anthropic",
+            "kind must be openai, anthropic or gemini",
             form.fieldErrors(existingNames = emptyList())[ProviderField.KIND]
         )
     }
