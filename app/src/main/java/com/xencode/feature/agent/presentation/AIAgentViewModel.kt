@@ -2437,7 +2437,9 @@ class AIAgentViewModel @Inject constructor(
                 }
                 val lines = mutableListOf(result.message)
                 if (completed != null) {
-                    runCatching { xpRecorder.recordGoalCompleted(sid, completed.title) }
+                    // Fire-and-forget: the DAO write is suspend; run it on its own job so a
+                    // slow DB never blocks the command result bubble.
+                    viewModelScope.launch { runCatching { xpRecorder.recordGoalCompleted(sid, completed.title) } }
                     lines += " (+${XpTelemetry.GOAL_AWARD} XP)"
                 }
                 lines += renderGoalDag(root, result.graph, headerOnly = true)
