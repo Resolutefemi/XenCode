@@ -84,7 +84,8 @@ class ConfigSupportTest {
 
     @Test
     fun validateRejectsBadKindUrlKeyAndModel() {
-        assertTrue(provider(kind = "gemini").validate()!!.contains("kind must be openai or anthropic"))
+        assertTrue(provider(kind = "grok").validate()!!.contains("kind must be openai, anthropic or gemini"))
+        assertTrue(provider(kind = "gemini").validate() == null) // first-class since the Gemini protocol landed
         assertTrue(provider(baseUrl = "ftp://x").validate()!!.contains("baseUrl must start with http(s)://"))
         assertTrue(provider(baseUrl = " ").validate()!!.contains("baseUrl is empty"))
         assertTrue(provider(apiKey = "").validate()!!.contains("apiKey is empty"))
