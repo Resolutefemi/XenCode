@@ -84,13 +84,13 @@ class DoctorCommand : XeCommand(
             echo("[ok] workspace DAG: ${dag.nodes.size} goals · ${dag.doneCount} done · ${dag.progressPercent}%")
         }
 
-        // --- XP ledger ---
-        val ledgerFile = MachineStores.ledgerFile()
-        if (!ledgerFile.isFile) {
-            echo("[info] ledger missing: ${ledgerFile.path} (awarded after your first completed goal)")
+        // --- XP ledger (shared database; the legacy JSON ledger is imported on first use) ---
+        val dbFile = MachineStores.sharedDbPath()
+        if (!java.io.File(dbFile).isFile) {
+            echo("[info] shared DB missing: $dbFile (created on your first chat turn or XP award)")
         } else {
-            val s = MachineStores.ledger().summary()
-            echo("[ok] ledger ${XpMath.summaryLine(s.totalXp, s.streakDays)} · ${s.recent.size} recent")
+            val s = MachineStores.sharedXpStore().summary()
+            echo("[ok] xp ${XpMath.summaryLine(s.totalXp, s.streakDays)} · shared DB $dbFile")
         }
 
         throw ProgramResult(if (hardFail) 1 else 0)

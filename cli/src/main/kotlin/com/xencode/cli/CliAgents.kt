@@ -27,6 +27,9 @@ object CliAgents {
         AgentRuntime(
             workspaceRoot = File(rt.workspaceRoot),
             provider = provider,
-            client = ChatClient()
+            client = ChatClient(),
+            // XP awards (chat turns, goal runs) land in the shared database —
+            // the same xp_events table the desktop app writes.
+            xpStore = MachineStores.sharedXpStore()
         )
 }

@@ -8,9 +8,11 @@ import com.github.ajalt.clikt.parameters.options.option
 import com.xencode.core.agent.AgentRuntime
 import com.xencode.core.agent.GoalRunner
 import com.xencode.core.agent.SlashCommands
+import com.xencode.core.db.SharedChatStore
 import com.xencode.core.goal.GoalDagFile
 import com.xencode.core.state.XenEventLog
 import com.xencode.core.telemetry.Telemetry
+import com.xencode.core.telemetry.XpMath
 import com.xencode.core.tools.AgentSession
 import com.xencode.core.tools.Permissions
 import kotlinx.coroutines.runBlocking
@@ -59,7 +61,14 @@ class ChatCommand : XeCommand(
             echo(if (ok) "[mcp] $name connected" else "[mcp] $name FAILED: ${agent.mcp.serverErrors()[name] ?: ""}")
         }
 
-        session = agent.newSession(maxToolRounds = 16)
+        session = agent.newSession(
+            maxToolRounds = 16,
+            listener = object : AgentSession.Listener {
+                override suspend fun onToolResult(name: String, argsJson: String, result: String) {
+                    recordToolRow(name, argsJson, result)
+                }
+            }
+        )
         sessionId = agent.sessions.newId()
         sessionCreatedAt = System.currentTimeMillis()
 
@@ -149,7 +158,8 @@ class ChatCommand : XeCommand(
             }
             "/goal" -> handleGoal(cmd.arg)
             "/dag" -> { echo(renderGoalDag(runtime.workspaceRoot, GoalDagFile.load(runtime.workspaceRoot))); true }
-            "/xp" -> { echo(renderXpSummary(MachineStores.ledger().summary())); true }
+            "/xp" -> { echo(renderXpSummary(MachineStores.sharedXpStore().summary())); true }
+            "/costs" -> { echo(costsOutput()); true }
             "/mcp" -> {
                 val servers = agent.mcp.connectedServers()
                 if (servers.isEmpty()) {
@@ -288,7 +298,9 @@ class ChatCommand : XeCommand(
     /** One user turn; @return true on success. */
     private suspend fun turn(text: String): Boolean {
         if (firstPrompt == null) firstPrompt = text
+        recordUserRow(text)
         var midLine = false
+        val startedAt = System.currentTimeMillis()
         val reply = session.send(
             text,
             onDelta = { delta ->
@@ -305,16 +317,127 @@ class ChatCommand : XeCommand(
             }
         )
         if (midLine) echo()
+        val durationMillis = (System.currentTimeMillis() - startedAt).toInt()
         if (reply == null) {
             val reason = session.lastFailure
                 ?: "empty reply from the provider (endpoint answered without an SSE stream — check base URL and key)"
             echo("Request failed: $reason", err = true)
+            recordLlmCall("error", durationMillis, reason)
             return false
         }
+        recordAssistantRow(reply)
+        recordLlmCall("success", durationMillis, null)
+        addSessionTokenTotals()
         runCatching { agent.ledger.awardTurn(text.take(50).ifBlank { "chat turn" }) }
         agent.events.emit(XenEventLog.Types.TURN_COMPLETED, reply.take(80))
         persistSession()
         return true
+    }
+
+    // ---- Shared-database persistence (aicode_agent_db) --------------------
+
+    private val chatStore by lazy { MachineStores.sharedChatStore() }
+
+    private fun upsertDbSession() {
+        runCatching {
+            chatStore.upsertSession(
+                SharedChatStore.SessionRow(
+                    id = sessionId,
+                    title = agent.sessions.titleFrom(firstPrompt ?: "session"),
+                    createdAt = sessionCreatedAt,
+                    updatedAt = System.currentTimeMillis(),
+                    workspacePath = runtime.workspaceRoot,
+                    providerId = CliAgents.activeProvider().name,
+                    model = CliAgents.activeProvider().model
+                )
+            )
+        }
+    }
+
+    private fun recordUserRow(prompt: String) {
+        runCatching {
+            upsertDbSession()
+            chatStore.appendMessage(
+                SharedChatStore.MessageRow(
+                    id = chatStore.newMessageId(),
+                    sessionId = sessionId,
+                    role = "USER",
+                    content = prompt,
+                    timestamp = System.currentTimeMillis()
+                )
+            )
+        }
+    }
+
+    private fun recordAssistantRow(text: String) {
+        runCatching {
+            val usage = session.lastTurnUsage
+            chatStore.appendMessage(
+                SharedChatStore.MessageRow(
+                    id = chatStore.newMessageId(),
+                    sessionId = sessionId,
+                    role = "ASSISTANT",
+                    content = text,
+                    timestamp = System.currentTimeMillis(),
+                    inputTokens = usage?.inputTokens ?: 0,
+                    outputTokens = usage?.outputTokens ?: 0
+                )
+            )
+        }
+    }
+
+    private fun recordToolRow(name: String, argsJson: String, result: String) {
+        runCatching {
+            chatStore.appendMessage(
+                SharedChatStore.MessageRow(
+                    id = chatStore.newMessageId(),
+                    sessionId = sessionId,
+                    role = "TOOL",
+                    content = result.take(4000),
+                    timestamp = System.currentTimeMillis(),
+                    toolName = name,
+                    toolArgs = argsJson.take(2000),
+                    isError = result.startsWith("ERROR")
+                )
+            )
+        }
+    }
+
+    private fun recordLlmCall(status: String, durationMillis: Int, errorMessage: String?) {
+        runCatching {
+            val usage = session.lastTurnUsage
+            chatStore.insertLlmCall(
+                SharedChatStore.LlmCallRow(
+                    sessionId = sessionId,
+                    providerId = CliAgents.activeProvider().name,
+                    model = CliAgents.activeProvider().model,
+                    kind = "chat",
+                    inputTokens = usage?.inputTokens ?: 0,
+                    outputTokens = usage?.outputTokens ?: 0,
+                    durationMillis = durationMillis,
+                    status = status,
+                    errorMessage = errorMessage?.take(400),
+                    stopReason = if (status == "success") "end_turn" else null,
+                    createdAt = System.currentTimeMillis()
+                )
+            )
+        }
+    }
+
+    private fun addSessionTokenTotals() {
+        runCatching {
+            val usage = session.lastTurnUsage ?: return
+            chatStore.addSessionTokens(sessionId, usage.inputTokens, usage.outputTokens, usage.inputTokens)
+        }
+    }
+
+    private fun costsOutput(): String {
+        val totals = runCatching { chatStore.llmTotals() }.getOrNull()
+            ?: return "Token usage unavailable (shared database could not be read)."
+        val s = MachineStores.sharedXpStore().summary()
+        return "Lifetime (shared DB): ${totals.calls} llm calls (${totals.errors} errored) · " +
+            "tokens in ${totals.inputTokens} · out ${totals.outputTokens} · " +
+            XpMath.summaryLine(s.totalXp, s.streakDays)
     }
 
     private fun persistSession() {
