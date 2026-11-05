@@ -29,20 +29,20 @@ import javax.inject.Inject
 import javax.inject.Singleton
 
 /**
- * 进程内常驻的终端会话池：所有 [TerminalSession] 的唯一所有者。
+ * In-process resident terminal session pool: the single owner of all [TerminalSession]s.
  *
- * 之所以放在 [Singleton] 而非 ViewModel：终端要「常驻后台」，离开终端页/切到聊天页都不能杀会话。
- * ViewModel 绑定在导航路由上、出栈即 onCleared，会连带 finishIfRunning 杀掉 proot——故把会话
- * 所有权上移到本管理器，ViewModel 退化为只读观察层。只要 App 进程还活着，会话就一直在跑。
+ * It lives in a [Singleton] instead of a ViewModel: terminals must "stay resident in the background", and leaving the terminal page or switching to chat must not kill sessions.
+ * ViewModels are bound to navigation routes and call onCleared when popped, which would finishIfRunning and kill proot — so session
+ * ownership is hoisted into this manager and the ViewModel degrades to a read-only observer. As long as the app process lives, sessions keep running.
  *
- * 每个标签有稳定且对 AI 友好的唯一 id（`term-N`）。AI 可凭 id：
- *  - [startBackgroundCommand] 把 `npm run dev` 之类挂后台并拿到 id；
- *  - [sendInput] 按 id 持续发命令；
- *  - [writeBytesToTab] 按 id 发送控制字符（如 Ctrl-C=0x03）；
- *  - [closeTab] 按 id 关闭并销毁会话；
- *  - [getTabOutput] 按 id 读终端内容（emulator 屏幕缓冲）。
+ * Each tab has a stable, AI-friendly unique id (`term-N`). By id the AI can:
+ *  - [startBackgroundCommand] run something like `npm run dev` in the background and get the id;
+ *  - [sendInput] keep sending commands by id;
+ *  - [writeBytesToTab] send control characters by id (e.g. Ctrl-C=0x03);
+ *  - [closeTab] close and destroy a session by id;
+ *  - [getTabOutput] read terminal content by id (emulator screen buffer).
  *
- * 所有可变状态读写都在主线程（UI 事件、AI 工作流派发到主线程的调用），不额外加锁。
+ * All mutable state reads/writes happen on the main thread (UI events, AI workflow calls dispatched to the main thread), so no extra locking.
  */
 @Singleton
 class TerminalSessionManager @Inject constructor(
@@ -56,26 +56,26 @@ class TerminalSessionManager @Inject constructor(
     private companion object {
         const val TAG = "TerminalSessionManager"
         const val TRANSCRIPT_ROWS = 2000
-        // 无视图挂载时用于「就地启动」会话的默认终端尺寸；视图挂载后会按真实尺寸 resize。
+        // Default terminal size for sessions started "in place" without a mounted view; resized to the real size once a view mounts.
         const val DEFAULT_COLUMNS = 80
         const val DEFAULT_ROWS = 24
-        /** 命令打印 `[command exited: N]` 后等待正常 onFinished 回调的缓冲（毫秒）。 */
+        /** Buffer (ms) after the command prints `[command exited: N]` while waiting for the normal onFinished callback. */
         const val EXIT_MARKER_GRACE_MS = 1_500L
-        /** 完成兜底监控轮询屏幕缓冲的间隔（毫秒）。旧值 200ms 每轮都会构建 2000 行 transcript 字符串，
-         *  长命令（构建/安装）期间持续占 CPU；间隔放宽到 1s 并配合「输出无增长跳过扫描」后开销可忽略。 */
+        /** Interval (ms) for the completion fallback monitor polling the screen buffer. The old 200ms built a 2000-line transcript string every round,
+         *  hogging CPU during long commands (builds/installs); relaxed to 1s plus "skip scanning when output has not grown", the overhead is negligible. */
         const val EXIT_MARKER_POLL_MS = 1_000L
-        /** 匹配命令退出标记 `[command exited: N]` 的定位前缀（配合手工解析退出码，免全量正则扫描）。 */
+        /** Locating prefix matching the command exit marker `[command exited: N]` (paired with manual exit-code parsing, avoiding a full regex scan). */
         const val EXIT_MARKER_PREFIX = "[command exited: "
-        /** 交互标签创建后多久仍无任何输出就 dump 容器诊断（proot 没起来/卡住时的主动取证）。 */
+        /** How long after creating an interactive tab with no output before dumping container diagnostics (proactive forensics when proot failed to start/hangs). */
         const val SILENT_DIAGNOSTIC_DELAY_MS = 10_000L
-        /** 真机 ROOT 模式下 su 二进制的候选路径（按常见 Magisk/KernelSU/SuperSU 布局）。 */
+        /** Candidate paths for the su binary in device ROOT mode (per common Magisk/KernelSU/SuperSU layouts). */
         val SU_CANDIDATES = listOf(
             "/system/bin/su", "/system/xbin/su", "/sbin/su",
             "/su/bin/su", "/data/adb/ksu/bin/su", "/system/bin/failsafe/su"
         )
     }
 
-    /** 当前是否为真机 ROOT 通道（PTY 以 `su` 启动，而非 proot）。 */
+    /** Whether the current channel is device ROOT (PTY started via `su` instead of proot). */
     private fun isDevice(): Boolean = modeHolder.currentMode() == ExecutionMode.DEVICE_ROOT
 
     private val _tabs = MutableStateFlow<List<TerminalTab>>(emptyList())
@@ -84,7 +84,7 @@ class TerminalSessionManager @Inject constructor(
     private val _activeTabId = MutableStateFlow<String?>(null)
     val activeTabId: StateFlow<String?> = _activeTabId.asStateFlow()
 
-    /** 触发任一标签输出/状态变化时自增，供 Compose 重组拉取最新屏幕内容。 */
+    /** Incremented on any tab output/state change so Compose recomposition pulls the latest screen content. */
     private val _revision = MutableStateFlow(0)
     val revision: StateFlow<Int> = _revision.asStateFlow()
 
@@ -99,11 +99,11 @@ class TerminalSessionManager @Inject constructor(
 
     fun tab(id: String): TerminalTab? = _tabs.value.firstOrNull { it.id == id }
 
-    /** 是否有后台终端标签仍在运行（用于判断 KeepaliveService 能否停）。 */
+    /** Whether any background terminal tab is still running (used to decide whether the KeepaliveService can stop). */
     fun hasBackgroundTabs(): Boolean =
         _tabs.value.any { it.isBackground && it.runState is RunState.Running }
 
-    /** 终端页进入时调用：没有任何标签则建一个交互 shell。幂等。 */
+    /** Called when entering the terminal page: creates an interactive shell if there are no tabs. Idempotent. */
     suspend fun ensureInitialTab() {
         if (_tabs.value.isEmpty()) {
             createInteractiveTab()
@@ -113,26 +113,26 @@ class TerminalSessionManager @Inject constructor(
     }
 
     /**
-     * 新建一个交互 shell 标签并设为当前。返回新标签 id。
+     * Create a new interactive shell tab and make it active. Returns the new tab id.
      *
-     * 首次会触发 rootfs/proot 解压（幂等）；失败抛异常由调用方处理。
+     * The first call triggers rootfs/proot extraction (idempotent); failures throw for the caller to handle.
      */
     suspend fun createInteractiveTab(): String = createTab()
 
     private suspend fun createTab(): String {
-        FileLogger.i(TAG, "新建交互终端标签：开始准备执行环境（真机=${isDevice()}）")
+        FileLogger.i(TAG, "New interactive terminal tab: preparing execution environment (device=${isDevice()})")
         ensureContainer()
         val id = nextId()
         val shellCommand = buildInteractiveCommand()
-        FileLogger.i(TAG, "交互 shell 命令（$id）：$shellCommand")
+        FileLogger.i(TAG, "Interactive shell command ($id): $shellCommand")
         val (session, client) = try {
             buildSession(shellCommand)
         } catch (e: Exception) {
-            FileLogger.e(TAG, "创建交互终端会话失败（$id）", e)
+            FileLogger.e(TAG, "Failed to create interactive terminal session ($id)", e)
             if (isDevice()) {
-                FileLogger.e(TAG, "真机模式 su 探测=${deviceRootEngine.reprobeRoot()}，ROOT 不可用时请在设置中检测")
+                FileLogger.e(TAG, "Device mode su probe=${deviceRootEngine.reprobeRoot()}; if ROOT is unavailable, run detection in settings")
             } else {
-                containerEngine.logContainerDiagnostics("创建交互终端会话失败")
+                containerEngine.logContainerDiagnostics("Failed to create interactive terminal session")
             }
             throw e
         }
@@ -148,19 +148,19 @@ class TerminalSessionManager @Inject constructor(
             )
         )
         _activeTabId.value = id
-        FileLogger.i(TAG, "新建交互终端标签 $id：pid=${session.pid} 运行中=${session.isRunning}")
+        FileLogger.i(TAG, "New interactive terminal tab $id: pid=${session.pid} running=${session.isRunning}")
         scheduleSilentSessionDiagnostic(id)
         return id
     }
 
     /**
-     * 交互 shell 启动命令。-w 已把 cwd 设为 /root/workspace，cd 仅作兜底；裸 sh/bash 在 tty 上自动进交互模式，
-     * 靠 ENV=/etc/profile 加载登录环境；exec 让 shell 取代外层 sh -c 成为前台交互 shell。
-     * 启动时跑首次初始化菜单（脚本自行判断已完成/已跳过则秒退）；用 `;` 分隔保证脚本任何失败都不阻塞进入 shell。
+     * Interactive shell startup command. -w already sets cwd to /root/workspace; cd is just a fallback; a bare sh/bash auto-enters interactive mode on a tty,
+     * loads the login environment via ENV=/etc/profile; exec lets the shell replace the outer sh -c as the foreground interactive shell.
+     * The first-run init menu runs at startup (the script itself exits immediately if already done/skipped); `;` separators ensure any script failure never blocks entering the shell.
      *
-     * 真机 ROOT 模式：cwd 由 buildSession 设为真实工作区；HOME 指向 App 私有 filesDir
-     * （其中 `workspace`/`.xencode` 符号链接由 [DeviceRootEngine.refreshWorkspaceLinks] 维护）；
-     * PS1 用 mksh 参数展开形式（`$PWD`），exec /system/bin/sh 收尾进交互。
+     * Device ROOT mode: cwd is set to the real workspace by buildSession; HOME points to the app-private filesDir
+     * (where the `workspace`/`.xencode` symlinks are maintained by [DeviceRootEngine.refreshWorkspaceLinks]);
+     * PS1 uses mksh parameter expansion (`$PWD`), and exec /system/bin/sh finishes into interactive mode.
      */
     private fun buildInteractiveCommand(): String {
         if (isDevice()) {
@@ -181,9 +181,9 @@ class TerminalSessionManager @Inject constructor(
     }
 
     /**
-     * 静默会话诊断：交互标签创建后若迟迟没有任何输出，说明 proot 可能没起来或卡在内核态
-     * （用户报「解压完成后终端一片空白、卡住」正是这种形态）。主动 dump 一次容器状态，
-     * 让日志里留下可定位的证据，而不是只能看到「新建标签」后再无下文。
+     * Silent session diagnostics: if an interactive tab produces no output long after creation, proot may have failed to start or be stuck in kernel mode
+     * (the user-reported "terminal blank and stuck after extraction finishes" is exactly this shape). Proactively dump the container state once
+     * so the logs keep locatable evidence, instead of just "new tab" followed by nothing.
      */
     private fun scheduleSilentSessionDiagnostic(tabId: String) {
         monitorScope.launch {
@@ -192,19 +192,19 @@ class TerminalSessionManager @Inject constructor(
             if (tab.runState !is RunState.Running) return@launch
             if (!getTabOutput(tabId).isNullOrBlank()) return@launch
             if (isDevice()) {
-                FileLogger.w(TAG, "终端标签 $tabId 启动 ${SILENT_DIAGNOSTIC_DELAY_MS}ms 后仍无任何输出（真机模式），su 探测=${deviceRootEngine.reprobeRoot()}")
+                FileLogger.w(TAG, "Terminal tab $tabId still has no output ${SILENT_DIAGNOSTIC_DELAY_MS}ms after start (device mode), su probe=${deviceRootEngine.reprobeRoot()}")
             } else {
-                FileLogger.w(TAG, "终端标签 $tabId 启动 ${SILENT_DIAGNOSTIC_DELAY_MS}ms 后仍无任何输出，dump 容器状态")
-                containerEngine.logContainerDiagnostics("终端标签 $tabId 静默")
+                FileLogger.w(TAG, "Terminal tab $tabId still has no output ${SILENT_DIAGNOSTIC_DELAY_MS}ms after start, dumping container state")
+                containerEngine.logContainerDiagnostics("Terminal tab $tabId silent")
             }
         }
     }
 
     /**
-     * 供 AI 预留接口：把一条命令挂后台跑（如 `npm run dev`），返回唯一 tabId。
+     * Interface reserved for the AI: run a command in the background (e.g. `npm run dev`) and return a unique tabId.
      *
-     * 命令跑完后 `exec /bin/sh` 保活，使该标签仍是一个可继续输入的会话（dev server 退出后也能复用），
-     * 且输出全程留在 emulator 缓冲里，用户切过去或 AI 用 [getTabOutput] 都能看到累计输出。
+     * After the command finishes, `exec /bin/sh` keeps it alive so the tab remains a session that can take input (reusable even after the dev server exits),
+     * and all output stays in the emulator buffer, visible to the user after switching over or to the AI via [getTabOutput].
      */
     override suspend fun startBackgroundCommand(
         command: String,
@@ -214,13 +214,13 @@ class TerminalSessionManager @Inject constructor(
     ): String {
         ensureContainer()
         val id = nextId()
-        // 用 `ec=$?` 捕获命令真实退出码后再 echo，否则 echo 本身恒为 0 会覆盖进程退出码，导致
-        // onFinished 回调里的 exitStatus 永远是 0、与屏幕上 echo 出来的码对不上。
-        // notify=true：echo 后 `exit $ec` 让 shell 以命令真实退出码结束 → proot 透传 → 回调 exitStatus
-        //   正确，且 shell 自然退出稳定触发 MSG_PROCESS_EXITED；否则脚本末尾是 echo，进程退出码被
-        //   污染成 0，而某些情况下进程不干净退出还会导致回调不触发。
-        // notify=false：echo 后 `exec ${shell}` 保活，标签可复用（dev server 退出后也能继续输入）；
-        //   此时进程不退出、不回调，退出码无意义，符合 dev server 场景设计。
+        // Capture the command's real exit code with `ec=$?` before echoing; otherwise echo itself is always 0 and overwrites the process exit code,
+        // making exitStatus in the onFinished callback forever 0 and mismatching the code echoed on screen.
+        // notify=true: after the echo, `exit $ec` ends the shell with the command's real exit code -> passed through by proot -> the callback's exitStatus
+        //   is correct, and the shell exiting naturally reliably triggers MSG_PROCESS_EXITED; otherwise the script ends with echo, the process exit code gets
+        //   polluted to 0, and in some cases an unclean exit also leaves the callback untriggered.
+        // notify=false: after the echo, `exec ${shell}` keeps the tab alive and reusable (input still possible after the dev server exits);
+        //   the process does not exit and the callback never fires, the exit code is meaningless — by design for the dev server scenario.
         val afterCommand = if (notify) "; exit \$ec" else "; exec ${if (isDevice()) deviceRootEngine.defaultShell() else containerEngine.defaultShell()}"
         val shellCommand = if (isDevice()) {
             "cd ${DeviceRootEngine.shellQuote(workspaceRepository.currentPath())} 2>/dev/null; " +
@@ -244,13 +244,13 @@ class TerminalSessionManager @Inject constructor(
                 runState = RunState.Running
             )
         )
-        // 后台命令不抢占当前标签焦点：仅当没有活动标签时才设为当前。
+        // Background commands do not steal the current tab focus: only made active when there is no active tab.
         if (_activeTabId.value == null) _activeTabId.value = id
 
         if (notify) monitorBackgroundExit(id)
 
         startKeepaliveService()
-        FileLogger.i(TAG, "后台命令标签 $id: $command")
+        FileLogger.i(TAG, "Background command tab $id: $command")
         return id
     }
 
@@ -259,7 +259,7 @@ class TerminalSessionManager @Inject constructor(
         return if (t.runState is RunState.Running) t else null
     }
 
-    /** 按 id 向标签发送输入并回车执行（AI 持续发命令的入口）。返回是否命中标签且仍活跃。 */
+    /** Send input to a tab by id and press enter to run it (the AI's entry for sending commands repeatedly). Returns whether the tab was found and is still active. */
     override fun sendInput(id: String, input: String, appendNewline: Boolean): Boolean {
         val tab = runningTab(id) ?: return false
         val text = if (appendNewline && !input.endsWith("\n")) input + "\n" else input
@@ -267,14 +267,14 @@ class TerminalSessionManager @Inject constructor(
         return true
     }
 
-    /** 按 id 向标签写入原始文本，不自动追加回车。 */
+    /** Write raw text to a tab by id, without appending a newline. */
     override fun writeToTab(id: String, text: String): Boolean {
         val tab = runningTab(id) ?: return false
         writeToSession(tab.session, text)
         return true
     }
 
-    /** 按 id 向标签写入原始字节（控制字符，如 Ctrl-C=0x03）。 */
+    /** Write raw bytes to a tab by id (control characters, e.g. Ctrl-C=0x03). */
     override fun writeBytesToTab(id: String, vararg bytes: Int): Boolean {
         val tab = runningTab(id) ?: return false
         val arr = ByteArray(bytes.size) { bytes[it].toByte() }
@@ -282,12 +282,12 @@ class TerminalSessionManager @Inject constructor(
         return true
     }
 
-    /** 向当前活动标签写入文本（额外按键行：方向键/Tab 等）。 */
+    /** Write text to the currently active tab (extra key row: arrow keys/Tab, etc.). */
     fun writeToActive(text: String) {
         activeTab?.let { writeToSession(it.session, text) }
     }
 
-    /** 向当前活动标签写入原始字节（控制字符，如 Ctrl-C=0x03）。 */
+    /** Write raw bytes to the currently active tab (control characters, e.g. Ctrl-C=0x03). */
     fun writeBytesToActive(vararg bytes: Int) {
         val tab = activeTab ?: return
         val arr = ByteArray(bytes.size) { bytes[it].toByte() }
@@ -295,8 +295,8 @@ class TerminalSessionManager @Inject constructor(
     }
 
     /**
-     * 按 id 读取终端内容（emulator 屏幕缓冲的完整 transcript），供 AI 拉取。
-     * 返回 null 表示无此标签。
+     * Read terminal content by id (the emulator screen buffer's full transcript), for the AI to pull.
+     * Returns null when there is no such tab.
      */
     override fun getTabOutput(id: String): String? {
         val tab = tab(id) ?: return null
@@ -305,7 +305,7 @@ class TerminalSessionManager @Inject constructor(
         }.getOrNull() ?: ""
     }
 
-    /** 列出全部标签的摘要（id/标题/是否后台/运行状态/命令），供 AI 选目标。 */
+    /** List summaries of all tabs (id/title/background flag/run state/command), for the AI to pick a target. */
     override fun listTabs(): List<TabInfo> = _tabs.value.map {
         TabInfo(
             id = it.id,
@@ -316,12 +316,12 @@ class TerminalSessionManager @Inject constructor(
         )
     }
 
-    /** 切换当前标签。 */
+    /** Switch the current tab. */
     fun activate(id: String) {
         if (_tabs.value.any { it.id == id }) _activeTabId.value = id
     }
 
-    /** 关闭并销毁标签（用户主动关 / AI close）。从列表移除并杀会话。 */
+    /** Close and destroy a tab (user-initiated close / AI close). Removed from the list and the session killed. */
     override fun closeTab(id: String): Boolean {
         val tab = tab(id) ?: return false
         runCatching { tab.session.finishIfRunning() }
@@ -360,29 +360,29 @@ class TerminalSessionManager @Inject constructor(
     private suspend fun ensureContainer() {
         val startedAt = System.currentTimeMillis()
         if (isDevice()) {
-            // 真机通道无容器概念：就绪判定 = 一次 su 探测（不通过则 ensureInstalled 抛异常）
+            // The device channel has no container concept: readiness = one su probe (ensureInstalled throws if it fails)
             deviceRootEngine.ensureInstalled()
             deviceRootEngine.refreshWorkspaceLinks()
-            FileLogger.i(TAG, "真机 ROOT 就绪（耗时 ${System.currentTimeMillis() - startedAt}ms）")
+            FileLogger.i(TAG, "Device ROOT ready (took ${System.currentTimeMillis() - startedAt}ms)")
             return
         }
         containerEngine.ensureInstalled()
         if (!containerEngine.isContainerInstalled()) {
             throw IllegalStateException("Container is not installed (missing rootfs/proot)")
         }
-        FileLogger.i(TAG, "容器就绪（耗时 ${System.currentTimeMillis() - startedAt}ms）")
+        FileLogger.i(TAG, "Container ready (took ${System.currentTimeMillis() - startedAt}ms)")
     }
 
     private fun nextId(): String = "term-${idCounter.incrementAndGet()}"
 
     /**
-     * 完成兜底监控：termux 的会话结束依赖 PTY 读到 EOF，而 proot 宿主进程在 Android 上可能
-     * 概率性不退出（即使其 bash 已执行 exit，proot 仍攥着 /dev/pts 不释放），导致 onFinished
-     * 永不回调、notify=true 的任务不触发通知。bash 在真正退出前必打印 `[command exited: N]`，
-     * 以此作为命令结束的可靠信号：监控到后短缓冲（给正常回调留时间），仍 Running 则强制收尾。
+     * Completion fallback monitor: termux session completion relies on the PTY reading EOF, but the proot host process on Android may
+     * probabilistically never exit (even after its bash runs exit, proot keeps holding /dev/pts), leaving onFinished
+     * untriggered and notify=true tasks without notifications. bash always prints `[command exited: N]` before truly exiting,
+     * so that is the reliable completion signal: once seen, wait a short buffer (leaving time for the normal callback), then force-finish if still Running.
      */
-    /** 在输出文本的末尾行中定位退出标记 `[command exited: N]` 并解析退出码；未找到返回 null。
-     *  要求退出标记必须作为独立行出现（以换行开头或位于文本起始），且从末尾向后定位，避免 PTY 命令行回显误判。 */
+    /** Locate the exit marker `[command exited: N]` in the trailing lines of the output text and parse the exit code; returns null when not found.
+     *  The marker must appear as its own line (preceded by a newline or at the start of the text), searched backward from the end to avoid PTY command-line echo false positives. */
     private fun extractExitCode(output: String): Int? {
         val tail = output.takeLast(1000)
         val idx = tail.lastIndexOf(EXIT_MARKER_PREFIX)
@@ -407,20 +407,20 @@ class TerminalSessionManager @Inject constructor(
                 if (tab.runState !is RunState.Running) return@launch
                 val output = getTabOutput(tabId) ?: return@launch
                 if (!seenMarker) {
-                    // 输出无增长时跳过扫描：仅比较长度，省去每轮全量定位退出标记。
+                    // Skip scanning when output has not grown: only compare lengths, avoiding a full marker scan each round.
                     if (output.length != lastOutputLen) {
                         lastOutputLen = output.length
                         if (extractExitCode(output) != null) seenMarker = true
                     }
                 } else {
                     delay(EXIT_MARKER_GRACE_MS)
-                    // 缓冲后再查：正常 onFinished 回调若已触发，状态不再 Running，此处直接退出。
+                    // Re-check after the buffer: if the normal onFinished callback already fired, the state is no longer Running and we exit here.
                     val current = tab(tabId) ?: return@launch
                     if (current.runState is RunState.Running) {
                         val exitCode = extractExitCode(getTabOutput(tabId) ?: "") ?: 0
                         current.runState = RunState.Finished(exitCode)
                         bumpRevision()
-                        FileLogger.i(TAG, "兜底：标签 $tabId 检测到退出标记，强制收尾 exit=$exitCode")
+                        FileLogger.i(TAG, "Fallback: tab $tabId exit marker detected, force-finishing exit=$exitCode")
                         if (current.isBackground) maybeStopKeepalive(current)
                         if (current.notifyOnExit && !current.finishedNotified) {
                             current.finishedNotified = true
@@ -459,15 +459,15 @@ class TerminalSessionManager @Inject constructor(
     }
 
     /**
-     * 构造一个 PTY 会话（容器 proot / 真机 su），并接好输出/结束回调。
+     * Build a PTY session (container proot / device su) and wire up the output/finish callbacks.
      *
-     * client 的 viewProvider/onFinished 都以 session 为键回查 [_tabs]：会话与标签一一对应，
-     * 故无需把 tab 引用提前注入 client（避免「构造 client 时 tab 还不存在」的先有鸡先有蛋）。
+     * The client's viewProvider/onFinished look up [_tabs] keyed by session: sessions and tabs map one-to-one,
+     * so there is no need to inject the tab reference into the client up front (avoiding the chicken-and-egg of building the client before the tab exists).
      */
     private fun buildSession(shellCommand: String): Pair<TerminalSession, AppTerminalSessionClient> {
         val workspace = workspaceRepository.currentPath()
-        // 可执行文件 / argv / 环境 / cwd 按通道分支；argv[0] 必须与 executable 一致
-        // （Termux TerminalSession 的 cmd 仅用于 execvp 查找，真实 argv 由 args 原样构成）。
+        // Executable / argv / env / cwd branch by channel; argv[0] must match the executable
+        // (Termux TerminalSession's cmd is only used for execvp lookup; the real argv is formed verbatim from args).
         val executable: String
         val argv: Array<String>
         val env: Array<String>
@@ -475,14 +475,14 @@ class TerminalSessionManager @Inject constructor(
         if (isDevice()) {
             executable = resolveSuExecutable()
             argv = arrayOf(executable, "-c", shellCommand)
-            // TerminalSession 环境数组不继承父进程，显式合并（同 proot 的 ptyEnvArray 语义）；
-            // su 会重置 HOME， shellCommand 里已 export 修正，这里的 HOME 只是兜底。
+            // TerminalSession's env array does not inherit the parent process, so merge explicitly (same semantics as proot's ptyEnvArray);
+            // su resets HOME; shellCommand already exports the fix, this HOME is just a fallback.
             env = (System.getenv() + mapOf(
                 "HOME" to pathHomeResolver.home(),
                 "TERM" to "xterm-256color"
             )).map { "${it.key}=${it.value}" }.toTypedArray()
             cwd = if (java.io.File(workspace).isDirectory) workspace else appContext.filesDir.absolutePath
-            FileLogger.i(TAG, "PTY 启动(真机)：workspace=$workspace su=$executable")
+            FileLogger.i(TAG, "PTY start (device): workspace=$workspace su=$executable")
         } else {
             val invocation = containerEngine.buildProotInvocation(shellCommand, workspace)
             executable = invocation.executable
@@ -491,10 +491,10 @@ class TerminalSessionManager @Inject constructor(
             cwd = appContext.filesDir.absolutePath
             FileLogger.i(
                 TAG,
-                "PTY 启动：workspace=$workspace 可执行=$executable" +
-                    "（存在=${java.io.File(executable).exists()}）argv=${argv.joinToString(" ")}"
+                "PTY start: workspace=$workspace executable=$executable" +
+                    "(exists=${java.io.File(executable).exists()}) argv=${argv.joinToString(" ")}"
             )
-            FileLogger.d(TAG, "PTY 环境变量键：${invocation.env.keys.joinToString(",")}")
+            FileLogger.d(TAG, "PTY env keys: ${invocation.env.keys.joinToString(",")}")
         }
         lateinit var session: TerminalSession
         val client = AppTerminalSessionClient(
@@ -504,7 +504,7 @@ class TerminalSessionManager @Inject constructor(
                 _tabs.value.firstOrNull { it.session === finished }?.let { target ->
                     target.runState = RunState.Finished(finished.exitStatus)
                     bumpRevision()
-                    FileLogger.i(TAG, "终端标签 ${target.id} 会话结束 exit=${finished.exitStatus}")
+                    FileLogger.i(TAG, "Terminal tab ${target.id} session finished exit=${finished.exitStatus}")
                     if (target.isBackground) maybeStopKeepalive(target)
                     if (target.notifyOnExit && !target.finishedNotified) {
                         target.finishedNotified = true
@@ -520,22 +520,22 @@ class TerminalSessionManager @Inject constructor(
         )
         session = TerminalSession(executable, cwd, argv, env, TRANSCRIPT_ROWS, client)
         session.updateSize(DEFAULT_COLUMNS, DEFAULT_ROWS)
-        FileLogger.i(TAG, "PTY 会话已创建：pid=${session.pid} 运行中=${session.isRunning}")
+        FileLogger.i(TAG, "PTY session created: pid=${session.pid} running=${session.isRunning}")
         return session to client
     }
 
-    /** 解析 su 可执行文件路径：按常见布局探测，找不到时回退裸 "su"（靠 execvp 搜 PATH）。 */
+    /** Resolve the su executable path: probe common layouts, fall back to bare "su" (relying on execvp PATH search) when not found. */
     private fun resolveSuExecutable(): String =
         SU_CANDIDATES.firstOrNull { java.io.File(it).exists() } ?: "su"
 
     private fun startKeepaliveService() {
         TerminalKeepaliveService.startSession(appContext)
-        FileLogger.i(TAG, "后台保活 Service 已启动")
+        FileLogger.i(TAG, "Background keepalive service started")
     }
 
     private fun stopKeepaliveService() {
         TerminalKeepaliveService.stopSession(appContext)
-        FileLogger.i(TAG, "后台保活 Service 已停止")
+        FileLogger.i(TAG, "Background keepalive service stopped")
     }
 
     private fun maybeStopKeepalive(closingTab: TerminalTab) {

@@ -1,11 +1,14 @@
 package com.xencode.core.db
 
 /**
- * 把 SQL 脚本按语句切分，识别注释与字面量，保证其中的分号不参与切分。
+ * Splits an SQL script into statements, recognizing comments and literals so that semicolons
+ * inside them do not take part in the split.
  *
- * 旧实现直接 `split(";")`，字符串字面量里出现分号（如 `';base64,'`）会被拦腰截断，
- * 整条迁移失败。状态机覆盖：`--` 行注释、`/* */` 块注释、单引号/双引号/反引号
- * 字面量（含双写转义 `''`）、`[...]` 标识符。块注释按 SQLite 语义不支持嵌套。
+ * The old implementation did a plain `split(";")`, so a semicolon inside a string literal
+ * (e.g. `';base64,'`) cut the statement in half and the whole migration failed. The state
+ * machine covers: `--` line comments, `/* */` block comments, single/double/backtick quoted
+ * literals (including the doubled-quote escape `''`), and `[...]` identifiers. Per SQLite
+ * semantics, block comments do not nest.
  */
 object SqlScriptSplitter {
 
@@ -45,7 +48,7 @@ object SqlScriptSplitter {
                     i++
                     while (i < n) {
                         if (script[i] == c) {
-                            // 双写是转义（SQL 的 ''、``、""），继续留在字面量内
+                            // A doubled quote is an escape (SQL's '', ``, ""); keep scanning inside the literal
                             current.append(c)
                             i++
                             if (i < n && script[i] == c) {

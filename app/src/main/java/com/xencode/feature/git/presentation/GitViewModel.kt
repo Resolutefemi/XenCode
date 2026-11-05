@@ -48,11 +48,11 @@ import kotlinx.coroutines.launch
 import javax.inject.Inject
 
 /**
- * Git 页的 UI 状态与操作。
+ * UI state and actions for the Git page.
  *
- * 进入页面即 [refresh] 并发拉取 status/graph/remote，随后异步拉取全量分支/标签；每个写操作
- * （暂存/提交/拉取/推送）执行后自动刷新并通过 [GitUiState.toast] 反馈。[GitUiState.busy]
- * 守卫防止并发写操作相互踩踏。
+ * Entering the page triggers [refresh], which concurrently fetches status/graph/remote then the full
+ * branch/tag list async; every write action (stage/commit/pull/push) refreshes automatically and reports
+ * back via [GitUiState.toast]. The [GitUiState.busy] guard keeps concurrent writes from trampling each other.
  */
 private fun GitGraph.toGitCommits() =
     commits.map { GitCommit(it.hash, it.shortHash, it.author, it.date, it.message) }
@@ -68,11 +68,11 @@ class GitViewModel @Inject constructor(
 
     private companion object {
         const val TAG = "GitViewModel"
-        /** diff 行数上限：超过则跳过 LCS，避免移动端 O(n·m) 内存压力。与 FileTools 对齐。 */
+        /** Diff line cap: beyond it LCS is skipped to avoid O(n·m) memory pressure on mobile. Aligned with FileTools. */
         const val MAX_DIFF_LINES = 2000
-        /** 单行长度上限：超长单行（如压缩的 JSON）渲染会撑爆 Compose Constraints，直接降级提示。 */
+        /** Single-line length cap: over-long lines (e.g. minified JSON) blow up Compose Constraints when rendered, so degrade to a notice. */
         const val MAX_DIFF_LINE_LENGTH = 2000
-        /** diff 两侧内容的来源标记，只进 [DiffData.oldRef]/[DiffData.newRef] 供排查，不展示给用户。 */
+        /** Source markers for the two diff sides; only feed [DiffData.oldRef]/[DiffData.newRef] for troubleshooting, never shown to users. */
         const val REF_WORKTREE = "worktree"
         const val REF_INDEX = "index"
         const val REF_EMPTY = "empty"
@@ -84,45 +84,45 @@ class GitViewModel @Inject constructor(
         val status: GitStatus? = null,
         val branches: List<GitBranch> = emptyList(),
         val commits: List<GitCommit> = emptyList(),
-        /** 拓扑图视图：提交（含父哈希）+ 引用 + 泳道布局，供 LogTab 绘制彩色分支连线。 */
+        /** Topology graph view: commits (with parent hashes) + refs + swimlane layout, for LogTab to draw colored branch connectors. */
         val graph: GitGraph = GitGraph.EMPTY,
         val tags: List<GitTag> = emptyList(),
         val tab: GitTab = GitTab.STATUS,
         val busy: Boolean = false,
         val toast: String? = null,
-        /** 是否已配置远程仓库，控制拉取/推送按钮可用性。 */
+        /** Whether a remote is configured; controls pull/push button availability. */
         val hasRemote: Boolean = false,
-        /** 是否已配置全局署名 user.name（git config --global），控制提交按钮可用性；无署名提交会成为失败提交。 */
+        /** Whether a global user.name identity is configured (git config --global); controls the commit button, since committing without one fails. */
         val hasIdentity: Boolean = false,
-        /** 当前在详情弹层中查看的提交 hash；null 表示未打开。 */
+        /** Hash of the commit shown in the detail sheet; null when closed. */
         val commitDetailHash: String? = null,
-        /** 已懒加载的提交文件清单，按 hash 缓存。 */
+        /** Lazily loaded per-commit file lists, cached by hash. */
         val commitFiles: Map<String, List<GitFileChange>> = emptyMap(),
-        /** 正在加载文件清单的提交 hash。 */
+        /** Hash of the commit whose file list is loading. */
         val loadingCommit: String? = null,
-        /** 正在分页加载更旧的提交（滚动到底触发）。不置 busy，避免阻塞写操作。 */
+        /** Whether older commits are paging in (triggered on scroll to bottom). Does not set busy, so write actions are not blocked. */
         val graphLoadingMore: Boolean = false,
-        /** 全量分支/标签是否已加载（进入页面即后台拉取，不阻塞首屏；切 BRANCHES tab 时未完成则继续等）。 */
+        /** Whether the full branch/tag list has loaded (fetched in the background on entry, not blocking the first screen; if still pending when switching to the BRANCHES tab, keep waiting). */
         val branchesLoaded: Boolean = false,
-        /** 正在加载全量分支/标签。 */
+        /** Whether the full branch/tag list is loading. */
         val branchesLoading: Boolean = false,
-        /** 储藏列表。 */
+        /** Stash list. */
         val stashes: List<GitStash> = emptyList(),
-        /** 正在加载储藏列表。 */
+        /** Whether the stash list is loading. */
         val stashesLoading: Boolean = false,
-        /** 正在切换分支。 */
+        /** Branch currently being checked out. */
         val checkoutLoading: String? = null,
-        /** 已展开的未跟踪目录 → 其下未跟踪文件清单。git status 把新目录折叠成一行，展开时按需查询。 */
+        /** Expanded untracked directory → its untracked file list. git status collapses new directories into one line; expansion queries on demand. */
         val untrackedDirFiles: Map<String, List<String>> = emptyMap(),
-        /** 正在展开的未跟踪目录路径。 */
+        /** Path of the untracked directory currently being expanded. */
         val untrackedDirLoading: String? = null,
-        /** 正在生成提交信息。 */
+        /** Whether a commit message is being generated. */
         val generatingCommitMessage: Boolean = false,
-        /** 是否显示 diff 全屏页；进入即置 true，diffData 为 null 时页内显示加载中。 */
+        /** Whether the full-screen diff page is shown; set true on entry, and while diffData is null the page shows loading. */
         val diffVisible: Boolean = false,
-        /** 正在查看 diff 的文件路径；加载中（diffData 为 null）时供顶栏显示文件名。 */
+        /** Path of the file being diffed; shown in the top bar while loading (diffData null). */
         val diffPath: String? = null,
-        /** diff 视图数据；非 null 时 diff 页渲染内容。 */
+        /** Diff view data; when non-null the diff page renders content. */
         val diffData: DiffData? = null
     )
 
@@ -130,13 +130,13 @@ class GitViewModel @Inject constructor(
     val state: StateFlow<GitUiState> = _state.asStateFlow()
 
     /**
-     * 是否为真机执行模式（DEVICE_ROOT）。
+     * Whether this is device-root execution mode (DEVICE_ROOT).
      *
-     * 真机通道把命令直接打到设备 root 环境，而绝大多数 ROM 不带 git 二进制，
-     * 此前进入本页会直接卡在「初始化 GIT 失败」。真机模式因此不再依赖 Git 做版本管理，
-     * 改用「检查点快照回退」（com.xencode.feature.agent.domain.checkpoint.CheckpointManager）：
-     * 每轮对话自动快照被 AI 修改/新建的文件，回退即可把代码恢复到那一轮的原始状态，
-     * 与 Cursor / Trae 的 checkpoint rewind 同一套思路。
+     * The device channel runs commands directly in the device's root environment, and most ROMs ship
+     * no git binary, so this page used to get stuck at "failed to initialize GIT". Device mode therefore
+     * uses "checkpoint snapshot rewind" (com.xencode.feature.agent.domain.checkpoint.CheckpointManager)
+     * instead: each conversation turn auto-snapshots files the AI modified/created, and rewinding restores
+     * the code to that turn's original state - the same idea as Cursor / Trae's checkpoint rewind.
      */
     val deviceRootMode: StateFlow<Boolean> = executionModeHolder.mode
         .map { it == ExecutionMode.DEVICE_ROOT }
@@ -147,8 +147,8 @@ class GitViewModel @Inject constructor(
         )
 
     init {
-        // 按当前执行模式决定是否跑 git：首帧发射代替原来的 init { refresh() }，
-        // 且模式在设置页切来切去时（本页仍存活）能立刻跟着切换，不残留上一次的数据。
+        // Decide whether to run git from the current execution mode: the first emission replaces the
+        // old init { refresh() }, and when the mode flips in settings (with this page alive) it switches at once, leaving no stale data.
         viewModelScope.launch {
             executionModeHolder.mode.collect { mode ->
                 if (mode == ExecutionMode.DEVICE_ROOT) {
@@ -160,9 +160,9 @@ class GitViewModel @Inject constructor(
         }
     }
 
-    /** 仓库快照：并发拉取 status/graph/remote（+可选 identity）的结果。不含全量分支/标签——
-     * 那些在 [refresh] 成功后异步拉取（[loadBranches]），避免阻塞首屏。
-     * graph 的 refs 标注只用本地分支（[repository.localRefsOnly]，亚秒级），远程/标签标注由 [loadBranches] 补全。 */
+    /** Repo snapshot: the result of concurrently fetching status/graph/remote (+ optional identity). Excludes the full branch/tag list -
+     * those load asynchronously after [refresh] succeeds ([loadBranches]) so the first screen is not blocked.
+     * The graph's ref annotations use local branches only ([repository.localRefsOnly], sub-second); remote/tag annotations are completed by [loadBranches]. */
     private data class RepoSnapshot(
         val status: GitStatus,
         val graph: GitGraph,
@@ -171,7 +171,7 @@ class GitViewModel @Inject constructor(
         val untrackedDirFiles: Map<String, List<String>> = emptyMap()
     )
 
-    /** 并发拉取轻量快照：status + graph(本地 refs) + remote + 可选 identity。 */
+    /** Concurrently fetches the lightweight snapshot: status + graph (local refs) + remote + optional identity. */
     private suspend fun loadSnapshot(includeIdentity: Boolean): RepoSnapshot = coroutineScope {
         val s = async { repository.status() }
         val localRefs = async { repository.localRefsOnly() }
@@ -183,8 +183,8 @@ class GitViewModel @Inject constructor(
     }
 
     /**
-     * 刷新后重查已展开的未跟踪目录，保住展开态。只保留仍出现在 [GitStatus.untracked] 里的目录——
-     * 目录被暂存或删除后就不该再留着陈旧的文件列表。
+     * Re-queries expanded untracked directories after refresh, preserving their expansion. Only directories still present in [GitStatus.untracked] are kept -
+     * once a directory is staged or deleted, its stale file list should not linger.
      */
     private suspend fun reloadExpandedUntrackedDirs(status: GitStatus): Map<String, List<String>> {
         val dirs = _state.value.untrackedDirFiles.keys.filter { it in status.untracked }
@@ -197,16 +197,16 @@ class GitViewModel @Inject constructor(
 
     fun setTab(tab: GitTab) {
         _state.update { it.copy(tab = tab) }
-        // 兜底：进入页面即已异步加载；若尚未开始/完成（如加载失败后重进），切 tab 时再补一次。
+        // Fallback: loading starts async on page entry; if it has not started/finished (e.g. re-entering after a failure), try again when switching tabs.
         if (tab == GitTab.BRANCHES && !_state.value.branchesLoaded && !_state.value.branchesLoading) {
             loadBranches()
         }
     }
 
     /**
-     * 加载全量分支/标签（进入页面 [refresh] 成功后即触发，无需等切 BRANCHES tab）。
-     * 一次 [repository.loadAllRefs] 拉取，填充 branches/tags 并用全量 refs 更新 graph 的标注。
-     * 不置 busy，只读不阻塞写操作。已加载过则跳过；写操作后需手动调 [refreshBranchesIfLoaded] 同步。
+     * Loads the full branch/tag list (triggered once [refresh] succeeds on page entry; no need to wait for the BRANCHES tab).
+     * A single [repository.loadAllRefs] fetch fills branches/tags and updates the graph's annotations with the full refs.
+     * Does not set busy; read-only, never blocks write actions. Skips if already loaded; after write actions, call [refreshBranchesIfLoaded] manually to sync.
      */
     fun loadBranches() {
         if (_state.value.branchesLoading || _state.value.branchesLoaded) return
@@ -214,7 +214,7 @@ class GitViewModel @Inject constructor(
         viewModelScope.launch {
             try {
                 val allRefs = repository.loadAllRefs()
-                // 用全量 refs 更新 graph 标注（远程分支+标签补全）。
+                // Update graph annotations with the full refs (completing remote branches + tags).
                 val graph = repository.graphAppend(_state.value.graph.commits, allRefs.refsByCommit)
                 val commits = graph.toGitCommits()
                 _state.update {
@@ -222,14 +222,14 @@ class GitViewModel @Inject constructor(
                 }
             } catch (e: Exception) {
                 if (e is CancellationException) throw e
-                FileLogger.e(TAG, "加载分支列表失败", e)
+                FileLogger.e(TAG, "Failed to load branch list", e)
                 _state.update { it.copy(branchesLoading = false, toast = context.getString(R.string.git_toast_load_branches_failed, e.message)) }
             }
         }
     }
 
     /**
-     * 写操作后同步刷新已加载的分支/标签（若已加载过）。未加载过则不主动拉，保持延迟加载语义。
+     * After a write action, refreshes the already-loaded branch/tag list (if loaded). Never fetches on its own when not loaded, preserving lazy-load semantics.
      */
     private fun refreshBranchesIfLoaded() {
         if (!_state.value.branchesLoaded) return
@@ -239,19 +239,19 @@ class GitViewModel @Inject constructor(
                 _state.update { it.copy(branches = allRefs.branches, tags = allRefs.tags) }
             } catch (e: Exception) {
                 if (e is CancellationException) throw e
-                FileLogger.e(TAG, "刷新分支列表失败", e)
+                FileLogger.e(TAG, "Failed to refresh branch list", e)
             }
         }
     }
 
     fun refresh() {
-        // 真机模式：设备环境没有 git，本页已改为快照回退指引，不发起任何 git 命令。
+        // Device mode: the device environment has no git; this page now shows snapshot-rewind guidance and issues no git commands.
         if (executionModeHolder.currentMode() == ExecutionMode.DEVICE_ROOT) {
             _state.update { GitUiState(loading = false, notARepo = false) }
             return
         }
         if (_state.value.busy) return
-        // 容器未就绪时不执行 git 命令，直接提示用户去终端页完成初始化，避免误显示"非 Git 仓库"。
+        // When the container is not ready, run no git commands; prompt the user to finish initialization on the terminal page instead of wrongly showing "not a git repository".
         repository.notReadyHint()?.let { hint ->
             _state.update { it.copy(loading = false, toast = hint) }
             return
@@ -268,17 +268,17 @@ class GitViewModel @Inject constructor(
                 _state.update {
                     it.copy(loading = false, notARepo = false, status = snap.status, commits = commits, graph = snap.graph, hasRemote = snap.hasRemote, hasIdentity = snap.hasIdentity, untrackedDirFiles = snap.untrackedDirFiles, branchesLoaded = false, branchesLoading = false, branches = emptyList(), tags = emptyList())
                 }
-                // 页面已打开：后台拉取全量分支/标签，用户切到 BRANCHES tab 时无需再等。
+                // Page is open: fetch the full branch/tag list in the background so the user need not wait when switching to the BRANCHES tab.
                 loadBranches()
             } catch (e: Exception) {
                 if (e is CancellationException) throw e
-                FileLogger.e(TAG, "刷新失败", e)
+                FileLogger.e(TAG, "Refresh failed", e)
                 _state.update { it.copy(loading = false, toast = context.getString(R.string.git_toast_refresh_failed, e.message)) }
             }
         }
     }
 
-    /** 执行一个写操作：置 busy → 跑命令 → 刷新 → 反馈。操作间互斥。 */
+    /** Runs one write action: set busy → run command → refresh → report. Actions are mutually exclusive. */
     private fun runAction(
         @StringRes nameRes: Int,
         action: suspend () -> String,
@@ -293,11 +293,11 @@ class GitViewModel @Inject constructor(
                 context.getString(R.string.git_toast_action_success, name)
             } catch (e: Exception) {
                 if (e is CancellationException) throw e
-                FileLogger.e(TAG, "${name}失败", e)
+                FileLogger.e(TAG, "$name failed", e)
                 val reason = (e as? GitCommandFailureException)?.output ?: e.message
                 context.getString(R.string.git_toast_action_failed, name, GitErrorMessage.friendly(reason ?: ""))
             }
-            // 刷新以反映新状态；失败也刷新，让 UI 与仓库一致。
+            // Refresh to reflect the new state; refresh on failure too, keeping the UI consistent with the repository.
             try {
                 if (repository.isRepo()) {
                     val snap = loadSnapshot(includeIdentity = false)
@@ -321,24 +321,25 @@ class GitViewModel @Inject constructor(
     fun unstageAll() = runAction(R.string.git_action_unstage_all, { repository.unstageAll() })
 
     /**
-     * 回退单个文件的改动。[staged] 为 true 时连已暂存内容一起还原到上次提交，否则只回退未暂存改动
-     * （被删除的文件由此取回）。改动未提交过，回退后无法再找回，故 UI 侧须先二次确认。
+     * Reverts one file's changes. [staged] true restores to the last commit including staged content;
+     * otherwise only unstaged changes are reverted (deleted files come back this way). The changes were
+     * never committed, so once reverted they are unrecoverable - the UI must double-confirm first.
      */
     fun revertFile(path: String, staged: Boolean) =
         runAction(R.string.git_action_revert, {
             if (staged) repository.revertToHead(path) else repository.revertWorktree(path)
         })
 
-    /** 回退全部未暂存改动，已暂存内容保持不动。 */
+    /** Reverts all unstaged changes; staged content is left untouched. */
     fun revertAllUnstaged() = runAction(R.string.git_action_revert_all, { repository.revertAllWorktree() })
 
-    /** 删除未跟踪的文件或目录。这些文件从未提交过，删除后 git 无法恢复。 */
+    /** Deletes untracked files or directories. They were never committed, so git cannot restore them after deletion. */
     fun deleteUntracked(path: String) =
         runAction(R.string.git_action_delete_file, { repository.deleteUntracked(path) })
 
     /**
-     * 展开/收起一个折叠的未跟踪目录（`git status` 把新目录显示成 `dir/` 一行）。展开时按需查询目录下
-     * 未跟踪文件，使其可单独查看差异或删除。不置 busy——只读查询不该阻塞写操作。
+     * Expands/collapses a collapsed untracked directory (`git status` shows a new directory as one `dir/` line).
+     * Expanding queries the untracked files inside on demand so each can be diffed or deleted individually. Does not set busy - a read-only query should not block write actions.
      */
     fun toggleUntrackedDir(dir: String) {
         if (dir in _state.value.untrackedDirFiles) {
@@ -352,7 +353,7 @@ class GitViewModel @Inject constructor(
                 repository.untrackedFilesIn(dir)
             } catch (e: Exception) {
                 if (e is CancellationException) throw e
-                FileLogger.e(TAG, "加载未跟踪目录失败: $dir", e)
+                FileLogger.e(TAG, "Failed to load untracked directory: $dir", e)
                 emptyList()
             }
             _state.update {
@@ -364,7 +365,7 @@ class GitViewModel @Inject constructor(
         runAction(R.string.git_action_commit, { repository.commit(message, amend) })
 
     /**
-     * 调用 AI 根据暂存差异生成提交信息。
+     * Calls the AI to generate a commit message from the staged diff.
      */
     fun generateCommitMessage(onResult: (String) -> Unit) {
         if (_state.value.generatingCommitMessage) return
@@ -385,15 +386,15 @@ class GitViewModel @Inject constructor(
                 }
             } catch (e: Exception) {
                 if (e is CancellationException) throw e
-                FileLogger.e(TAG, "生成提交信息异常", e)
+                FileLogger.e(TAG, "Commit message generation error", e)
                 _state.update { it.copy(generatingCommitMessage = false, toast = context.getString(R.string.git_toast_generate_commit_failed)) }
             }
         }
     }
-    /** 在当前工作区执行 `git init` 初始化仓库；成功后 runAction 末尾自动刷新（notARepo 翻 false）。 */
+    /** Runs `git init` in the current workspace; on success runAction refreshes at the end (notARepo flips false). */
     fun initRepo() = runAction(R.string.git_action_init, { repository.initRepo() })
 
-    /** 在当前工作区克隆远程仓库；成功后 runAction 末尾自动刷新进仓库态。 */
+    /** Clones the remote repository into the current workspace; on success runAction refreshes into the repo state. */
     fun cloneRepo(url: String) = runAction(R.string.git_action_clone, { repository.cloneRepo(url) })
     fun pull() {
         if (!_state.value.hasRemote) {
@@ -416,17 +417,17 @@ class GitViewModel @Inject constructor(
         }
     }
 
-    /** 用户在首次推送 master 时选择重命名为 main 并推送。 */
+    /** The user chose to rename master to main on its first push and push. */
     fun pushRenameMasterToMain() =
         runAction(R.string.git_push, { repository.renameMasterToMainAndPush() })
 
-    /** 用户在首次推送 master 时选择保留 master 直接推送。 */
+    /** The user chose to keep master and push directly on its first push. */
     fun pushDirectly() =
         runAction(R.string.git_push, { repository.push() })
 
     /**
-     * 打开某条提交的详情弹层。若文件清单尚未加载则懒加载（不置 [GitUiState.busy]，
-     * 因为这是只读查看，不应阻塞 status/branches 的写操作）。
+     * Opens a commit's detail sheet. The file list lazy-loads if not yet loaded (without setting [GitUiState.busy],
+     * since this is a read-only view and should not block status/branches write actions).
      */
     fun openCommitDetail(hash: String) {
         val current = _state.value
@@ -439,7 +440,7 @@ class GitViewModel @Inject constructor(
                 repository.commitFiles(hash)
             } catch (e: Exception) {
                 if (e is CancellationException) throw e
-                FileLogger.e(TAG, "加载提交文件失败: $hash", e)
+                FileLogger.e(TAG, "Failed to load commit files: $hash", e)
                 emptyList()
             }
             _state.update {
@@ -453,9 +454,9 @@ class GitViewModel @Inject constructor(
     fun consumeToast() = _state.update { it.copy(toast = null) }
 
     /**
-     * 分页加载更旧的提交。UI 滚到底时调用：取已加载提交作为锚点，[repository.graphAppend] 用
-     * `--skip` 取下一页并整体重算泳道布局，返回完整图直接替换 state.graph。不置 busy，避免阻塞写操作。
-     * 守卫：正在加载或无更多时直接返回。失败 toast 提示且保留 hasMore 允许重试。
+     * Pages in older commits. Called when the UI scrolls to the bottom: with the loaded commits as the
+     * anchor, [repository.graphAppend] fetches the next page via `--skip` and recomputes the swimlane layout over the whole set, returning the full graph to replace state.graph. Does not set busy, so write actions are not blocked.
+     * Guard: return immediately while loading or when nothing remains. On failure, toast and keep hasMore to allow retry.
      */
     fun loadMoreCommits() {
         val current = _state.value
@@ -468,14 +469,14 @@ class GitViewModel @Inject constructor(
                 _state.update { it.copy(graph = graph, commits = commits, graphLoadingMore = false) }
             } catch (e: Exception) {
                 if (e is CancellationException) throw e
-                FileLogger.e(TAG, "加载更多提交失败", e)
+                FileLogger.e(TAG, "Failed to load more commits", e)
                 _state.update { it.copy(graphLoadingMore = false, toast = context.getString(R.string.git_toast_load_more_failed, e.message)) }
             }
         }
     }
 
     /**
-     * 切换到指定分支或标签。成功后刷新全量状态。
+     * Checks out the given branch or tag. Refreshes full state on success.
      */
     fun checkoutBranch(ref: String, isRemote: Boolean = false) {
         if (_state.value.busy || _state.value.checkoutLoading != null) return
@@ -486,7 +487,7 @@ class GitViewModel @Inject constructor(
                 context.getString(R.string.git_toast_checkout_success, ref)
             } catch (e: Exception) {
                 if (e is CancellationException) throw e
-                FileLogger.e(TAG, "切换分支失败", e)
+                FileLogger.e(TAG, "Branch checkout failed", e)
                 val reason = (e as? GitCommandFailureException)?.output ?: e.message
                 context.getString(R.string.git_toast_checkout_failed, GitErrorMessage.friendly(reason ?: ""))
             }
@@ -495,7 +496,7 @@ class GitViewModel @Inject constructor(
                     val snap = loadSnapshot(includeIdentity = false)
                     val commits = snap.graph.toGitCommits()
                     _state.update { it.copy(checkoutLoading = null, status = snap.status, commits = commits, graph = snap.graph, hasRemote = snap.hasRemote, notARepo = false, toast = msg) }
-                    // 切换分支后分支列表可能变化，若已加载过则刷新。
+                    // The branch list may change after checkout; refresh it if already loaded.
                     refreshBranchesIfLoaded()
                 } else {
                     _state.update { it.copy(checkoutLoading = null, notARepo = true, toast = msg) }
@@ -508,8 +509,8 @@ class GitViewModel @Inject constructor(
     }
 
     /**
-     * 创建新分支。name 为新分支名；startPoint 为基准分支（null/空 → 从当前 HEAD）；
-     * checkout=true 则创建并切换。复用 runAction：置 busy → 跑命令 → 刷新 → toast。
+     * Creates a new branch. name is the new branch name; startPoint is the base branch (null/empty → from current HEAD);
+     * checkout=true creates and switches. Reuses runAction: set busy → run command → refresh → toast.
      */
     fun createBranch(name: String, startPoint: String?, checkout: Boolean) {
         if (name.isBlank()) return
@@ -517,7 +518,7 @@ class GitViewModel @Inject constructor(
     }
 
     /**
-     * 安全删除本地分支（git branch -d）。未合并或为当前分支时 git 报错，经 runAction toast 透出。
+     * Safely deletes a local branch (git branch -d). git errors when unmerged or current, surfaced as a toast via runAction.
      */
     fun deleteBranch(name: String) {
         if (name.isBlank()) return
@@ -525,7 +526,7 @@ class GitViewModel @Inject constructor(
     }
 
     /**
-     * 删除远程分支（git push --delete）。会改远端，失败经 runAction toast 透出。
+     * Deletes a remote branch (git push --delete). Changes the remote; failures surface as a toast via runAction.
      */
     fun deleteRemoteBranch(ref: String) {
         if (ref.isBlank()) return
@@ -533,7 +534,7 @@ class GitViewModel @Inject constructor(
     }
 
     /**
-     * 重命名本地分支（git branch -m）。当前分支也可重命名。失败经 runAction toast 透出。
+     * Renames a local branch (git branch -m). The current branch can be renamed too. Failures surface as a toast via runAction.
      */
     fun renameBranch(oldName: String, newName: String) {
         if (oldName.isBlank() || newName.isBlank()) return
@@ -541,7 +542,7 @@ class GitViewModel @Inject constructor(
     }
 
     /**
-     * 创建轻量标签（git tag <name>），指向当前 HEAD 或指定提交。失败经 runAction toast 透出。
+     * Creates a lightweight tag (git tag <name>) pointing at the current HEAD or a given commit. Failures surface as a toast via runAction.
      */
     fun createTag(name: String, commitHash: String? = null) {
         if (name.isBlank()) return
@@ -549,7 +550,7 @@ class GitViewModel @Inject constructor(
     }
 
     /**
-     * 重置当前分支到指定提交。
+     * Resets the current branch to the given commit.
      */
     fun resetToCommit(commitHash: String, mode: String = "mixed") {
         if (commitHash.isBlank()) return
@@ -557,7 +558,7 @@ class GitViewModel @Inject constructor(
     }
 
     /**
-     * 添加规则到 .gitignore。
+     * Adds a rule to .gitignore.
      */
     fun addToGitignore(pattern: String) {
         if (pattern.isBlank()) return
@@ -565,7 +566,7 @@ class GitViewModel @Inject constructor(
     }
 
     /**
-     * 删除本地标签（git tag -d）。失败经 runAction toast 透出。
+     * Deletes a local tag (git tag -d). Failures surface as a toast via runAction.
      */
     fun deleteTag(name: String) {
         if (name.isBlank()) return
@@ -573,7 +574,7 @@ class GitViewModel @Inject constructor(
     }
 
     /**
-     * 合并分支到当前分支。
+     * Merges a branch into the current branch.
      */
     fun mergeBranch(branch: String, noFf: Boolean = false) {
         if (branch.isBlank()) return
@@ -581,14 +582,14 @@ class GitViewModel @Inject constructor(
     }
 
     /**
-     * 中止当前进行中的合并。
+     * Aborts the in-progress merge.
      */
     fun abortMerge() {
         runAction(R.string.git_action_abort_merge, { repository.abortMerge() })
     }
 
     /**
-     * 加载储藏列表。
+     * Loads the stash list.
      */
     fun loadStashes() {
         viewModelScope.launch {
@@ -599,7 +600,7 @@ class GitViewModel @Inject constructor(
     }
 
     /**
-     * 储藏工作区改动。
+     * Stashes worktree changes.
      */
     fun stashSave(message: String? = null, includeUntracked: Boolean = false) {
         runAction(R.string.git_action_stash, { repository.stashSave(message, includeUntracked) }) {
@@ -608,7 +609,7 @@ class GitViewModel @Inject constructor(
     }
 
     /**
-     * 弹出指定储藏（应用并删除）。
+     * Pops the given stash (applies and deletes).
      */
     fun stashPop(index: String = "stash@{0}") {
         runAction(R.string.git_stash_pop, { repository.stashPop(index) }) {
@@ -617,7 +618,7 @@ class GitViewModel @Inject constructor(
     }
 
     /**
-     * 应用指定储藏（保留记录）。
+     * Applies the given stash (keeping the entry).
      */
     fun stashApply(index: String = "stash@{0}") {
         runAction(R.string.git_stash_apply, { repository.stashApply(index) }) {
@@ -626,7 +627,7 @@ class GitViewModel @Inject constructor(
     }
 
     /**
-     * 丢弃指定储藏。
+     * Drops the given stash.
      */
     fun stashDrop(index: String) {
         runAction(R.string.git_stash_drop, { repository.stashDrop(index) }) {
@@ -635,7 +636,7 @@ class GitViewModel @Inject constructor(
     }
 
     /**
-     * 清空全部储藏记录。
+     * Clears all stash entries.
      */
     fun stashClear() {
         runAction(R.string.git_stash_clear, { repository.stashClear() }) {
@@ -644,20 +645,20 @@ class GitViewModel @Inject constructor(
     }
 
     /**
-     * 退出 diff 视图，清空 diff 状态。
+     * Exits the diff view and clears diff state.
      */
     fun clearDiff() = _state.update { it.copy(diffVisible = false, diffPath = null, diffData = null) }
 
     /**
-     * 加载某次提交中某文件的差异（改动前 vs 改动后）。
- * hash 为提交 hash，path 为文件路径。后台线程算 diff + 高亮，完成后填 diffData。
+     * Loads the diff of a file in a commit (before vs after the change).
+ * hash is the commit hash, path the file path. A background thread computes diff + highlighting, then fills diffData.
  */
     fun loadCommitFileDiff(hash: String, path: String) {
         openDiff(path)
         viewModelScope.launch {
             val data = runCatching { computeDiff(path, "${hash}^", hash, repository::showFileContent) }
                 .getOrElse { e ->
-                    FileLogger.e(TAG, "加载提交文件 diff 失败: $path", e)
+                    FileLogger.e(TAG, "Failed to load commit-file diff: $path", e)
                     null
                 }
             finishDiff(data)
@@ -665,8 +666,8 @@ class GitViewModel @Inject constructor(
     }
 
     /**
-     * 加载工作区某文件的未暂存差异（HEAD vs 工作区当前内容）。
- * path 为文件路径。用 showFileContent("HEAD", path) 取版本库快照，用 worktreeFileContent(path) 取工作区当前内容。
+     * Loads a file's unstaged diff in the worktree (HEAD vs current worktree content).
+ * path is the file path. showFileContent("HEAD", path) fetches the repository snapshot; worktreeFileContent(path) fetches the current worktree content.
  */
     fun loadWorktreeDiff(path: String) {
         loadDiff(path, "HEAD", REF_WORKTREE) { ref, p ->
@@ -675,7 +676,7 @@ class GitViewModel @Inject constructor(
         }
     }
 
-    /** 加载某文件的暂存区差异（HEAD vs index）。 */
+    /** Loads a file's staged diff (HEAD vs index). */
     fun loadStagedDiff(path: String) {
         loadDiff(path, "HEAD", REF_INDEX) { ref, p ->
             if (ref == REF_INDEX) repository.indexFileContent(p)
@@ -684,7 +685,7 @@ class GitViewModel @Inject constructor(
     }
 
     /**
-     * 加载未跟踪文件的差异：版本库里没有任何版本，旧侧恒为空，整个文件按全新增呈现。
+     * Loads an untracked file's diff: the repository has no version of it, the old side is always empty, and the whole file renders as all-added.
      */
     fun loadUntrackedDiff(path: String) {
         loadDiff(path, REF_EMPTY, REF_WORKTREE) { ref, p ->
@@ -703,20 +704,20 @@ class GitViewModel @Inject constructor(
             val data = runCatching {
                 computeDiff(path, oldRef, newRef, contentProvider)
             }.getOrElse { e ->
-                FileLogger.e(TAG, "加载 diff 失败: $path", e)
+                FileLogger.e(TAG, "Failed to load diff: $path", e)
                 null
             }
             finishDiff(data)
         }
     }
 
-    /** 进入 diff 全屏页（页内加载中），已有 diff 页打开时忽略。 */
+    /** Enters the full-screen diff page (loading inside); ignored if a diff page is already open. */
     private fun openDiff(path: String) {
         if (_state.value.diffVisible) return
         _state.update { it.copy(diffVisible = true, diffPath = path, diffData = null) }
     }
 
-    /** diff 计算完成：成功填数据，失败关闭 diff 页并 toast。 */
+    /** Diff computation finished: fill data on success; close the diff page and toast on failure. */
     private fun finishDiff(data: DiffData?) {
         if (data == null) {
             _state.update { it.copy(diffVisible = false, diffData = null, toast = context.getString(R.string.git_toast_diff_failed)) }
@@ -726,9 +727,9 @@ class GitViewModel @Inject constructor(
     }
 
     /**
-     * 取旧/新两份文件内容，用 [LineDiff] 算行级差异，对每行做语法高亮，组装成 [DiffData]。
- * 二进制文件（含 NUL 字节）或超大文件（任一侧超 [MAX_DIFF_LINES]）降级处理。
- * [contentProvider] 负责按 ref 取文件内容，供提交 diff 和工作区 diff 复用。
+     * Fetches the old/new file contents, computes the line diff with [LineDiff], syntax-highlights each line, and assembles a [DiffData].
+ * Binary files (containing NUL bytes) or oversized files (either side over [MAX_DIFF_LINES]) are degraded.
+ * [contentProvider] fetches content by ref, shared by commit diffs and worktree diffs.
  */
     private suspend fun computeDiff(
         path: String,
@@ -742,11 +743,11 @@ class GitViewModel @Inject constructor(
             oldContent = contentProvider(oldRef, path)
             newContent = contentProvider(newRef, path)
         } catch (e: GitOutputTooLargeException) {
-            FileLogger.i(TAG, "文件过大，跳过 diff 内容: $path")
+            FileLogger.i(TAG, "File too large, skipping diff content: $path")
             return@withContext DiffData(path, oldRef, newRef, emptyList(), 0, 0, isLarge = true)
         }
 
-        // 二进制检测：git show 对二进制文件返回乱码，直接看是否含 NUL。
+        // Binary detection: git show returns mojibake for binary files, so just check for NUL.
         if (oldContent.contains('\u0000') || newContent.contains('\u0000')) {
             return@withContext DiffData(path, oldRef, newRef, emptyList(), 0, 0, isBinary = true)
         }
@@ -763,9 +764,9 @@ class GitViewModel @Inject constructor(
         val diffLines = LineDiff.diff(oldContent, newContent)
         val language = inferSyntaxLanguage(path)
 
-        // 对旧/新文件整体各跑一次高亮，拿到全文的 token 区间；渲染时按行偏移截取对应 SpanStyle。
-        // 语法主题跟随当前 UI 主题，避免深色模式下 light 主题的 token 色（如 = 和 {}）看不清。
-        // 两侧并行算（高亮是 diff 耗时主体），整体已在 Default 线程池，不碰主线程。
+        // Highlight the whole old/new file once each to get token spans for the full text; at render time, slice the matching SpanStyle by line offset.
+        // The syntax theme follows the current UI theme so light-theme token colors (e.g. = and {}) stay legible in dark mode.
+        // Both sides compute in parallel (highlighting dominates diff time); everything already runs on the Default pool, never the main thread.
         val darkMode = currentDarkMode()
         val (oldHighlighted, newHighlighted) = coroutineScope {
             val old = async { highlightCode(oldContent, language, darkMode) }
@@ -773,7 +774,7 @@ class GitViewModel @Inject constructor(
             old.await() to new.await()
         }
 
-        // 构建行号 + 高亮截取。oldLineOffsets/newLineOffsets 为每行在全文中的起始偏移。
+        // Build line numbers + highlight slices. oldLineOffsets/newLineOffsets are each line's start offset in the full text.
         val oldOffsets = lineOffsets(oldContent)
         val newOffsets = lineOffsets(newContent)
 
@@ -785,7 +786,7 @@ class GitViewModel @Inject constructor(
                 LineDiff.LineType.REMOVE -> { oldNum++; oldNum to null }
                 LineDiff.LineType.ADD -> { newNum++; null to newNum }
             }
-            // 截取该行在高亮全文中的 SpanStyle。行索引 = 行号 - 1（0-based）。
+            // Slice this line's SpanStyle from the highlighted full text. Line index = line number - 1 (0-based).
             val highlighted = when (line.type) {
                 LineDiff.LineType.REMOVE -> sliceLineHighlight(oldHighlighted, oldOffsets, oldN?.let { it - 1 })
                 LineDiff.LineType.ADD -> sliceLineHighlight(newHighlighted, newOffsets, newN?.let { it - 1 })
@@ -800,7 +801,7 @@ class GitViewModel @Inject constructor(
     }
 
     /**
-     * 当前实际深色模式：AUTO 跟随系统，与 MainActivity 里 AIEditorTheme 的 darkTheme 判定保持一致。
+     * The actually active dark mode: AUTO follows the system, consistent with the darkTheme logic of AIEditorTheme in MainActivity.
      */
     private suspend fun currentDarkMode(): Boolean {
         val themeMode = themeSettings.themeModeFlow.first()
@@ -814,8 +815,8 @@ class GitViewModel @Inject constructor(
     }
 
     /**
-     * 从全文高亮 AnnotatedString 中截取某行的 SpanStyle，返回只含该行文本+样式的新 AnnotatedString。
- * lineIndex 超出范围或高亮为 null 时返回 null（降级纯文本）。
+     * Slices one line's SpanStyle out of the fully highlighted AnnotatedString, returning a new AnnotatedString with only that line's text + styles.
+ * Returns null (degrading to plain text) when lineIndex is out of range or the highlight is null.
  */
     private fun sliceLineHighlight(
         highlighted: androidx.compose.ui.text.AnnotatedString?,
@@ -829,14 +830,14 @@ class GitViewModel @Inject constructor(
         return highlighted.subSequence(start, end)
     }
 
-    /** 计算每行在全文中的起始偏移（含末行后的虚拟偏移 = 全文长度）。 */
+    /** Computes each line's start offset in the full text (plus a virtual offset after the last line = full length). */
     private fun lineOffsets(text: String): IntArray {
         val lines = text.split('\n')
         val offsets = IntArray(lines.size + 1)
         var pos = 0
         for (i in lines.indices) {
             offsets[i] = pos
-            pos += lines[i].length + 1 // +1 为换行符
+            pos += lines[i].length + 1 // +1 for the newline
         }
         offsets[lines.size] = pos
         return offsets

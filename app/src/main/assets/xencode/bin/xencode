@@ -1,7 +1,9 @@
 #!/bin/sh
-# `xencode` 命令：打开容器环境脚本（provision.sh）的「环境安装」菜单，等价于 `provision.sh --env`。
-# 生产环境本文件在 ~/.xencode/bin/（provision.sh 在其上一级）；工作区草稿副本（xencode-env/bin/）结构相同，
-# 故按脚本自身所在目录定位即可两处通用。逻辑全在 provision.sh 与其公共库 lib/env-common.sh。
+# The `xencode` command: opens the "Environment setup" menu of the container environment script (provision.sh),
+# equivalent to `provision.sh --env`.
+# In production this file lives at ~/.xencode/bin/ (provision.sh one level up); the workspace draft copy
+# (xencode-env/bin/) has the same structure, so locating relative to the script's own directory works for
+# both. All logic lives in provision.sh and its shared library lib/env-common.sh.
 SELF_DIR=$(dirname "$0")
 [ "${SELF_DIR#/}" = "$SELF_DIR" ] && SELF_DIR="$(pwd)/$SELF_DIR"
 exec sh "$SELF_DIR/../provision.sh" --env

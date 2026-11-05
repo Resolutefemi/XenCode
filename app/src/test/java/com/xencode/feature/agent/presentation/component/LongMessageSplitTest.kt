@@ -17,14 +17,14 @@ class LongMessageSplitTest {
         }
         assertTrue(longCode.length > 2000)
 
-        val fullText = "下面是代码：\n\n$longCode\n\n请查收。"
+        val fullText = "Here is the code:\n\n$longCode\n\nPlease review."
         val slices = splitLongContent(fullText)
 
-        // 验证代码块被作为一个完整单元，绝不会被切碎成不带围栏的碎片
+        // Verify the code block is treated as one intact unit and never sliced into fenceless fragments
         val codeSlice = slices.firstOrNull { it.trim().startsWith("```html") }
-        assertTrue("必须包含以 ```html 开头的 chunk", codeSlice != null)
-        assertTrue("该 chunk 必须以 ``` 闭合", codeSlice!!.trimEnd().endsWith("```"))
-        assertTrue("该 chunk 必须包含完整的全部 100 行", codeSlice.contains("item-0") && codeSlice.contains("item-99"))
+        assertTrue("must contain a chunk starting with ```html", codeSlice != null)
+        assertTrue("that chunk must close with ```", codeSlice!!.trimEnd().endsWith("```"))
+        assertTrue("that chunk must contain all 100 lines in full", codeSlice.contains("item-0") && codeSlice.contains("item-99"))
     }
 
     @Test
@@ -46,10 +46,10 @@ class LongMessageSplitTest {
     fun `huge normal text block is sliced by lines to stay bounded`() {
         val hugeParagraph = buildString {
             repeat(50) { i ->
-                appendLine("这是普通段落的第 $i 行，内容较长用于测试预算切分。")
+                appendLine("This is line $i of a plain paragraph, made long to exercise budget-based slicing.")
             }
         }
         val slices = splitLongContent(hugeParagraph)
-        assertTrue("超长段落应被切分为多个 chunks", slices.size > 1)
+        assertTrue("an oversized paragraph should be sliced into multiple chunks", slices.size > 1)
     }
 }

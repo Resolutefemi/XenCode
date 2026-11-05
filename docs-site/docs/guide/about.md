@@ -1,31 +1,31 @@
-# 关于与更新
+# About and Updates
 
-「设置 → 关于」显示应用信息，也是检查更新的入口。
+"Settings → About" shows app information and is also where you check for updates.
 
-## 版本与检查更新
+## Version and update checks
 
-顶部卡片显示 App 图标、应用名和一句简介，下面的「版本」行显示当前版本号。
+The card at the top shows the app icon, the app name, and a one-line description; the "Version" row below it shows the current version number.
 
-**点版本行手动检查更新**：会查询 GitHub 发布列表是否存在更高版本（按你选的更新通道过滤）。有新版本时弹窗显示「发现新版本」，并列出**从你当前版本到最新版本之间的全部更新日志**，点「前往下载」用浏览器打开**检测到的那个版本**的 Release 页面获取 APK。已经是最新版会提示「已经是最新版本」；网络失败会提示「检查失败」并给出错误信息。
+**Tap the version row to check for updates manually**: it queries the GitHub releases list for a newer version (filtered by your chosen update channel). When a new version is found, a dialog shows "New version found" and lists **the full changelog between your current version and the latest**; tapping "Go to download" opens the Release page of **the exact detected version** in the browser to get the APK. If you are already up to date, it says "Already up to date"; on network failure it says "Check failed" with the error details.
 
-## 自动检查更新
+## Automatic update checks
 
-默认开启。打开 App 进主页时在后台异步检测，**每天最多一次**（当天检测过即不再重复）。发现新版本会自动弹出更新窗，网络失败时静默处理，不打扰你。
+On by default. It checks asynchronously in the background when the app opens to the home screen, **at most once per day** (once checked that day, it is not repeated). When a new version is found the update dialog pops up automatically; network failures are handled silently so you are not disturbed.
 
-关闭之后不再自动检测，但手动点版本行仍然可以检查。
+After you turn it off, no more automatic checks happen, but tapping the version row still checks manually.
 
-## 更新通道
+## Update channels
 
-默认「稳定版」：
+Defaults to "Stable":
 
-- **稳定版**：只检测正式版，过滤掉 RC 预览版。
-- **最新版**：包含 RC 预览版。
+- **Stable**: only checks for official releases, filtering out RC previews.
+- **Latest**: includes RC previews.
 
-如需体验新功能可切换到最新版，偏好稳定则留在稳定版。
+Switch to Latest to try new features early; stay on Stable if you prefer stability.
 
-无论选哪个通道，「前往下载」都会跳到弹窗里那个版本自己的 Release 页面：选最新版通道检测到 RC 预览版时，打开的就是该 RC 的页面，不会落到旧的稳定版上。
+Whichever channel you choose, "Go to download" always opens the Release page of the exact version shown in the dialog: if the Latest channel detects an RC preview, it opens that RC's page, never falling back to the older stable release.
 
-## 其它入口
+## Other entries
 
-- **GitHub 仓库**：用系统浏览器打开源码仓库。
-- **开源许可证**：本项目使用 GPL-3.0，点击打开完整的 LICENSE 文件。
+- **GitHub repository**: opens the source repository in the system browser.
+- **Open source license**: this project uses GPL-3.0; tap to open the full LICENSE file.

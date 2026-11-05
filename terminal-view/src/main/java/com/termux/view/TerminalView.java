@@ -66,7 +66,7 @@ public final class TerminalView extends View {
     int[] mDefaultSelectors = new int[]{-1,-1,-1,-1};
 
     /**
-     * 捏合预览缩放倍数（1 = 无预览）。仅作用于画布绘制，不触发终端 resize；手势结束时置回 1。
+     * Pinch preview scale factor (1 = no preview). Canvas drawing only — no terminal resize; reset to 1 when the gesture ends.
      */
     float mScaleFactor = 1.f;
     private float mScaleFocusX = 0f;
@@ -152,9 +152,9 @@ public final class TerminalView extends View {
             @Override
             public boolean onScale(float focusX, float focusY, float scale) {
                 if (mEmulator == null || isSelectingText()) return true;
-                // 捏合期间只做画布级预览缩放，不改字号也不 resize PTY。
-                // 连续 resize 会给 shell 连发 SIGWINCH，令其重绘与回流行重组交错、内容错乱；
-                // 手势结束时由 client 按最终字号 resize 一次。
+                // During the pinch, only apply a canvas-level preview scale — no font-size change, no PTY resize.
+                // Continuous resizes would send SIGWINCH to the shell repeatedly, interleaving redraws with reflowed-line
+                // recomposition and garbling content; the client resizes once with the final font size when the gesture ends.
                 mScaleFactor = mClient.onScale(scale);
                 mScaleFocusX = focusX;
                 mScaleFocusY = focusY;
@@ -942,7 +942,7 @@ public final class TerminalView extends View {
                 mTextSelectionCursorController.getSelectors(sel);
             }
 
-            // 捏合预览缩放：仅缩放画布，不改变终端尺寸。
+            // Pinch preview scaling: scales the canvas only, without changing the terminal size.
             final boolean previewScaling = mScaleFactor != 1f;
             if (previewScaling) canvas.save();
             if (previewScaling) canvas.scale(mScaleFactor, mScaleFactor, mScaleFocusX, mScaleFocusY);

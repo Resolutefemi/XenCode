@@ -23,7 +23,7 @@ import java.net.UnknownHostException
 import javax.net.ssl.SSLException
 
 /**
- * 触发重试的异常 → 用户可见错误摘要（[Throwable.toRetryErrorInfo]）的分类逻辑。
+ * Classification logic from retry-triggering exceptions to user-visible error summaries ([Throwable.toRetryErrorInfo]).
  */
 class RetryPolicyTest {
 
@@ -236,7 +236,7 @@ class RetryPolicyTest {
         assertEquals(RetryErrorKind.SSL_ERROR, SSLException("handshake failed").toRetryErrorInfo().kind)
         assertEquals(RetryErrorKind.CONNECTION_RESET, IOException("Connection reset by peer").toRetryErrorInfo().kind)
         assertEquals(RetryErrorKind.CONNECTION_RESET, IOException("unexpected end of stream").toRetryErrorInfo().kind)
-        assertEquals(RetryErrorKind.NETWORK, IOException("SSE 流被中断").toRetryErrorInfo().kind)
+        assertEquals(RetryErrorKind.NETWORK, IOException("SSE stream interrupted").toRetryErrorInfo().kind)
     }
 
     @Test
@@ -250,20 +250,20 @@ class RetryPolicyTest {
 
     @Test
     fun retriable_network_error_classification() {
-        // 429 归多 Key 切换，不再走网络重试
+        // 429 goes to multi-key switching, no longer network retry
         assertEquals(false, isRetriableNetworkError(httpError(429)))
-        // 408 与 5xx 仍视为瞬时故障
+        // 408 and 5xx are still treated as transient faults
         assertEquals(true, isRetriableNetworkError(httpError(408)))
         assertEquals(true, isRetriableNetworkError(httpError(500)))
         assertEquals(true, isRetriableNetworkError(httpError(503)))
-        // 鉴权/权限/计费类由多 Key 切换处理，不重试
+        // Auth/permission/billing classes are handled by multi-key switching, not retried
         assertEquals(false, isRetriableNetworkError(httpError(401)))
         assertEquals(false, isRetriableNetworkError(httpError(402)))
         assertEquals(false, isRetriableNetworkError(httpError(403)))
-        // 流内限流/额度码同样直接交给多 Key 切换
+        // In-stream rate-limit/quota codes also go straight to multi-key switching
         assertEquals(false, isRetriableNetworkError(StreamApiException("rate_limit_exceeded", "m")))
         assertEquals(false, isRetriableNetworkError(StreamApiException("insufficient_quota", "m")))
-        // 流内服务端故障仍可重试
+        // In-stream server failures are still retriable
         assertEquals(true, isRetriableNetworkError(StreamApiException("server_is_overloaded", "m")))
     }
 
@@ -274,11 +274,11 @@ class RetryPolicyTest {
         assertNull(StreamApiException("server_is_overloaded", "m").toRetryErrorInfo().statusCode)
     }
 
-    // ── 重试间隔：固定 3 秒，不再指数退避 ────────────────────────────────
+    // ── Retry delay: fixed 3 seconds, no more exponential backoff ────────────────────────────────
 
     @Test
     fun retryDelayIsFixedThreeSeconds() {
-        // 网络类失败：无论第几次重试都等 3 秒（原来是 0.5→1→2→4→8→10 秒）
+        // Network failures: always wait 3 seconds no matter the retry count (previously 0.5->1->2->4->8->10 seconds)
         for (index in 0 until 6) {
             assertEquals(3_000L, retryDelayMillis(index, SocketTimeoutException()))
             assertEquals(3_000L, retryDelayMillis(index, ConnectException()))
@@ -287,14 +287,14 @@ class RetryPolicyTest {
 
     @Test
     fun retryDelayCapsLongServerRetryAfter() {
-        // 服务端要求等 23 秒时不再照做，封顶 3 秒
+        // When the server asks for 23 seconds, don't obey; cap at 3 seconds
         val e = StreamApiException("rate_limit_exceeded", "retry in 23s", retryAfterMillis = 23_000L)
         assertEquals(3_000L, retryDelayMillis(0, e))
     }
 
     @Test
     fun retryDelayHonorsShorterServerRetryAfter() {
-        // 服务端要求的时间比 3 秒更短时听它的
+        // When the server asks for less than 3 seconds, follow it
         val e = StreamApiException("rate_limit_exceeded", "retry in 1s", retryAfterMillis = 1_000L)
         assertEquals(1_000L, retryDelayMillis(0, e))
     }

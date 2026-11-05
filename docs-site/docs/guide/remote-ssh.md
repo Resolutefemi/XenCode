@@ -1,59 +1,59 @@
-# 远程 SSH 模式
+# Remote SSH Mode
 
-选中一个「远程 SSH」容器后，XenCode 进入远程工作区模式：AI 的**读写文件、执行命令、运行终端均发生在远程服务器上**，`~/workspace` 映射到服务器上的指定目录，手机仅作为操作界面。
+After selecting a "Remote SSH" container, XenCode enters remote workspace mode: the AI's **file reads/writes, command execution and terminal all happen on the remote server**, with `~/workspace` mapped to a designated directory on the server — the phone is just the control surface.
 
-适用于服务器上已有完整工具链，或需要 AI 直接修改远程项目的场景。
+It fits cases where the server already has a full toolchain, or where you want the AI to edit a remote project in place.
 
-## 前置：先建一个 SFTP 通道
+## Prerequisite: create an SFTP channel first
 
-远程 SSH 复用「连接与同步」页中 **SFTP** 通道的连接信息（主机、端口、用户名、密码），需先在该页建好一个 SFTP 连接，见[工作区同步](/guide/sync)。
+Remote SSH reuses the connection info (host, port, username, password) of an **SFTP** channel from the "Connection & Sync" page — set up an SFTP connection there first; see [Workspace sync](/guide/sync).
 
-FTP 通道不支持执行命令，不会出现在可选列表中。
+FTP channels cannot run commands and never appear in the picker list.
 
-## 新建远程 SSH 容器
+## Creating a remote SSH container
 
-在「设置 → 容器与镜像」点击右上角 +，选「远程 SSH」：
+In "Settings → Container & Images" tap + at the top-right and choose "Remote SSH":
 
-- **名称**：配置的别名。
-- **SSH 连接通道**：下拉选择一个已配置的 SFTP 通道。无可用通道时，界面提示先前往「连接与同步」页配置，且保存按钮不可用。
-- **远程工作区路径**：服务器上的目录，AI 的 `~/workspace` 映射到此。选中通道时会自动填入默认值 `~/.xencode/workspaces`（按服务器上该用户的真实 home 解析，如 root 用户为 `/root/.xencode/workspaces`），可修改。
+- **Name**: an alias for this configuration.
+- **SSH connection channel**: pick a configured SFTP channel from the dropdown. When none is available the UI tells you to configure one on the "Connection & Sync" page first, and the save button is disabled.
+- **Remote workspace path**: the directory on the server that the AI's `~/workspace` maps to. When a channel is selected it pre-fills the default `~/.xencode/workspaces` (resolved against that user's real home on the server, e.g. `/root/.xencode/workspaces` for root), and you can change it.
 
-保存后在列表中选中即生效。
+After saving, select it in the list and it takes effect.
 
-认证方式沿用所选 SFTP 通道的配置，支持**密码认证**与**SSH 私钥认证**（含带密码保护的私钥）。
+Authentication follows the chosen SFTP channel's configuration, supporting **password** and **SSH private key** auth (including passphrase-protected keys).
 
-## 连接行为
+## Connection behavior
 
-- **自动连接**：App 启动时若当前为远程模式，会在后台自动连接；连接失败不会阻塞界面，首次执行命令时会重试。
-- **保活与自动重连**：连接后每 30 秒发送一次心跳，防止空闲断连；断线后由后台自动重连（5 秒起、最长 30 秒的退避间隔），App 回到前台时也会立即重试一次。
-- **状态显示**：对话页顶部显示「SSH：已连接 / 连接中 / 连接失败 / 未连接」。未连接时消息区显示等待提示。
-- **两条独立连接**：文件读写走 SFTP，终端与命令走 exec，各占一条 SSH 连接、互不影响；文件通道异常时自动重建，不中断正在运行的命令。
-- **路径自举**：远程工作区路径不存在时自动创建；若该目录下无任何子目录，会自动创建一个名为 `default` 的工作区，保证 AI 始终有可用的 `~/workspace`。
+- **Auto-connect**: if the app starts in remote mode it connects automatically in the background; a failed connect never blocks the UI and is retried on the first command.
+- **Keep-alive & auto-reconnect**: after connecting, a heartbeat is sent every 30 seconds to guard against idle disconnects; on disconnection the background reconnects automatically (backoff from 5 up to 30 seconds), and it retries immediately once more when the app returns to the foreground.
+- **Status display**: the top of the chat page shows "SSH: connected / connecting / failed / not connected". When not connected, the message area shows a waiting hint.
+- **Two independent connections**: file I/O goes over SFTP while the terminal and commands go over exec — two separate SSH connections that never interfere; if the file channel breaks it is rebuilt automatically without interrupting running commands.
+- **Path bootstrapping**: a missing remote workspace path is created automatically; if the directory has no subdirectories, a workspace named `default` is created so the AI always has a usable `~/workspace`.
 
-## 本地数据与跟随执行环境的数据
+## Local data vs data that follows the execution environment
 
-远程模式下命令、文件、终端与工作区均在服务器上。大多数配置仍存于手机本地；少数「执行环境资源」则跟随环境、以远端为准：
+In remote mode, commands, files, the terminal and the workspace all live on the server. Most configuration still stays on the phone; a few "execution-environment resources" follow the environment and are kept remotely:
 
-| 项目 | 说明 |
+| Item | Description |
 | --- | --- |
-| 聊天历史、模型与供应商配置、API Key、应用设置 | 全部本地 |
-| 记忆（memory） | 本地。项目级记忆按「项目名 + 服务器标识」隔离，不同服务器上的同名工作区不会混淆 |
-| 全局技能、子代理与面板脚本 | **跟随执行环境**：远程模式下读写**服务器**上的 `~/.xencode/skills/`、`~/.xencode/agents/`、`~/.xencode/scripts/`，与本地模式的那份互相独立 |
-| 项目级技能与子代理 | 直接读写**服务器工作区**中的 `<工作区>/.xencode/skills/`、`agents/`，可随代码库提交到 git |
-| 项目级配置（工具授权规则 / MCP / 技能与子代理的停用名单） | 手机本地。远程模式按「项目名 + 服务器标识」隔离在 App 私有目录下，不写入服务器 |
-| MCP 服务器 | HTTP 类型由 App 直接连接；stdio 类型运行在「默认容器」上（见下），不在远程服务器 |
-| 日志与工具输出 | 本地 |
+| Chat history, model & vendor configuration, API keys, app settings | All local |
+| Memory | Local. Project-level memory is isolated by "project name + server identity", so same-named workspaces on different servers never mix |
+| Global skills, subagents and dashboard scripts | **Follow the execution environment**: in remote mode they read and write `~/.xencode/skills/`, `~/.xencode/agents/`, `~/.xencode/scripts/` on the **server**, independent of the local-mode copy |
+| Project-level skills and subagents | Read and write `<workspace>/.xencode/skills/`, `agents/` directly in the **server workspace**; can be committed to git with the code base |
+| Project-level configuration (tool authorization rules / MCP / skill & subagent disable lists) | On the phone. In remote mode it is isolated under the app's private directory by "project name + server identity" and never written to the server |
+| MCP servers | HTTP ones are connected directly by the app; stdio ones run on the "default container" (see below), not on the remote server |
+| Logs and tool output | Local |
 
-连接成功后，XenCode 会将内置文档同步到服务器的 `~/.xencode/docs/`，远程模式下 AI 也可查阅这些说明文档。
+Once connected, XenCode syncs the built-in documentation to `~/.xencode/docs/` on the server, so in remote mode the AI can consult these docs too.
 
-## 默认容器
+## Default container
 
-远程模式下仍有部分功能需在本地运行，例如 stdio 类型的 MCP server。它们运行在**默认容器**上，默认为内置 Alpine，可在容器列表下方的「默认容器」分组中改为任意本地容器。
+Some features still need to run locally in remote mode — stdio-type MCP servers, for example. They run on the **default container**, which defaults to the built-in Alpine and can be switched to any local container in the "Default container" group below the container list.
 
-切换容器（包括切到远程 SSH）后，所有 stdio MCP 会自动断开并用新容器重连；HTTP MCP 不依赖容器，不受影响。
+After switching containers (including to remote SSH), all stdio MCP servers disconnect and reconnect on the new container; HTTP MCP does not depend on containers and is unaffected.
 
-## Git 署名与凭据的去向
+## Where Git identity and credentials go
 
-Git 页面中保存的**署名**会写入当前执行环境——远程模式下即写入服务器的 git 配置。
+The **identity** saved on the Git page is written to the current execution environment — in remote mode, the server's git config.
 
-**凭据**以手机本地的凭据文件为唯一来源。远程模式下可在凭据页开启「自动注入凭证」（按服务器分别记忆，首次进入时询问），将凭据同步到服务器，且仅对工作区目录下的仓库生效，不影响服务器上其它目录的仓库，也不改动服务器用户的全局 git 配置。
+**Credentials** take the phone's local credentials file as the single source of truth. In remote mode you can enable "Auto-inject credentials" on the credentials page (remembered per server, asked on first entry), which syncs credentials to the server — effective only for repositories under the workspace directory, leaving repositories elsewhere on the server and the server user's global git config untouched.

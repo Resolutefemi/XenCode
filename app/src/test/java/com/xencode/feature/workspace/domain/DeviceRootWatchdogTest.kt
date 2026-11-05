@@ -88,7 +88,7 @@ class DeviceRootWatchdogTest {
         val (t, escaped) = watchdog(p, 50, timedOut)
         t.start()
         t.join(3000)
-        assertNull("不得有未捕获异常逃逸 run()", escaped.get())
+        assertNull("no uncaught exception may escape run()", escaped.get())
         assertFalse(t.isAlive)
         assertFalse("process dead; should not be judged timed out", timedOut.get())
     }

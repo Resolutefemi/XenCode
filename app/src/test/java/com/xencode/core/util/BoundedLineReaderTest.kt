@@ -61,11 +61,11 @@ class BoundedLineReaderTest {
         val reader = CountingReader("line\n".repeat(50_000))
 
         assertEquals("line", boundedLines { reader }.first())
-        // 只取第一行就不该继续读：一次 read 只返回 1 个字符，读完 "line\n" 仅需 5 次左右
+        // Taking only the first line must not read further: each read returns 1 char, so "line\n" needs only about 5 reads
         assertTrue("reads=${reader.reads}", reader.reads <= 16)
     }
 
-    /** 每次 [read] 只回一个字符，便于观察调用方到底消耗了多少输入。 */
+    /** Each [read] returns a single char, making it easy to observe how much input the caller actually consumed. */
     private class CountingReader(private val text: String) : Reader() {
         private var pos = 0
         var reads = 0

@@ -52,7 +52,7 @@ class OnboardingCoordinatorTest {
         )
 
         coordinator.initialize(OnboardingStatus.IN_PROGRESS)
-        // 依次推进所有步骤直到完成
+        // Advance through all steps in order until completion
         while (stateHolder.isActive) {
             coordinator.nextStep()
         }

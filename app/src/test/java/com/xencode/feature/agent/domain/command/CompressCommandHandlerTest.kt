@@ -8,7 +8,7 @@ import org.junit.Assert.assertFalse
 import org.junit.Test
 
 /**
- * /compress 命令：菜单元数据与执行行为。
+ * The /compress command: menu metadata and execution behavior.
  */
 class CompressCommandHandlerTest {
 
@@ -18,7 +18,7 @@ class CompressCommandHandlerTest {
     fun metadata_valuesAreCorrect() {
         assertEquals("compress", handler.name)
         assertEquals(R.string.slash_command_compress_desc, handler.descriptionRes)
-        assertFalse("默认不接受参数", handler.acceptsArgs)
+        assertFalse("does not accept arguments by default", handler.acceptsArgs)
     }
 
     @Test

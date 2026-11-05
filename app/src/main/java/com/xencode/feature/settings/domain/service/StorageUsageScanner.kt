@@ -39,10 +39,10 @@ import javax.inject.Inject
 import javax.inject.Singleton
 
 /**
- * 统计 App 各部分磁盘占用，并清理可安全重建的临时数据。
+ * Measures the app's disk usage by component and cleans safely rebuildable temporary data.
  *
- * 分类之间互斥（见 [StorageCategory]），加总即总占用。**外部目录工作区不计入**：它物理上在设备共享
- * 存储里，可能是用户挑的任意大目录，扫进来既不属于 App 占用也会拖垮统计。
+ * Categories are mutually exclusive (see [StorageCategory]); their sum is total usage. **External-directory workspaces are excluded**: they physically live in the device's shared
+ * storage and may be any large directory the user picked — scanning them in would neither count as app usage nor keep the scan performant.
  */
 @Singleton
 class StorageUsageScanner @Inject constructor(
@@ -56,9 +56,9 @@ class StorageUsageScanner @Inject constructor(
 ) {
 
     /**
-     * 逐分类发射统计结果：数据库、缓存这类秒出的先算，rootfs 与工作区最后，界面可以边算边填。
+     * Emits scan results category by category: instantly available ones like databases and caches come first, rootfs and workspaces last, so the UI can fill in as computing proceeds.
      *
-     * 收集方取消（如离开页面）后，正在进行的目录遍历会在下一个文件处中止，不会白跑完整棵树。
+     * Once the collector cancels (e.g. leaving the page), any in-progress directory traversal stops at the next file instead of pointlessly walking the whole tree.
      */
     fun scan(): Flow<StorageEntry> = flow {
         val job = currentCoroutineContext()[Job]
@@ -76,7 +76,7 @@ class StorageUsageScanner @Inject constructor(
         emit(containerEntry(cancelled))
     }.flowOn(Dispatchers.IO)
 
-    /** App 私有目录所在存储卷的容量。 */
+    /** Capacity of the storage volume hosting the app's private directory. */
     fun deviceSpace(): DeviceSpace = runCatching {
         DeviceSpace(
             totalBytes = context.filesDir.totalSpace,
@@ -84,7 +84,7 @@ class StorageUsageScanner @Inject constructor(
         )
     }.getOrDefault(DeviceSpace(0, 0))
 
-    /** 执行一项清理，返回释放的字节数。 */
+    /** Performs one cleanup, returning the number of bytes freed. */
     suspend fun clean(kind: CleanupKind): Long = withContext(Dispatchers.IO) {
         when (kind) {
             CleanupKind.Caches -> clearDirContents(context.cacheDir) + clearDirContents(context.codeCacheDir)
@@ -95,9 +95,9 @@ class StorageUsageScanner @Inject constructor(
         }
     }
 
-    // ── 各分类 ──────────────────────────────────────────────────────────────
+    // ── Categories ──────────────────────────────────────────────────────────────
 
-    /** 聊天记录：整个 databases 目录（本项目只有一个 Room 库，WAL 的 -wal/-shm 也在其中）。 */
+    /** Chat history: the entire databases directory (this project has a single Room DB; the WAL -wal/-shm files live there too). */
     private suspend fun chatEntry(): StorageEntry {
         val dbDir = context.getDatabasePath(AgentDatabase.DATABASE_NAME).parentFile
         val bytes = dbDir?.let { dirSize(it) } ?: 0L
@@ -116,10 +116,10 @@ class StorageUsageScanner @Inject constructor(
     }
 
     /**
-     * 容器：`filesDir/rootfs`（内置）与 `filesDir/rootfs_<profileId>`（自定义本地镜像）。
+     * Containers: `filesDir/rootfs` (built-in) and `filesDir/rootfs_<profileId>` (custom local images).
      *
-     * 直接按目录扫而不是按 profile 列表扫，profile 删了但目录还在的残留也能露出来；profile 列表只用来取显示名。
-     * 远程 SSH 的 profile 没有本地 rootfs，天然不会出现在这里。
+     * Scanning directories directly instead of the profile list also surfaces leftovers where the profile was deleted but its directory remains; the profile list is used only for display names.
+     * Remote SSH profiles have no local rootfs and naturally never appear here.
      */
     private suspend fun containerEntry(cancelled: () -> Boolean): StorageEntry {
         val nameById = runCatching { containerSettingsRepository.customProfilesFlow.first() }
@@ -142,8 +142,8 @@ class StorageUsageScanner @Inject constructor(
             if (size > (largest?.second ?: 0L)) largest = dir to size
         }
 
-        // 占用最大的那个容器再下钻一层：容器里吃掉几个 G 的通常是 /usr 与 /root 下的构建缓存，
-        // 只看总量看不出来。
+        // Drill one level into the largest container: what eats gigabytes inside is usually build caches under /usr and /root,
+        // invisible in the total alone.
         largest?.let { (dir, _) ->
             dir.listFiles { f: File -> f.isDirectory }
                 ?.map { it.name to dirSize(it, cancelled) }
@@ -157,7 +157,7 @@ class StorageUsageScanner @Inject constructor(
         return StorageEntry(StorageCategory.Container, total, details)
     }
 
-    /** 容器镜像包：已下载或导入的 rootfs 压缩包，逐个文件列出。 */
+    /** Container image packages: downloaded or imported rootfs archives, listed file by file. */
     private fun imagesEntry(): StorageEntry {
         val dir = File(context.filesDir, IMAGES_DIR)
         val files = dir.listFiles { f: File -> f.isFile }?.sortedByDescending { it.length() } ?: emptyList()
@@ -168,7 +168,7 @@ class StorageUsageScanner @Inject constructor(
         )
     }
 
-    /** 工作区：App 内置的 `filesDir/projects`，按项目列出，并标出其中的聊天附件。 */
+    /** Workspaces: the app's built-in `filesDir/projects`, listed per project, with chat attachments marked. */
     private fun workspacesEntry(cancelled: () -> Boolean): StorageEntry {
         val root = File(context.filesDir, PROJECTS_DIR)
         val projects = root.listFiles { f: File -> f.isDirectory }?.sortedBy { it.name } ?: emptyList()
@@ -186,7 +186,7 @@ class StorageUsageScanner @Inject constructor(
         return StorageEntry(StorageCategory.Workspaces, details.sumOf { it.bytes } + looseFiles, details)
     }
 
-    /** AI 配置与产物：`filesDir/xencode`，按子目录拆开（工具输出与识图会话可清理）。 */
+    /** AI config and artifacts: `filesDir/xencode`, split by subdirectory (tool output and vision sessions are cleanable). */
     private fun aiConfigEntry(cancelled: () -> Boolean): StorageEntry {
         val root = containerInstaller.xencodeDir
         val cleanableKeys = mapOf(
@@ -212,8 +212,8 @@ class StorageUsageScanner @Inject constructor(
         StorageEntry(StorageCategory.Checkpoints, dirSize(File(context.filesDir, CHECKPOINTS_DIR), cancelled))
 
     /**
-     * 日志：直接问两个 logger 要文件清单，而不是猜目录——它们优先写外部私有目录，
-     * 外部不可用时回退到内部，路径由 logger 自己决定。
+     * Logs: ask the two loggers directly for file lists instead of guessing directories — they prefer the external private directory
+     * and fall back to the internal one when unavailable; the logger decides the path itself.
      */
     private fun logsEntry(): StorageEntry {
         val appLogs = runCatching { FileLogger.listLogFiles().sumOf { it.length() } }.getOrDefault(0L)
@@ -231,7 +231,7 @@ class StorageUsageScanner @Inject constructor(
             bytes = dirSize(context.cacheDir, cancelled) + dirSize(context.codeCacheDir, cancelled)
         )
 
-    /** 其他数据：filesDir 里未被上述分类覆盖的部分（DataStore、背景图、字体、SSH 私钥等）加 shared_prefs。 */
+    /** Other data: the parts of filesDir not covered above (DataStore, background images, fonts, SSH private keys, etc.) plus shared_prefs. */
     private fun otherDataEntry(cancelled: () -> Boolean): StorageEntry {
         val rest = context.filesDir.listFiles()?.filterNot { file ->
             file.name in CLASSIFIED_DIRS || file.name == ROOTFS_DIR || file.name.startsWith("${ROOTFS_DIR}_")
@@ -240,7 +240,7 @@ class StorageUsageScanner @Inject constructor(
         return StorageEntry(StorageCategory.OtherData, rest + prefs)
     }
 
-    /** 应用安装包本体（base APK 与各 split）。 */
+    /** The app installation package itself (base APK and splits). */
     private fun apkEntry(): StorageEntry {
         val info = context.applicationInfo
         val paths = (listOf(info.sourceDir) + (info.splitSourceDirs?.toList() ?: emptyList()))
@@ -249,9 +249,9 @@ class StorageUsageScanner @Inject constructor(
         return StorageEntry(StorageCategory.Apk, paths.sumOf { runCatching { File(it).length() }.getOrDefault(0L) })
     }
 
-    // ── 工具 ────────────────────────────────────────────────────────────────
+    // ── Utilities ────────────────────────────────────────────────────────────────
 
-    /** 删除目录下所有内容但保留目录本身，返回释放字节数。 */
+    /** Deletes everything under a directory but keeps the directory itself, returning the bytes freed. */
     private fun clearDirContents(dir: File): Long {
         if (!dir.isDirectory) return 0L
         var freed = 0L
@@ -273,7 +273,7 @@ class StorageUsageScanner @Inject constructor(
         private const val PREFS_DIR = "shared_prefs"
         private const val ATTACHMENTS_RELATIVE = ".xencode/attachments"
 
-        /** 已被其它分类覆盖的 filesDir 子项，不再计入「其他数据」。 */
+        /** filesDir entries already covered by other categories, excluded from "Other data". */
         private val CLASSIFIED_DIRS = setOf(
             PROJECTS_DIR, XENCODE_DIR, IMAGES_DIR, CHECKPOINTS_DIR, "logs", "ai-logs"
         )
@@ -282,10 +282,10 @@ class StorageUsageScanner @Inject constructor(
         private const val TOP_SUBDIRS = 5
 
         /**
-         * 目录占用求和。
+         * Sums a directory's disk usage.
          *
-         * 走 [Files.walkFileTree]（默认不跟随符号链接）：rootfs 与 node_modules 里到处是 symlink，
-         * 跟随会重复计数甚至陷入环。单个条目读失败一律跳过，不让整次统计失败。
+         * Uses [Files.walkFileTree] (which does not follow symlinks by default): rootfs and node_modules are full of symlinks,
+         * and following them would double-count or even loop. Failures reading a single entry are skipped so the whole scan never fails.
          */
         internal fun dirSize(target: File, cancelled: () -> Boolean = { false }): Long {
             if (!target.exists()) return 0L
@@ -306,7 +306,7 @@ class StorageUsageScanner @Inject constructor(
                     override fun postVisitDirectory(dir: Path, exc: IOException?): FileVisitResult =
                         if (cancelled()) FileVisitResult.TERMINATE else FileVisitResult.CONTINUE
                 })
-            }.onFailure { FileLogger.w(TAG, "统计目录占用失败: ${target.absolutePath}", it) }
+            }.onFailure { FileLogger.w(TAG, "Failed to measure directory usage: ${target.absolutePath}", it) }
             return total
         }
     }

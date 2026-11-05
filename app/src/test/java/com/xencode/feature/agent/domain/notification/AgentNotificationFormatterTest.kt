@@ -10,8 +10,8 @@ import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 
 /**
- * 通知两种送达形态的格式：兜底的 user 消息文本（UI 提示条按 <status>/<summary> 正则提取，
- * 格式变了提示条会失效）与搭车用的 `notifications` JSON 数组。
+ * Formats of the two notification delivery shapes: the fallback user message text (the UI banner extracts it via the <status>/<summary> regex,
+ * so changing the format breaks the banner) and the `notifications` JSON array used for piggybacking.
  */
 class AgentNotificationFormatterTest {
 
@@ -28,14 +28,14 @@ class AgentNotificationFormatterTest {
     private val subAgent = PendingNotification(
         kind = AgentNotificationKind.SUBAGENT,
         sourceId = "sub-1",
-        title = "调研缓存实现",
+        title = "research the cache implementation",
         outcome = NotificationOutcome.COMPLETED
     )
 
     private val stoppedSubAgent = PendingNotification(
         kind = AgentNotificationKind.SUBAGENT,
         sourceId = "sub-2",
-        title = "重构缓存层",
+        title = "refactor the cache layer",
         outcome = NotificationOutcome.STOPPED,
         detail = "The user stopped this subagent from the UI; the task did not finish."
     )
@@ -53,7 +53,7 @@ class AgentNotificationFormatterTest {
         sourceId = "session-1",
         title = "",
         outcome = NotificationOutcome.COMPLETED,
-        message = "改用 <方案 B> & 注意兼容性"
+        message = "switch to <option B> & mind compatibility"
     )
 
     @Test
@@ -69,7 +69,7 @@ class AgentNotificationFormatterTest {
         assertTrue(text.contains("terminal(action=\"read\", tab_id=\"term-2\")"))
     }
 
-    /** tail-output 里的裸尖括号会被 UI 的 <status>/<summary> 正则误匹配，必须转义。 */
+    /** Bare angle brackets in tail output would be mismatched by the UI's <status>/<summary> regex, so they must be escaped. */
     @Test
     fun message_escapesTailOutput() {
         val text = AgentNotificationFormatter.buildMessage(listOf(backgroundTask))
@@ -85,7 +85,7 @@ class AgentNotificationFormatterTest {
 
         assertTrue(text.contains("<subagent-notification>"))
         assertTrue(text.contains("<subagent-id>sub-1</subagent-id>"))
-        assertTrue(text.contains("<summary>Subagent \"调研缓存实现\" completed</summary>"))
+        assertTrue(text.contains("<summary>Subagent \"research the cache implementation\" completed</summary>"))
         assertTrue(text.contains("task(action=\"read\", id=\"sub-1\")"))
     }
 
@@ -96,7 +96,7 @@ class AgentNotificationFormatterTest {
         assertTrue(text.contains("There are 2 background completion notifications"))
         assertTrue(text.contains("<task-notification>"))
         assertTrue(text.contains("<subagent-notification>"))
-        // 两类都在时两句提示都要给出，AI 才知道各自怎么取回结果
+        // When both kinds are present, both hint sentences must be given so the AI knows how to retrieve each result
         assertTrue(text.contains("tab_id=\"term-2\""))
         assertTrue(text.contains("id=\"sub-1\""))
     }
@@ -112,7 +112,7 @@ class AgentNotificationFormatterTest {
         assertEquals("failed", (first["status"] as JsonPrimitive).content)
         assertTrue((first["summary"] as JsonPrimitive).content.contains("gradle build"))
         assertTrue((first["hint"] as JsonPrimitive).content.contains("terminal(action=\"read\""))
-        // notice 是围栏说明：AI 只看单项也能知道这不是用户消息
+        // The notice is the fence explanation: even seeing just one item, the AI knows it is not a user message
         assertTrue((first["notice"] as JsonPrimitive).content.contains("not a message from the user"))
 
         val second = array[1] as JsonObject
@@ -121,7 +121,7 @@ class AgentNotificationFormatterTest {
         assertEquals("completed", (second["status"] as JsonPrimitive).content)
     }
 
-    /** JSON 形态由 kotlinx 负责转义，tail_output 应保持原文，不做 XML 转义。 */
+    /** The JSON shape relies on kotlinx for escaping; tail_output must stay verbatim with no XML escaping. */
     @Test
     fun jsonArray_keepsTailOutputRaw() {
         val array = AgentNotificationFormatter.buildJsonArray(listOf(backgroundTask))
@@ -131,15 +131,15 @@ class AgentNotificationFormatterTest {
     }
 
     /**
-     * 被用户手动停止不能报成 failed：那会让 AI 把人为中断当成故障去排查或直接重试。
-     * detail 携带停止原因，免得父代理只知道「没成」。
+     * A manual stop by the user must not be reported as failed: that would make the AI treat a deliberate interruption as a fault to investigate or immediately retry.
+     * The detail carries the stop reason so the parent agent is not left knowing only that it "didn't finish".
      */
     @Test
     fun message_stoppedSubAgentCarriesReasonAndNoRetryHint() {
         val text = AgentNotificationFormatter.buildMessage(listOf(stoppedSubAgent))
 
         assertTrue(text.contains("<status>stopped</status>"))
-        assertTrue(text.contains("<summary>Subagent \"重构缓存层\" was stopped by the user; the task did not finish</summary>"))
+        assertTrue(text.contains("<summary>Subagent \"refactor the cache layer\" was stopped by the user; the task did not finish</summary>"))
         assertTrue(text.contains("<detail>The user stopped this subagent from the UI; the task did not finish.</detail>"))
         assertTrue(text.contains("do not retry on your own"))
     }
@@ -153,7 +153,7 @@ class AgentNotificationFormatterTest {
         assertTrue((obj["detail"] as JsonPrimitive).content.contains("stopped this subagent"))
     }
 
-    /** 正常完成不带 detail，避免白白占用上下文。 */
+    /** Normal completion carries no detail, to avoid wasting context. */
     @Test
     fun jsonArray_completedSubAgentHasNoDetail() {
         val array = AgentNotificationFormatter.buildJsonArray(listOf(subAgent))
@@ -162,7 +162,7 @@ class AgentNotificationFormatterTest {
         assertEquals(null, obj["detail"])
     }
 
-    /** 模式切换通知：XML 用 <mode-change>，status 取 changed（UI 据此按非失败渲染）。 */
+    /** Mode-change notification: XML uses <mode-change> and status is "changed" (the UI renders it as non-failure accordingly). */
     @Test
     fun message_modeChangeUsesModeChangeTag() {
         val text = AgentNotificationFormatter.buildMessage(listOf(modeChange))
@@ -185,8 +185,8 @@ class AgentNotificationFormatterTest {
     }
 
     /**
-     * 用户插话作为 user 消息落库时直接输出原文、不带系统通知前缀——否则 UI 会渲染成
-     * 系统提示条、完成通知正文也会误判。
+     * A user interjection stored as a user message is emitted verbatim, without the system notification prefix — otherwise the UI would render it as
+     * a system banner and misclassify the completion-notification body too.
      */
     @Test
     fun message_userMessageIsPlainUserText() {
@@ -197,7 +197,7 @@ class AgentNotificationFormatterTest {
         assertFalse(text.contains("not a message from the user"))
     }
 
-    /** 搭车注入的 JSON 形态：kind=user_message，notice 说明它是用户本人输入而非系统事件。 */
+    /** The piggybacked JSON shape: kind=user_message, with a notice clarifying it is the user's own input, not a system event. */
     @Test
     fun jsonArray_userMessageCarriesUserNotice() {
         val array = AgentNotificationFormatter.buildJsonArray(listOf(userMessage))

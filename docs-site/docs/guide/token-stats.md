@@ -1,61 +1,61 @@
-# Token 统计与费用
+# Token Stats and Costs
 
-「设置 → Token 统计」记录每一次 AI 调用的消耗，用于查看 token 用量、费用与缓存命中情况。
+"Settings → Token Stats" records the consumption of every AI call so you can review token usage, costs, and cache hits.
 
-数据从该功能上线后开始记录，之前的历史调用没有明细。页面实时刷新。
+Recording starts from when the feature shipped; earlier historical calls have no details. The page refreshes in real time.
 
-## 周期切换与维度筛选
+## Period Switching and Dimension Filters
 
-顶部四个标签：今天 / 近 7 天 / 近 30 天 / 全部。切换后下面所有卡片、图表和列表同步更新。「今天」的趋势图按小时展示，其余按天。
+Four tabs at the top: Today / Last 7 days / Last 30 days / All. Switching updates every card, chart, and list below in sync. The "Today" trend chart is hourly; the others are daily.
 
-周期下方提供维度筛选条：
-- **供应商筛选**：下拉选择「全部供应商」或指定供应商。
-- **模型筛选**：下拉选择「全部模型」或指定模型。
-- **清除筛选**：激活筛选后出现，点击可一键重置为全部数据。
-- 此外，直接点击「供应商统计」或「模型统计」中的任意一行，也可快速将该项设为筛选条件，再次点击即可取消。
+Below the period tabs is a row of dimension filters:
+- **Provider filter**: Choose "All providers" or a specific provider from the dropdown.
+- **Model filter**: Choose "All models" or a specific model from the dropdown.
+- **Clear filters**: Appears once a filter is active; tap it to reset everything back to the full data in one go.
+- Additionally, tapping any row in "Provider stats" or "Model stats" quickly sets that item as a filter; tap it again to clear it.
 
-## 概览
+## Overview
 
-四张卡片：总消耗（输入加输出）、请求次数、费用、缓存命中率。
+Four cards: total consumption (input plus output), request count, cost, and cache hit rate.
 
-费用是**估算值**，优先使用你在「供应商 → 模型」里填的自定义单价，未填的才按 models.dev 的公开单价计算：缓存读取按缓存价计算，没有缓存价时按输入价的 10% 估；缓存写入按缓存写入价计算，没有时按输入价的 1.25 倍估。总费用按「渠道 + 模型」分别套单价再求和，因此同一个模型从不同供应商调用会各自计价。缓存命中率是缓存读取除以总输入，卡片下方另附本期的缓存读取与写入 token 量。
+Cost is an **estimate**. Custom prices you entered under "Providers → Models" take priority; models without them are priced from models.dev's public rates: cache reads use the cache price, or an estimated 10% of the input price when no cache price exists; cache writes use the cache-write price, or 1.25× the input price when none exists. Total cost applies prices per "provider + model" pair and then sums them, so the same model called through different providers is priced separately. The cache hit rate is cache reads divided by total input, with this period's cache-read and cache-write token counts shown below the card.
 
-::: tip 费用仅供参考
-这是按公开单价估算的结果，不是账单。中转站改过价格、有折扣，或你使用的模型没有单价数据时，估算会和实际扣费不一致。以供应商后台的账单为准。
+::: tip Costs are for reference only
+This is an estimate based on public unit prices, not a bill. If a relay changed its pricing, offers discounts, or your model has no price data, the estimate will differ from the actual charge. Your provider's billing dashboard is the source of truth.
 :::
 
-## 消耗趋势
+## Usage Trends
 
-折线图展示周期内的输入、输出、缓存命中三条线（蓝色输入、橙色输出、紫色缓存），线下方有半透明填充，方便辨识重叠部分。左轴是 token 数（用 k / M 缩写）。
+The line chart shows input, output, and cache-hit lines over the period (blue for input, orange for output, purple for cache), with translucent fill below each line to make overlapping areas easier to tell apart. The left axis is the token count (abbreviated with k / M).
 
-时间轴按周期完整展开，没有记录的天或小时补 0，因此调用集中在某一天时也能正常看出走势。
+The time axis spans the full period, with days or hours that have no records filled in as 0, so the trend remains readable even when calls are concentrated on a single day.
 
-## 渠道与模型统计
+## Provider and Model Stats
 
-**渠道统计**按供应商聚合，展示渠道名称、已配置密钥凭证数量、成功率百分比与横向进度条，右侧突出展示请求次数与 token 消耗，按总消耗倒序排列。
+**Provider stats** aggregate by provider, showing the provider name, the number of configured key credentials, a success-rate percentage with a horizontal progress bar, and the request count and token consumption highlighted on the right, sorted by total consumption in descending order.
 
-**模型统计**按模型聚合，每行显示模型名、输入输出消耗、调用次数和成功率，按总消耗倒序排列。
+**Model stats** aggregate by model; each row shows the model name, input/output consumption, call count, and success rate, sorted by total consumption in descending order.
 
-点击任意渠道或模型行可快速作为筛选条件联动整页数据。
+Tap any provider or model row to instantly filter the whole page by it.
 
-## 调用记录
+## Call Log
 
-每页 10 条的明细表，底部可翻页，左右滑动看全部字段：
+A detail table with 10 rows per page, paginated at the bottom; swipe left or right to see all fields:
 
-| 字段 | 说明 |
+| Field | Description |
 | --- | --- |
-| 调用时间 | 年月日时分 |
-| 渠道 / 模型 | 用的哪个供应商和模型 |
-| 思考强度 | 本次调用的档位，没有档位的模型显示 `-` |
-| 状态 | success 成功 / error 失败 / cancelled 已取消 |
-| 输入 / 输出 / 缓存读取 / 缓存写入 | 各类 token 数 |
-| 缓存命中率 | 缓存输入除以总输入 |
-| 首字延迟 | 从请求发出到首个内容事件（文本、思考或工具调用结果）到达的时间 |
-| 总耗时 | 本次调用的总时长 |
-| 预估费用 | 没有单价数据的模型显示 `-` |
+| Call time | Year-month-day hour:minute |
+| Provider / Model | Which provider and model were used |
+| Reasoning effort | The tier used for this call; models without tiers show `-` |
+| Status | success (succeeded) / error (failed) / cancelled (cancelled) |
+| Input / Output / Cache read / Cache write | Token counts for each category |
+| Cache hit rate | Cache-read input divided by total input |
+| First-token latency | Time from the request being sent until the first content event (text, reasoning, or a tool call result) arrives |
+| Total duration | Total elapsed time of the call |
+| Estimated cost | Models without price data show `-` |
 
-纯工具调用的那一轮也会统计首字延迟。
+First-token latency is also recorded for rounds that are pure tool calls.
 
-## 重置
+## Reset
 
-页面右上角的垃圾桶图标可以清空全部调用记录，统计随之归零。会弹确认框，**清空后不可恢复**。
+The trash icon in the top-right corner clears all call records and resets the stats to zero. A confirmation dialog appears — **this cannot be undone once cleared**.

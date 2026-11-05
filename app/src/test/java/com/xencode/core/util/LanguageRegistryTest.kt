@@ -4,7 +4,7 @@ import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
-/** [LanguageRegistry] 支持语言清单与 tag 判定。 */
+/** Supported-language list and tag checks for [LanguageRegistry]. */
 class LanguageRegistryTest {
 
     @Test

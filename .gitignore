@@ -24,12 +24,12 @@ keystore.properties
 /.agents/
 /.xencode/
 
-# 临时调试文件
+# Temporary debug files
 /*.log
 log-*.txt
 *.apk
 /test
 
-# Python（模型数据更新脚本）
+# Python (model data update scripts)
 __pycache__/
 *.pyc

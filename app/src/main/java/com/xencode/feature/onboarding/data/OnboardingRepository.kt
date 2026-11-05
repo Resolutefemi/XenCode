@@ -13,7 +13,7 @@ import javax.inject.Singleton
 
 private val Context.onboardingDataStore by preferencesDataStore(name = "onboarding_prefs")
 
-/** 首次启动引导的持久化状态。 */
+/** Persisted status of the first-launch onboarding. */
 enum class OnboardingStatus(val persisted: String) {
     IN_PROGRESS("in_progress"),
     COMPLETED("completed"),
@@ -26,10 +26,10 @@ enum class OnboardingStatus(val persisted: String) {
 }
 
 /**
- * 首次启动引导的进度持久化：一个 key 记录三态。
+ * First-launch onboarding progress persistence: one key records the three states.
  *
- * 每推进一格即写入，进程被杀、重启后回到当前步；完成/跳过只在状态发生跳变时写一次。
- * 风格对齐 [ThemeSettingsRepository]（同一个 DataStore 模式）。
+ * Written on every step advance, so a killed/restarted process resumes at the current step; completed/skipped are written once, only on state transitions.
+ * Styled after [ThemeSettingsRepository] (the same DataStore pattern).
  */
 @Singleton
 class OnboardingRepository @Inject constructor(
@@ -39,30 +39,30 @@ class OnboardingRepository @Inject constructor(
         val ONBOARDING_STATUS_KEY = stringPreferencesKey("onboarding_status")
     }
 
-    /** 当前引导状态；首次安装（从未写过）时为 null，由调用方当作 IN_PROGRESS 处理。 */
+    /** Current onboarding status; null on first install (never written), treated as IN_PROGRESS by callers. */
     val statusFlow: Flow<OnboardingStatus?> =
         context.onboardingDataStore.data.map { OnboardingStatus.fromPersisted(it[ONBOARDING_STATUS_KEY]) }
 
-    /** 当前状态快照，供启动判定一次读取。 */
+    /** Current status snapshot, read once for the launch decision. */
     suspend fun status(): OnboardingStatus? = statusFlow.first()
 
     suspend fun markStatus(status: OnboardingStatus) {
         context.onboardingDataStore.edit { it[ONBOARDING_STATUS_KEY] = status.persisted }
     }
 
-    /** 完成引导；收到真实完成事件后调用，只在状态未完成时写一次。 */
+    /** Completes onboarding; called after a real completion event, written once only when not already completed. */
     suspend fun complete() {
         val current = status()
         if (current != OnboardingStatus.COMPLETED) markStatus(OnboardingStatus.COMPLETED)
     }
 
-    /** 跳过引导；用户点跳过或强制重置时调用。 */
+    /** Skips onboarding; called when the user taps skip or on a forced reset. */
     suspend fun skip() {
         val current = status()
         if (current != OnboardingStatus.SKIPPED) markStatus(OnboardingStatus.SKIPPED)
     }
 
-    /** 重置为进行中（设置页「重新运行引导」用）。 */
+    /** Resets to in-progress (used by the settings page's "rerun onboarding"). */
     suspend fun resetToInProgress() {
         val current = status()
         if (current != OnboardingStatus.IN_PROGRESS) markStatus(OnboardingStatus.IN_PROGRESS)

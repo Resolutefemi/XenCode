@@ -1,33 +1,33 @@
-# 视频教程
+# Video Tutorials
 
-B 站上的实操演示，可按需选择观看。
+Hands-on demos hosted on Bilibili — watch whichever you need.
 
-::: tip 播放器一直转圈？
-播放器需要联网加载，网络不佳时可能长时间停在加载状态。遇到这种情况，点击视频下方的「在 B 站打开」跳转观看。
+::: tip Player stuck loading?
+The player loads over the network and may sit in the loading state for a long time on a poor connection. If that happens, tap "Open on Bilibili" below the video to watch it there instead.
 :::
 
-## 从零上手完整演示
+## Full Walkthrough from Scratch
 
 <BilibiliEmbed bvid="BV1JTh56XEiz" />
 
-从零开始的完整入门演示，主要内容：
+A complete beginner walkthrough from scratch. Main topics:
 
-- 基础配置和功能
-- 使用 AI 编写代码
-- Git 功能演示
-- 工作区文件访问
+- Basic setup and features
+- Writing code with AI
+- Git feature demos
+- Workspace file access
 
-[在 B 站打开](https://www.bilibili.com/video/BV1JTh56XEiz)
+[Open on Bilibili](https://www.bilibili.com/video/BV1JTh56XEiz)
 
-## 常见问题答疑
+## FAQ Session
 
 <BilibiliEmbed bvid="BV1NitN6wEvX" />
 
-针对常见问题的实操答疑，主要内容：
+Hands-on answers to frequently asked questions. Main topics:
 
-- AUTO 模式的开启与使用
-- 配置 AI 供应商
-- 自定义面板（DIY 面板）的配置方式
-- 工作区介绍与手机目录挂载
+- Enabling and using AUTO mode
+- Configuring AI providers
+- Configuring custom panels (DIY panels)
+- Workspace overview and phone directory mounting
 
-[在 B 站打开](https://www.bilibili.com/video/BV1NitN6wEvX)
+[Open on Bilibili](https://www.bilibili.com/video/BV1NitN6wEvX)

@@ -31,16 +31,16 @@ import javax.inject.Inject
 private const val TAG = "RemoteSshEngine"
 
 /**
- * [CommandEngine] 的远程 SSH 实现：用 sshj exec channel 在远程服务器上执行命令。
+ * Remote SSH implementation of [CommandEngine]: runs commands on the remote server via the sshj exec channel.
  *
- * 共享一个 [RemoteSshConnection]（持有 sshj [SSHClient]）执行命令；文件读写由 [RemoteSftpFileAccess]
- * 走另一条独立的 SFTP transport（见 [RemoteSshConnection.sftp]），两者隔离互不影响。
+ * Shares one [RemoteSshConnection] (holding the sshj [SSHClient]) to run commands; file reads/writes go
+ * through a separate SFTP transport in [RemoteSftpFileAccess] (see [RemoteSshConnection.sftp]), so the two never affect each other.
  *
- * 与 [LinuxContainerEngine] 的语义对应：
- * - [ensureInstalled]：建立/维持 SSH 连接（对应本地解压 rootfs）；
- * - [isContainerInstalled]：SSH 连接是否存活（对应本地 rootfs 是否就绪）；
- * - [isProvisioned]：恒 true（远程工具由用户自行保证，对应本地 apk 装包完成）；
- * - [defaultShell]：/bin/bash（远程服务器通常有 bash）。
+ * Semantic mapping to [LinuxContainerEngine]:
+ * - [ensureInstalled]: establish/maintain the SSH connection (local equivalent: extracting the rootfs);
+ * - [isContainerInstalled]: whether the SSH connection is alive (local equivalent: rootfs ready);
+ * - [isProvisioned]: always true (remote tools are the user's responsibility; local equivalent: apk installs done);
+ * - [defaultShell]: /bin/bash (remote servers usually have bash).
  */
 class RemoteSshEngine @Inject constructor(
     private val connection: RemoteSshConnection
@@ -66,7 +66,7 @@ class RemoteSshEngine @Inject constructor(
         timeoutMs: Long
     ): Flow<CommandEvent> = flow {
         val effectiveTimeout = timeoutMs.coerceIn(1L, CommandEngine.MAX_TIMEOUT_MS)
-        FileLogger.d(TAG, "执行命令(远程流式) cwd=$projectPath timeout=${effectiveTimeout}ms: ${sanitizeCommandForLog(command)}")
+        FileLogger.d(TAG, "Executing command (remote streaming) cwd=$projectPath timeout=${effectiveTimeout}ms: ${sanitizeCommandForLog(command)}")
         val session = connection.startExecSession(buildCdCommand(command, projectPath))
         val timedOut = AtomicBoolean(false)
         val watchScope = CoroutineScope(Dispatchers.IO + Job())
@@ -74,13 +74,13 @@ class RemoteSshEngine @Inject constructor(
             delay(effectiveTimeout)
             if (session.isOpen) {
                 timedOut.set(true)
-                FileLogger.w(TAG, "命令超时(${effectiveTimeout}ms)已终止: ${sanitizeCommandForLog(command)}")
+                FileLogger.w(TAG, "Command timed out (${effectiveTimeout}ms) and was terminated: ${sanitizeCommandForLog(command)}")
                 runCatching { session.close() }
             }
         }
         val cancellationHook = currentCoroutineContext()[Job]?.invokeOnCompletion { cause ->
             if (cause is CancellationException && session.isOpen) {
-                FileLogger.i(TAG, "命令被取消，关闭 session: ${sanitizeCommandForLog(command)}")
+                FileLogger.i(TAG, "Command canceled; closing session: ${sanitizeCommandForLog(command)}")
                 runCatching { session.close() }
             }
         }
@@ -96,8 +96,8 @@ class RemoteSshEngine @Inject constructor(
                 emit(CommandEvent.Line("[Command timed out: exceeded ${effectiveTimeout}ms and was forcibly terminated]"))
                 emit(CommandEvent.Exit(null))
             } else {
-                if (exitCode != 0) FileLogger.w(TAG, "命令退出码=$exitCode: ${sanitizeCommandForLog(command)}")
-                else FileLogger.v(TAG, "命令完成(退出码 0): ${sanitizeCommandForLog(command)}")
+                if (exitCode != 0) FileLogger.w(TAG, "Command exit code=$exitCode: ${sanitizeCommandForLog(command)}")
+                else FileLogger.v(TAG, "Command completed (exit code 0): ${sanitizeCommandForLog(command)}")
                 emit(CommandEvent.Exit(exitCode))
             }
         } catch (e: CancellationException) {
@@ -108,7 +108,7 @@ class RemoteSshEngine @Inject constructor(
                 emit(CommandEvent.Line("[Command timed out: exceeded ${effectiveTimeout}ms and was forcibly terminated]"))
                 emit(CommandEvent.Exit(null))
             } else {
-                FileLogger.e(TAG, "命令读输出异常(已保留此前输出): ${sanitizeCommandForLog(command)}", e)
+                FileLogger.e(TAG, "Error reading command output (earlier output preserved): ${sanitizeCommandForLog(command)}", e)
                 emit(CommandEvent.Line("[Command execution error: ${e.message}]"))
                 emit(CommandEvent.Exit(null))
             }
@@ -147,7 +147,7 @@ class RemoteSshEngine @Inject constructor(
         if (!isContainerInstalled()) return null
         return runCatching { execCaptured(command, projectPath, timeoutMs) }
             .getOrElse {
-                FileLogger.w(TAG, "远程命令执行失败(连接可能已断): ${sanitizeCommandForLog(command)}", it)
+                FileLogger.w(TAG, "Remote command execution failed (connection may be lost): ${sanitizeCommandForLog(command)}", it)
                 null
             }
     }
@@ -168,7 +168,7 @@ class RemoteSshEngine @Inject constructor(
         unbounded: Boolean = false
     ): CommandResult = withContext(Dispatchers.IO) {
         val effectiveTimeout = timeoutMs.coerceIn(1L, CommandEngine.MAX_TIMEOUT_MS)
-        FileLogger.d(TAG, "执行命令(远程同步) cwd=$projectPath timeout=${effectiveTimeout}ms: ${sanitizeCommandForLog(command)}")
+        FileLogger.d(TAG, "Executing command (remote sync) cwd=$projectPath timeout=${effectiveTimeout}ms: ${sanitizeCommandForLog(command)}")
         val session = connection.startExecSession(buildCdCommand(command, projectPath))
         val output = if (unbounded) BoundedOutput.hardCapped(MAX_UNBOUNDED_CHARS) else BoundedOutput()
         var exitCode: Int? = null
@@ -177,7 +177,7 @@ class RemoteSshEngine @Inject constructor(
                 val watchdog = launch {
                     delay(effectiveTimeout)
                     if (session.isOpen) {
-                        FileLogger.w(TAG, "命令超时(${effectiveTimeout}ms)已终止: ${sanitizeCommandForLog(command)}")
+                        FileLogger.w(TAG, "Command timed out (${effectiveTimeout}ms) and was terminated: ${sanitizeCommandForLog(command)}")
                         runCatching { session.close() }
                     }
                 }
@@ -192,8 +192,8 @@ class RemoteSshEngine @Inject constructor(
                     watchdog.cancel()
                     runCatching { reader.close() }
                 }
-                // 并发读 stderr 合并进 output：本地引擎 redirectErrorStream(true) 是合并语义，
-                // 远程若不合并，命令报错（如 rg 未安装时的 command not found）只写 stderr 会被静默丢弃。
+                // Read stderr concurrently and merge it into output: the local engine's redirectErrorStream(true) merges
+                // the streams; if the remote side didn't merge, command errors (e.g. command not found when rg is missing) that only go to stderr would be silently dropped.
                 val stderrJob = launch {
                     val errReader = BoundedLineReader(InputStreamReader(session.errorStream))
                     try {
@@ -207,14 +207,14 @@ class RemoteSshEngine @Inject constructor(
                     }
                 }
                 stderrJob.join()
-                // sshj 的 exitStatus 在流 EOF 后未必就绪，close 后才保证有值
+                // sshj's exitStatus is not necessarily ready after stream EOF; it is guaranteed only after close
                 runCatching { session.close() }
                 exitCode = session.exitStatus
             }
         } finally {
             runCatching { session.close() }
         }
-        FileLogger.v(TAG, "命令完成(远程, 退出码 $exitCode，输出 ${output.totalChars} 字符): ${sanitizeCommandForLog(command)}")
+        FileLogger.v(TAG, "Command completed (remote, exit code $exitCode, output ${output.totalChars} chars): ${sanitizeCommandForLog(command)}")
         CommandResult(output.build(), exitCode, output.truncated)
     }
 
@@ -234,19 +234,19 @@ class RemoteSshEngine @Inject constructor(
             connection.connect()
             _initProgress.value = ContainerInitState.Ready
         } catch (e: Exception) {
-            FileLogger.e(TAG, "SSH 连接失败", e)
+            FileLogger.e(TAG, "SSH connection failed", e)
             val friendly = friendlySshError(e)
             _initProgress.value = ContainerInitState.Failed(friendly)
             throw RuntimeException(friendly, e)
         }
     }
 
-    /** 拼接 cd 到 projectPath 再执行 command 的完整命令；projectPath 为 null 则直接执行。
-     *  优先 cd 到 ~/workspace（符号链接），让 AI 执行 pwd 时看到 ~/workspace 而非真实路径。
-     *  ~/workspace 不存在（符号链接未建成）时 fallback 到 projectPath。
-     *  注入 GIT_CONFIG_GLOBAL 指向 App 管理的 ~/.xencode/gitconfig：
-     *  仅当用户开启「自动注入」时该文件存在（含 include 用户全局配置 + includeIf 限定工作区根），
-     *  文件不存在时 git 静默跳过——不影响用户在服务器上手动 git。 */
+    /** Build the full command that cds to projectPath before running command; if projectPath is null, run it directly.
+     *  Prefer cd to ~/workspace (the symlink) so the AI sees ~/workspace from pwd instead of the real path.
+     *  If ~/workspace does not exist (symlink not created), fall back to projectPath.
+     *  Injects GIT_CONFIG_GLOBAL pointing at the app-managed ~/.xencode/gitconfig:
+     *  the file exists only when the user enables "auto-inject" (includes the user's global config + includeIf scoped to the workspace root);
+     *  when absent, git silently skips it — the user's manual git on the server is unaffected. */
     private fun buildCdCommand(command: String, projectPath: String?): String {
         val prefix = "export GIT_CONFIG_GLOBAL=\"\$HOME/.xencode/gitconfig\"; "
         if (projectPath == null) return prefix + command

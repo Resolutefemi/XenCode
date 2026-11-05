@@ -1,6 +1,6 @@
 #!/bin/sh
-# 场景：Flutter 开发（Android SDK + Flutter SDK 3.27.4）
-# 依赖 lib/android-sdk.sh 提供的共享安装逻辑。
+# Scenario: Flutter development (Android SDK + Flutter SDK 3.27.4)
+# Relies on the shared install logic in lib/android-sdk.sh.
 FLUTTER_VERSION="3.27.4"
 FLUTTER_DIR="$HOME/.local/flutter-$FLUTTER_VERSION"
 FLUTTER_STORAGE="https://storage.flutter-io.cn"

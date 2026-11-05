@@ -29,10 +29,11 @@ import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.unit.dp
 
 /**
- * 全局统一的精致紧凑型开关组件：
- * - 紧凑尺寸（42.dp × 24.dp），告别 Material 3 默认 Switch 的笨重厚重感；
- * - 纯白微阴影圆形滑块 + 丝滑平移动画；
- * - 浅色模式为品牌蓝 / 柔和浅灰轨道；深色模式为亮蓝 / 暗灰蓝轨道。
+ * App-wide refined compact switch component:
+ * - Compact size (42.dp × 24.dp), a welcome change from the chunky Material 3 default Switch;
+ * - Pure-white circular thumb with a subtle shadow + silky slide animation;
+ * - Brand blue / soft light-gray track in light mode; bright blue / dark gray-blue track in
+ *   dark mode.
  */
 @Composable
 fun AppSwitch(
@@ -44,7 +45,7 @@ fun AppSwitch(
 ) {
     val isLight = MaterialTheme.colorScheme.background.luminance() > 0.5f
 
-    // 轨道颜色
+    // Track color
     val targetTrackColor = when {
         checked -> MaterialTheme.colorScheme.primary
         isLight -> Color(0xFFE2E8F0)
@@ -56,10 +57,10 @@ fun AppSwitch(
         label = "switchTrackColor"
     )
 
-    // 滑块颜色
+    // Thumb color
     val thumbColor = if (isLight) Color.White else Color(0xFFF8FAFC)
 
-    // 滑块位移（轨道宽 42dp，内边距 2dp，滑块 20dp，位移范围 2dp -> 20dp）
+    // Thumb offset (track width 42dp, padding 2dp, thumb 20dp; offset range 2dp -> 20dp)
     val thumbOffset by animateDpAsState(
         targetValue = if (checked) 20.dp else 2.dp,
         animationSpec = spring(

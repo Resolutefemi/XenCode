@@ -10,7 +10,7 @@ class DirectoryListingCacheTest {
     private fun entry(name: String) = FileEntry(name = name, isDirectory = false, size = 0, lastModified = 0)
 
     @Test
-    fun `未命中返回null_写入后命中`() {
+    fun missReturnsNull_hitAfterPut() {
         val cache = DirectoryListingCache()
         assertNull(cache.get("/ws/a"))
         cache.put("/ws/a", listOf(entry("f1"), entry("f2")))
@@ -18,7 +18,7 @@ class DirectoryListingCacheTest {
     }
 
     @Test
-    fun `invalidate只删指定目录`() {
+    fun invalidateRemovesOnlyGivenDirectory() {
         val cache = DirectoryListingCache()
         cache.put("/ws/a", listOf(entry("f")))
         cache.put("/ws/b", listOf(entry("f")))
@@ -28,12 +28,12 @@ class DirectoryListingCacheTest {
     }
 
     @Test
-    fun `invalidateTree连带删掉所有子孙`() {
+    fun invalidateTreeAlsoRemovesAllDescendants() {
         val cache = DirectoryListingCache()
         cache.put("/ws/d", listOf(entry("f")))
         cache.put("/ws/d/sub", listOf(entry("f")))
         cache.put("/ws/d/sub/deep", listOf(entry("f")))
-        cache.put("/ws/dx", listOf(entry("f"))) // 前缀相似但不是子孙
+        cache.put("/ws/dx", listOf(entry("f"))) // similar prefix but not a descendant
         cache.invalidateTree("/ws/d")
         assertNull(cache.get("/ws/d"))
         assertNull(cache.get("/ws/d/sub"))
@@ -42,7 +42,7 @@ class DirectoryListingCacheTest {
     }
 
     @Test
-    fun `空路径invalidate是no-op`() {
+    fun invalidateWithEmptyPathIsNoop() {
         val cache = DirectoryListingCache()
         cache.put("/ws/a", listOf(entry("f")))
         cache.invalidate("")
@@ -50,7 +50,7 @@ class DirectoryListingCacheTest {
     }
 
     @Test
-    fun `clear清空全部`() {
+    fun clearRemovesEverything() {
         val cache = DirectoryListingCache()
         cache.put("/ws/a", listOf(entry("f")))
         cache.clear()
@@ -59,7 +59,7 @@ class DirectoryListingCacheTest {
     }
 
     @Test
-    fun `超过容量按插入序淘汰最旧`() {
+    fun overCapacityEvictsOldestInInsertionOrder() {
         val cache = DirectoryListingCache(maxEntries = 3)
         cache.put("/ws/1", listOf(entry("f")))
         cache.put("/ws/2", listOf(entry("f")))
@@ -71,7 +71,7 @@ class DirectoryListingCacheTest {
     }
 
     @Test
-    fun `重复put同一路径不涨容量`() {
+    fun repeatedPutSamePathDoesNotGrowCapacity() {
         val cache = DirectoryListingCache()
         repeat(10) { cache.put("/ws/a", listOf(entry("f$it"))) }
         assertEquals(1, cache.size())
@@ -79,7 +79,7 @@ class DirectoryListingCacheTest {
     }
 
     @Test
-    fun `并发读写不抛异常`() {
+    fun concurrentReadWriteThrowsNoException() {
         val cache = DirectoryListingCache(maxEntries = 16)
         val threads = (1..8).map { t ->
             Thread {
@@ -92,6 +92,6 @@ class DirectoryListingCacheTest {
         }
         threads.forEach { it.start() }
         threads.forEach { it.join() }
-        assertTrue("容量应受控，实际=${cache.size()}", cache.size() <= 16)
+        assertTrue("capacity should stay bounded, actual=${cache.size()}", cache.size() <= 16)
     }
 }

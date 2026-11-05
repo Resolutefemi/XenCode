@@ -1,8 +1,8 @@
-# 默认：文本文件按提交时的原样保存（不自动转 CRLF），checkout 时也不转换。
-# 解决 commit 时反复出现的 "LF will be replaced by CRLF" 警告。
+# Default: text files are stored exactly as committed (no automatic CRLF conversion) and are not converted on checkout.
+# Fixes the recurring "LF will be replaced by CRLF" warning during commit.
 * text=auto eol=lf
 
-# 明确文本类按 LF（跨平台一致）
+# Explicitly normalize text file types to LF (consistent across platforms)
 *.kt     text eol=lf
 *.kts    text eol=lf
 *.java   text eol=lf
@@ -18,12 +18,12 @@
 *.sql    text eol=lf
 *.toml   text eol=lf
 
-# Windows 专属脚本保持 CRLF
+# Windows-only scripts stay CRLF
 *.bat    text eol=crlf
 *.cmd    text eol=crlf
 *.ps1    text eol=crlf
 
-# 二进制：不做任何转换
+# Binary: no conversion of any kind
 *.png    binary
 *.jpg    binary
 *.jpeg   binary

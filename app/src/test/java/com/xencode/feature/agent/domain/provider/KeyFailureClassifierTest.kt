@@ -9,7 +9,7 @@ import retrofit2.HttpException
 import retrofit2.Response
 
 /**
- * 多 Key 切换的失败判定（[Throwable.isKeySwitchFailure]）：默认码表、可配置覆盖与 cause 链追溯。
+ * Failure classification for multi-key switching ([Throwable.isKeySwitchFailure]): the default status-code set, configurable overrides, and cause-chain traversal.
  */
 class KeyFailureClassifierTest {
 
@@ -19,14 +19,14 @@ class KeyFailureClassifierTest {
     @Test
     fun default_codes_trigger_switch() {
         DEFAULT_KEY_SWITCH_STATUS_CODES.forEach { code ->
-            assertTrue("HTTP $code 应触发切换", httpError(code).isKeySwitchFailure())
+            assertTrue("HTTP $code should trigger a switch", httpError(code).isKeySwitchFailure())
         }
     }
 
     @Test
     fun transient_codes_do_not_trigger_switch() {
         listOf(408, 500, 502, 503, 504).forEach { code ->
-            assertFalse("HTTP $code 不应触发切换", httpError(code).isKeySwitchFailure())
+            assertFalse("HTTP $code should not trigger a switch", httpError(code).isKeySwitchFailure())
         }
     }
 
@@ -34,7 +34,7 @@ class KeyFailureClassifierTest {
     fun custom_codes_override_default() {
         val custom = setOf(400, 418)
         assertTrue(httpError(400).isKeySwitchFailure(custom))
-        assertFalse("自定义码表未含 401 时不应切换", httpError(401).isKeySwitchFailure(custom))
+        assertFalse("a custom code set without 401 should not switch", httpError(401).isKeySwitchFailure(custom))
     }
 
     @Test

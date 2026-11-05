@@ -28,8 +28,8 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
 /**
- * Markdown 图片 transformer 的 CompositionLocal。
- * 默认空实现（返回 null）不渲染图片节点，与引入本功能前的行为一致。
+ * CompositionLocal for the Markdown image transformer.
+ * The default no-op implementation (returning null) renders no image nodes, matching the behavior before this feature existed.
  */
 internal val LocalMarkdownImageTransformer = staticCompositionLocalOf<ImageTransformer> { NoOpImageTransformer }
 
@@ -39,14 +39,14 @@ private object NoOpImageTransformer : ImageTransformer {
 }
 
 /**
- * 只加载本地图片的 markdown 图片渲染器。
+ * Markdown image renderer that loads local images only.
  *
- * 支持 AI 容器视角的本地路径（`~/workspace/...`、容器绝对路径、相对路径）与 `file://`，
- * 经 [FileAccessProvider.copyToLocal] 落到宿主文件（远程模式自动下载到临时文件）；
- * 网络协议（http/https/data/content 等）一律不渲染。
+ * Supports local paths from the AI container's perspective (`~/workspace/...`, absolute container paths, relative paths) and `file://`,
+ * materialized as host files via [FileAccessProvider.copyToLocal] (remote mode auto-downloads to a temp file);
+ * network protocols (http/https/data/content etc.) are never rendered.
  *
- * 正文里按 [MARKDOWN_MAX_EDGE] 采样、限高等比缩放（GIF 只显示首帧）；点一下拉起全屏查看器
- * 看原图，那边会按屏幕尺寸重新解码一份更清晰的。
+ * In the body, images are sampled at [MARKDOWN_MAX_EDGE] and scaled proportionally with a height cap (GIFs show only the first frame); a tap opens the fullscreen viewer
+ * for the original, where a sharper copy is re-decoded at screen size.
  */
 internal class MarkdownImageTransformer(
     private val fileAccess: FileAccessProvider
@@ -61,8 +61,8 @@ internal class MarkdownImageTransformer(
         val p = painter ?: return null
         val viewer = LocalImageViewer.current
         val clickLabel = stringResource(R.string.common_image_preview)
-        // remember 住 modifier：ImageData 是 data class，每帧换一个新 Modifier 实例会让它的
-        // equals 恒不成立，白白触发下游重组。
+        // Remember the modifier: ImageData is a data class, and a fresh Modifier instance every frame makes its
+        // equals always fail, triggering pointless downstream recompositions.
         val modifier = remember(link, viewer, clickLabel) {
             Modifier
                 .fillMaxWidth()
@@ -79,7 +79,7 @@ internal class MarkdownImageTransformer(
             if (!file.isFile || file.length() <= 0L) return null
             decodeSampledBitmap(file.absolutePath, MARKDOWN_MAX_EDGE)?.let { BitmapPainter(it) }
         } catch (e: Exception) {
-            FileLogger.w(TAG, "markdown 本地图片解码失败: $url", e)
+            FileLogger.w(TAG, "Markdown local image decode failed: $url", e)
             null
         }
     }
@@ -88,13 +88,13 @@ internal class MarkdownImageTransformer(
         val u = url.trim()
         if (u.isEmpty()) return false
         if (u.startsWith("file://")) return true
-        // 带 :// 的其它协议（http/https/data/content/ftp...）一律视为非本地
+        // Any other protocol with :// (http/https/data/content/ftp...) is treated as non-local
         return !u.contains("://")
     }
 
     private companion object {
         const val TAG = "MarkdownImage"
-        /** 显示最大高度（dp），超长图等比缩放。 */
+        /** Maximum display height (dp); overlong images scale proportionally. */
         val MAX_HEIGHT_DP = 320.dp
     }
 }

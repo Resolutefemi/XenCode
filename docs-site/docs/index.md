@@ -1,42 +1,42 @@
 ---
 layout: home
-title: XenCode - 手机端 AI 编程工具与内置 Linux 终端
+title: XenCode - AI Coding Tool for Android with a Built-in Linux Terminal
 titleTemplate: false
-description: XenCode 是一款开源的 Android 端 AI 编程工具，无需电脑，在手机上即可完成完整开发流程。内置 Linux 容器与终端，AI Agent 可直接读写代码并执行构建；支持 Git 版本控制、MCP 协议与远程 SSH 开发。
+description: XenCode is an open-source AI coding tool for Android. No computer needed — complete the entire development workflow right on your phone. With a built-in Linux container and terminal, the AI Agent can read and write code and run builds directly; Git version control, the MCP protocol, and remote SSH development are supported.
 head:
   - - meta
     - name: keywords
-      content: XenCode, Android AI 编程, 手机编程, 移动端开发, Linux 终端, PRoot, Termux, AI Agent, MCP 协议, 手机代码编辑器, Git 客户端, 移动工作站, 手机跑终端, 远程 SSH 开发
+      content: XenCode, Android AI coding, mobile coding, mobile development, Linux terminal, PRoot, Termux, AI Agent, MCP protocol, mobile code editor, Git client, mobile workstation, terminal on your phone, remote SSH development
 
 hero:
   name: XenCode
-  text: 手机上的 AI 编程工具与移动工作站
-  tagline: 无需电脑，在手机上即可完成从写代码、调试到提交的完整开发流程。内置 Linux 容器与终端，AI Agent 可自主读写文件、执行 Shell 命令与运行构建，还支持 Git、MCP、远程 SSH 与完整模型生态。
+  text: AI Coding Tool and Mobile Workstation on Your Phone
+  tagline: No computer needed — complete the full development workflow on your phone, from writing and debugging code to committing it. With a built-in Linux container and terminal, the AI Agent autonomously reads and writes files, runs shell commands, and executes builds. Git, MCP, remote SSH, and a full model ecosystem are also supported.
   image:
     src: /logo.png
     alt: XenCode
   actions:
     - theme: brand
-      text: 快速上手
+      text: Quick Start
       link: /guide/quick-start
     - theme: alt
-      text: 下载 APK
+      text: Download APK
       link: https://xencode.murk.top/download
     - theme: alt
       text: GitHub
-      link: https://github.com/jieapi/xencode
+      link: https://github.com/Resolutefemi/XenCode
 
 features:
   - title: AI Agent
-    details: 支持 OpenAI / Anthropic / Gemini 兼容协议，多供应商随时切换；内置文件读写、Shell 执行、后台终端、搜索与图片识别等工具，流式输出，长对话自动压缩上下文。
-  - title: 内置终端与 Linux 容器
-    details: 基于 Termux 组件与 PRoot 的本地容器，内置 Alpine 镜像，可导入自定义 rootfs、挂载宿主目录，终端支持后台常驻。
-  - title: 远程 SSH 模式
-    details: 以远程服务器作为执行后端，命令走 exec channel、文件走 SFTP、终端走 shell channel，在手机上直接操作远程项目。
-  - title: 检查点与撤销
-    details: AI 改代码前自动记录文件快照，对话中可一键回滚，支持只恢复代码、只恢复对话，或两者同时恢复。
-  - title: MCP、技能与记忆
-    details: 可连接本地 stdio 与远程 HTTP 的 MCP 服务器动态扩展工具；支持全局与项目级技能和长期记忆，让 AI 跨会话复用经验。
-  - title: Git 与工作区同步
-    details: 内置状态、分支、提交、差异与标签管理；支持 SFTP / FTP 同步，并自带 FTP 服务端方便电脑侧管理文件。
+    details: Supports OpenAI / Anthropic / Gemini compatible protocols with instant switching between providers; built-in tools include file read/write, shell execution, a background terminal, search, and image recognition; streaming output with automatic context compaction for long conversations.
+  - title: Built-in Terminal and Linux Container
+    details: A local container built on Termux components and PRoot with an Alpine image included; import a custom rootfs, mount host directories, and keep the terminal alive in the background.
+  - title: Remote SSH Mode
+    details: Uses a remote server as the execution backend — commands over an exec channel, files over SFTP, and the terminal over a shell channel — so you can work on remote projects right from your phone.
+  - title: Checkpoints and Undo
+    details: Automatically snapshots files before the AI edits code; roll back with one tap mid-conversation — restore code only, conversation only, or both at once.
+  - title: MCP, Skills, and Memory
+    details: Connect local stdio and remote HTTP MCP servers to extend tools on the fly; global and project-level skills plus long-term memory let the AI reuse experience across sessions.
+  - title: Git and Workspace Sync
+    details: Built-in status, branch, commit, diff, and tag management; supports SFTP / FTP sync and ships an FTP server for managing files from your computer.
 ---

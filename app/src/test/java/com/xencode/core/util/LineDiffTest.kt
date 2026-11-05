@@ -4,11 +4,11 @@ import org.junit.Assert.assertEquals
 import org.junit.Test
 
 /**
- * [LineDiff] 行级 LCS 差异计算与统一文本渲染。
+ * Line-level LCS diff computation and unified text rendering for [LineDiff].
  *
- * 两个实现细节决定断言形态：
- * 1. LCS 回溯时删除分支优先（dp[i+1][j] >= dp[i][j+1] 取 REMOVE）；
- * 2. split("\n") 让空文本 / 末尾换行各产生一个空行元素，diff 结果按此实际行为断言。
+ * Two implementation details shape the assertion style:
+ * 1. During LCS backtracking the removal branch takes priority (dp[i+1][j] >= dp[i][j+1] picks REMOVE);
+ * 2. split("\n") makes empty text / a trailing newline each yield an empty-line element, and diff results are asserted against that actual behavior.
  */
 class LineDiffTest {
 
@@ -31,7 +31,7 @@ class LineDiffTest {
 
     @Test
     fun pure_insertion_produces_add_lines() {
-        // 空文本 split 出空行，先删空行再逐行新增
+        // Empty text splits into an empty line: remove it first, then add the new lines one by one
         assertEquals(
             listOf(del(""), add("a"), add("b")),
             LineDiff.diff("", "a\nb")
@@ -72,7 +72,7 @@ class LineDiffTest {
 
     @Test
     fun adjacent_duplicate_lines_favor_removal() {
-        // 删除分支优先：a 被删后 b 仍是公共行
+        // Removal branch takes priority: once a is removed, b is still a common line
         assertEquals(
             listOf(del("a"), ctx("b")),
             LineDiff.diff("a\nb", "b")
@@ -128,7 +128,7 @@ class LineDiffTest {
 
     @Test
     fun to_unified_empty_to_multi_line() {
-        // 空文本 → 多行：先删空行（-），再逐行新增
+        // Empty text -> multi-line: remove the empty line first (-), then add the new lines one by one
         assertEquals("-\n+a\n+b", LineDiff.toUnified("", "a\nb"))
     }
 
@@ -139,7 +139,7 @@ class LineDiffTest {
 
     @Test
     fun to_unified_lines_starting_with_plus_minus_are_not_ambiguous() {
-        // 标记位只取首列：内容以 +/- 开头的行渲染后仍可还原原文
+        // The marker occupies only the first column: lines whose content starts with +/- can still be restored to the original after rendering
         assertEquals(" -x\n +y", LineDiff.toUnified("-x\n+y", "-x\n+y"))
     }
 }

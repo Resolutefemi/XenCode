@@ -44,7 +44,7 @@ import compose.icons.feathericons.Eye
 import compose.icons.feathericons.EyeOff
 
 /**
- * 凭据编辑 BottomSheet 弹窗：从底部弹出编辑/新增 host、用户名、Token。
+ * Credential edit bottom sheet: slides up from the bottom to edit/add host, username, and token.
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -142,7 +142,7 @@ internal fun CredentialEditorSheet(
     }
 }
 
-/** 统一使用全局 AppTextField 组件。 */
+/** Uses the global AppTextField component throughout. */
 @Composable
 private fun CredentialField(
     value: String,

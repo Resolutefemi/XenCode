@@ -84,9 +84,9 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
 /**
- * 待发送队列面板：AI 忙时排队的消息，风格与斜杠命令菜单一致。
- * 内容过长时在面板内部滚动（heightIn 限制 + LazyColumn）；支持长按手柄拖拽排序、
- * 编辑单条、立即插入当前轮次、逐条删除。
+ * Pending-send queue panel: messages queued while the AI is busy, styled like the slash command menu.
+ * Scrolls internally when content is long (heightIn cap + LazyColumn); supports long-press handle drag reordering,
+ * per-item editing, immediate insertion into the current turn, and item-by-item deletion.
  */
 @Composable
 internal fun QueuedRequestPanel(
@@ -98,10 +98,10 @@ internal fun QueuedRequestPanel(
     onEditQueued: (QueuedRequest) -> Unit,
     onInterjectQueued: (String) -> Unit
 ) {
-    // 按会话记忆展开状态，默认展开；弹窗/键盘叠加时联动强制收起（同待办面板）。
+    // Expansion state remembered per session, expanded by default; force-collapsed when a dialog/keyboard stacks on top (same as the todo panel).
     var isExpanded by rememberSaveable(sessionId) { mutableStateOf(true) }
     val effectiveExpanded = isExpanded && !forceCollapse
-    // 拖拽中读取最新队列与回调：pointerInput 只在 key 变化时重启，用 rememberUpdatedState 避免捕获陈旧值。
+    // Read the latest queue and callbacks during drag: pointerInput restarts only when its key changes, so rememberUpdatedState avoids capturing stale values.
     val currentQueue by rememberUpdatedState(queuedRequests)
     val moveQueued by rememberUpdatedState(onMoveQueued)
     var draggingId by remember { mutableStateOf<String?>(null) }
@@ -266,7 +266,7 @@ internal fun QueuedRequestPanel(
     }
 }
 
-/** 队列行拖拽位移换算基准：内容高度（28dp）+ 上下 padding（Spacing.xs×2）。 */
+/** Baseline for converting queue row drag offsets: content height (28dp) + vertical padding (Spacing.xs x 2). */
 private val QueueRowHeight = 36.dp
 
 @Composable
@@ -308,7 +308,7 @@ private fun PendingAttachmentPreviewItem(
                 val previewLabel = stringResource(R.string.common_image_preview)
                 ImageThumbnail(
                     attachment = attachment,
-                    // 右上角的移除按钮是 Box 里后声明的兄弟节点，绘制在上层、命中测试也先到，两者不抢
+                    // The remove button at the top end is a sibling declared later in the Box: it draws on top and also wins hit testing, so the two don't fight
                     modifier = Modifier
                         .fillMaxSize()
                         .clickable(onClickLabel = previewLabel) {
@@ -347,12 +347,12 @@ private fun ImageThumbnail(
     modifier: Modifier = Modifier.size(44.dp)
 ) {
     val base64Data = attachment.image?.base64Data.orEmpty()
-    // Base64 解码 + 位图解码都放到 IO 线程：写在 remember 里的话，选图后的首帧会在主线程
-    // 组合阶段同步解码，大图直接掉帧。采样与 OOM 兜底统一走 decodeSampledBitmap。
+    // Move both Base64 decoding and bitmap decoding to the IO thread: inside remember, the first frame after picking an image would
+    // decode synchronously during composition on the main thread, dropping frames on large images. Sampling and OOM fallback both go through decodeSampledBitmap.
     val bitmap by produceState<ImageBitmap?>(null, base64Data) {
         if (base64Data.isEmpty()) return@produceState
         value = withContext(Dispatchers.IO) {
-            // Base64 解码本身会对非法输入抛异常，位图解码那一层已自带兜底
+            // Base64 decoding itself throws on invalid input; the bitmap decoding layer already has its own fallback
             runCatching {
                 decodeSampledBitmap(Base64.getDecoder().decode(base64Data), THUMBNAIL_MAX_EDGE)
             }.getOrNull()
@@ -420,7 +420,7 @@ private fun FileAttachmentPreview(attachment: PendingUploadAttachment) {
     }
 }
 
-/** 上传进行中的提示条：大文件传输耗时较久，没有反馈会像卡死。 */
+/** In-progress upload banner: large file transfers take a while, and without feedback it looks stuck. */
 @Composable
 internal fun UploadingBanner(count: Int) {
     Surface(
@@ -450,7 +450,7 @@ internal fun UploadingBanner(count: Int) {
 }
 
 /**
- * 加号底部弹层：文件 / 图片 / 拍照上传入口。
+ * Plus-button bottom sheet: entry points for file / image / camera upload.
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable

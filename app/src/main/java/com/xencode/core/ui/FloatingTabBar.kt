@@ -63,17 +63,18 @@ import kotlinx.coroutines.launch
 import kotlin.math.abs
 import kotlin.math.roundToInt
 
-/** 底部悬浮 tab 栏的单个 tab 项：图标 + 文案。 */
+/** A single tab item in the floating bottom tab bar: icon + label. */
 data class FloatingTabItem(
     val icon: ImageVector,
     val label: String
 )
 
 /**
- * 底部悬浮液态玻璃 Tab 栏（PagerState 联动版）：
- * - 滑动页面主体时，底栏指示器 100% 毫秒级跟手同步平移；
- * - 长按底栏左右拖拽时，上方页面 1:1 同步平滑滑动，松手弹簧吸附；
- * - 点击 Tab 项平滑滚动至对应页面。
+ * Floating Liquid Glass bottom tab bar (PagerState-linked edition):
+ * - Swiping the page body moves the bar's indicator with 100% millisecond-level tracking;
+ * - Long-pressing the bar and dragging left/right slides the page above 1:1 in smooth sync,
+ *   spring-snapping on release;
+ * - Tapping a tab scrolls smoothly to the matching page.
  */
 @Composable
 fun FloatingTabBar(
@@ -101,7 +102,7 @@ fun FloatingTabBar(
     val mutedSurfaceColor = MaterialTheme.semanticColors.mutedSurface
     val pageBackgroundColor = MaterialTheme.semanticColors.pageBackground
 
-    // 材质与描边画笔
+    // Material and stroke brushes
     val glassBackgroundBrush = remember(isLight, surfaceColor, surfaceVariantColor, cardSurfaceColor, mutedSurfaceColor) {
         if (isLight) {
             Brush.verticalGradient(
@@ -140,7 +141,7 @@ fun FloatingTabBar(
     val tabBounds = remember { mutableStateMapOf<Int, Rect>() }
     val density = LocalDensity.current
 
-    // 计算 Pager 连续位置（支持页面滑动与底栏双向插值）
+    // Compute the pager's continuous position (two-way interpolation between page swipes and the bar)
     val continuousPosition by remember {
         derivedStateOf {
             (pagerState.currentPage + pagerState.currentPageOffsetFraction).coerceIn(0f, items.lastIndex.toFloat())
@@ -160,7 +161,7 @@ fun FloatingTabBar(
         tabBounds[pagerState.currentPage]?.left ?: 0f
     }
 
-    // 果冻拉伸：在位移时根据 offsetFraction 产生平滑微拉伸
+    // Jelly stretch: a subtle smooth stretch based on offsetFraction while moving
     val stretchScaleX = 1f + 0.14f * (1f - abs(fraction - 0.5f) * 2f)
 
     Box(
@@ -357,8 +358,8 @@ fun FloatingTabBar(
 }
 
 /**
- * 底部悬浮液态玻璃 Tab 栏（基础选中索引版）：
- * 用于非 Pager 页面的向后兼容。
+ * Floating Liquid Glass bottom tab bar (basic selected-index edition):
+ * kept for backward compatibility on non-Pager pages.
  */
 @Composable
 fun FloatingTabBar(

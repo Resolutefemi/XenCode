@@ -13,11 +13,11 @@ private val Context.compactionModelDataStore by preferencesDataStore(
 )
 
 /**
- * 持久化「压缩专用模型」选择（providerId + model 两字符串）。
+ * Persists the "dedicated compaction model" selection (two strings: providerId + model).
  *
- * 上下文压缩默认跟随当前聊天模型；当用户在此指定一个专用模型后，
- * 压缩轮会临时切换到该专用模型发送摘要请求，发完恢复聊天模型。
- * providerId 为空（未配置）即视为「跟随当前聊天模型」。
+ * Context compaction follows the current chat model by default; once the user designates a dedicated model here,
+ * the compaction turn temporarily switches to that model to send the summary request, then restores the chat model.
+ * A blank providerId (not configured) means "follow the current chat model".
  */
 @Singleton
 class CompactionModelSettingsRepository @Inject constructor(
@@ -26,15 +26,15 @@ class CompactionModelSettingsRepository @Inject constructor(
     context.compactionModelDataStore, "compaction_provider_id", "compaction_model"
 ) {
 
-    /** 写入压缩专用模型（设空字符串即等同 [clear]）。 */
+    /** Writes the dedicated compaction model (setting an empty string is equivalent to [clear]). */
     suspend fun setCompactionModel(providerId: String, model: String) = setSelection(providerId, model)
 
-    /** 清空配置——回退到「跟随当前聊天模型」。 */
+    /** Clears the configuration — falls back to "follow the current chat model". */
     suspend fun clear() = clearSelection()
 
-    /** 读取一次当前压缩专用 providerId（冷读用）。 */
+    /** Reads the current dedicated compaction providerId once (for cold reads). */
     suspend fun getCompactionProviderId(): String = readProviderId()
 
-    /** 读取一次当前压缩专用 model（冷读用）。 */
+    /** Reads the current dedicated compaction model once (for cold reads). */
     suspend fun getCompactionModel(): String = readModel()
 }

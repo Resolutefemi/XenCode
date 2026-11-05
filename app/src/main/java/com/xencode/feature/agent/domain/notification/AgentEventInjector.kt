@@ -5,22 +5,22 @@ import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.jsonObject
 
 /**
- * 把待送系统事件搭车注入一条工具结果。抽成接口便于各功能复用同一注入位置与语义，
- * 无需各自实现「往原始结果里塞事件」的细节。
+ * Piggybacks pending system events into a tool result. Extracted as an interface so features reuse the same injection point and semantics,
+ * without each implementing the "stuff events into the raw result" details.
  */
 interface AgentEventInjector {
     /**
-     * @param rawToolResult 原始工具结果（通常是 transport JSON 文本）
-     * @param events 待送系统事件
-     * @return 注入后仍可被下游解析的结果文本
+     * @param rawToolResult The raw tool result (usually transport JSON text)
+     * @param events Pending system events
+     * @return Result text that downstream can still parse after injection
      */
     fun inject(rawToolResult: String, events: List<PendingNotification>): String
 }
 
 /**
- * 默认实现：优先把事件作为 transport JSON 顶层的 `notifications` 字段注入，结果仍是合法 JSON，
- * UI 的 formatToolResult（只读 data/message）与各类结构化解析不受影响。
- * raw 已不是合法 JSON（如已被模式切换提示等纯文本追加过）时，退化为文本追加。
+ * Default implementation: prefers injecting events as a top-level `notifications` field of the transport JSON, leaving valid JSON intact,
+ * so the UI's formatToolResult (which reads data/message only) and other structured parsers are unaffected.
+ * When raw is no longer valid JSON (e.g. plain-text mode-switch notices were appended), it degrades to text appending.
  */
 class DefaultAgentEventInjector : AgentEventInjector {
 

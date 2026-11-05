@@ -42,22 +42,22 @@ import java.util.concurrent.ConcurrentHashMap
 import javax.inject.Inject
 import javax.inject.Singleton
 
-/** MCP server 的配置作用域：全局（跨项目共享）或项目级（仅当前工作区生效）。 */
+/** Config scope of an MCP server: global (shared across projects) or project (effective only in the current workspace). */
 enum class McpScope { GLOBAL, PROJECT }
 
-/** 一个生效的 MCP 条目：配置 + 其来源作用域，供 UI 标注「全局/项目」。 */
+/** One effective MCP entry: config + its source scope, for the UI to tag "global/project". */
 data class McpServerEntry(
     val server: McpServerConfig,
     val scope: McpScope
 )
 
 /**
- * MCP 配置持久化，支持全局 + 项目级两级：
- * - 全局：`filesDir/xencode/mcp.json`（跨项目、跨升级保留）；
- * - 项目级：`workspacePath/.xencode/mcp.json`（随工作区走，可 git 追踪）。
+ * MCP config persistence with two levels, global + project:
+ * - Global: `filesDir/xencode/mcp.json` (kept across projects and upgrades);
+ * - Project: `workspacePath/.xencode/mcp.json` (travels with the workspace, git-trackable).
  *
- * 生效配置 = 全局 + 项目合并，**项目级优先**，同名时项目项覆盖全局项。
- * 并发模式：Mutex 保护文件 IO + MutableStateFlow 缓存，项目级按工作区路径各自缓存。
+ * Effective config = global + project merged, with **project taking priority**: same-named project entries override global ones.
+ * Concurrency: Mutex-guarded file IO + MutableStateFlow cache; project state is cached per workspace path.
  */
 @OptIn(ExperimentalCoroutinesApi::class)
 @Singleton
@@ -71,17 +71,17 @@ class McpConfigRepository @Inject constructor(
         const val TAG = "McpConfigRepository"
         const val CONFIG_FILE = "mcp.json"
         const val DEFAULT_JSON = """{"mcpServers":{}}"""
-        /** 项目级配置目录名，容器内即 `~/workspace/.xencode`。 */
+        /** Project-level config directory name, i.e. `~/workspace/.xencode` inside the container. */
         const val XENCODE_DIR_NAME = ".xencode"
         val JSON = Json { ignoreUnknownKeys = true; isLenient = true }
         val PRETTY_JSON = Json { prettyPrint = true }
     }
 
-    /** 全局配置文件：`filesDir/xencode/mcp.json`。 */
+    /** Global config file: `filesDir/xencode/mcp.json`. */
     private val globalFile: File
         get() = File(containerInstaller.xencodeDir, CONFIG_FILE)
 
-    /** 当前工作区的项目级配置文件：`workspacePath/.xencode/mcp.json`。 */
+    /** Project-level config file of the current workspace: `workspacePath/.xencode/mcp.json`. */
     private fun projectFileForPath(workspacePath: String): File =
         File(projectXencodeRoot.forPath(workspacePath), CONFIG_FILE)
 
@@ -89,13 +89,13 @@ class McpConfigRepository @Inject constructor(
     private val projectStates = ConcurrentHashMap<String, MutableStateFlow<String?>>()
     private val mutex = Mutex()
 
-    // ── 外部修改监听：容器内/手工直接编辑配置文件后，刷新缓存并广播给 McpManager 重连 ──
+    // ── External change watching: after the config file is edited directly (in-container or by hand), refresh the cache and broadcast to McpManager to reconnect ──
 
     private val watchScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
     /**
-     * 配置被外部修改（内容与缓存不一致）时广播一次。订阅驱动：只在有订阅者（McpManager）期间
-     * 才由 [FileChangeHub] 监听两个配置文件所在目录，无人订阅时零开销。
+     * Broadcasts once when the config is modified externally (content differs from the cache). Subscription-driven:
+     * [FileChangeHub] watches the two config files' directories only while there are subscribers (McpManager), so cost is zero with none.
      */
     val externalChanges: SharedFlow<Unit> = merge(
         fileChangeHub.watchXencode(),
@@ -104,13 +104,13 @@ class McpConfigRepository @Inject constructor(
         val globalPath = globalFile.absolutePath
         val projectPath = projectFileForPath(workspaceRepository.currentPath()).absolutePath
         val touched = batch.changes.any { it.hostPath == globalPath || it.hostPath == projectPath }
-        // 同目录下其它文件的变更（如 skills.json）不触发重连；内容没真变（如 touch）也不触发。
+        // Changes to other files in the same directory (e.g. skills.json) do not trigger a reconnect; neither does a contentless change (e.g. a touch).
         if (!touched) null else if (reloadFromDisk()) Unit else null
     }.shareIn(watchScope, SharingStarted.WhileSubscribed(), replay = 0)
 
     /**
-     * 外部变更后按磁盘现状刷新缓存，内容确实变化时返回 true。项目级只处理当前工作区；
-     * 其缓存尚未加载时不广播——首次加载由 [ensureProjectLoaded] 完成，工作区切换不算外部变更。
+     * After an external change, refresh the cache from disk; returns true when content actually changed. Project level only handles the current workspace;
+     * it does not broadcast while its cache is still unloaded — the first load is done by [ensureProjectLoaded], and a workspace switch is not an external change.
      */
     private suspend fun reloadFromDisk(): Boolean {
         var changed = false
@@ -118,7 +118,7 @@ class McpConfigRepository @Inject constructor(
         if (globalContent != (globalState.value ?: DEFAULT_JSON)) {
             globalState.value = globalContent
             changed = true
-            FileLogger.i(TAG, "检测到全局 MCP 配置变化，已刷新")
+            FileLogger.i(TAG, "Global MCP config changed; refreshed")
         }
         val path = workspaceRepository.currentPath()
         val state = getProjectState(path)
@@ -127,7 +127,7 @@ class McpConfigRepository @Inject constructor(
             if (content != state.value) {
                 state.value = content
                 changed = true
-                FileLogger.i(TAG, "检测到项目 MCP 配置变化，已刷新")
+                FileLogger.i(TAG, "Project MCP config changed; refreshed")
             }
         }
         return changed
@@ -154,11 +154,11 @@ class McpConfigRepository @Inject constructor(
     }
 
     private suspend fun load(file: File): String = withContext(Dispatchers.IO) {
-        // 只读加载：文件不存在时返回默认配置，不主动创建目录/文件，
-        // 避免在 projectsRoot 下误建 .xencode 目录被工作区扫描器当成工作区。
+        // Read-only load: return the default config when the file is missing; never create directories/files,
+        // to avoid accidentally creating a .xencode directory under projectsRoot that the workspace scanner would treat as a workspace.
         if (file.isFile) {
             return@withContext runCatching { file.readText() }.getOrElse {
-                FileLogger.w(TAG, "读取 ${file.name} 失败，回退默认配置: ${it.message}")
+                FileLogger.w(TAG, "Failed to read ${file.name}; falling back to default config: ${it.message}")
                 DEFAULT_JSON
             }
         }
@@ -170,15 +170,15 @@ class McpConfigRepository @Inject constructor(
         file.writeText(json)
     }
 
-    /** 全局 MCP 配置流。 */
+    /** Global MCP config flow. */
     val globalServersFlow: Flow<List<McpServerConfig>> = flow {
         ensureGlobalLoaded()
         emitAll(globalState.filterNotNull().map { parse(it) })
     }
 
     /**
-     * 当前项目生效的 MCP 条目流（全局 + 项目合并，项目优先覆盖同名），
-     * 跟随当前工作区切换自动重载对应项目配置。
+     * Flow of MCP entries effective for the current project (global + project merged, project wins on name clashes),
+     * automatically reloading the right project config as the current workspace switches.
      */
     val effectiveEntriesFlow: Flow<List<McpServerEntry>> =
         workspaceRepository.current.flatMapLatest {
@@ -218,11 +218,11 @@ class McpConfigRepository @Inject constructor(
         }
     }
 
-    /** 当前项目生效的合并配置（项目优先覆盖同名），供 [McpManager] 连接使用。 */
+    /** Merged config effective for the current project (project wins on name clashes), used by [McpManager] to connect. */
     suspend fun getEffectiveServers(): List<McpServerConfig> =
         getEffectiveEntries().map { it.server }
 
-    /** 当前项目生效的合并条目（含来源作用域），供设置页列表标注使用。 */
+    /** Merged entries effective for the current project (with source scope), used for tagging in the settings list. */
     suspend fun getEffectiveEntries(): List<McpServerEntry> {
         val path = workspaceRepository.currentPath()
         ensureGlobalLoaded()
@@ -268,7 +268,7 @@ class McpConfigRepository @Inject constructor(
 
     fun parse(raw: String): List<McpServerConfig> {
         val root = runCatching { JSON.parseToJsonElement(raw).jsonObject }.getOrElse {
-            FileLogger.w(TAG, "MCP 配置 JSON 解析失败: ${it.message}")
+            FileLogger.w(TAG, "Failed to parse MCP config JSON: ${it.message}")
             return emptyList()
         }
         val servers = (root["mcpServers"] as? JsonObject) ?: return emptyList()
@@ -314,15 +314,15 @@ class McpConfigRepository @Inject constructor(
                     )
                 }
                 else -> {
-                    // 既无 url 也无 command，无法识别，跳过。
-                    FileLogger.i(TAG, "跳过无法识别的 MCP server（缺 url/command）: $name")
+                    // Neither url nor command — unrecognized, skip.
+                    FileLogger.i(TAG, "Skipping unrecognized MCP server (missing url/command): $name")
                     null
                 }
             }
         }
     }
 
-    /** 合并全局与项目配置：全局按序在前，项目项覆盖同名，顺序 = 全局序 + 项目新增项。 */
+    /** Merge global and project configs: global first in order, project entries override same names, order = global order + project-only additions. */
     private fun merge(
         global: List<McpServerConfig>,
         project: List<McpServerConfig>

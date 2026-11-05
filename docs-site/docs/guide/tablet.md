@@ -1,61 +1,61 @@
-# 平板与大屏
+# Tablets and Large Screens
 
-::: tip 版本说明
-本页描述的大屏布局从 1.11.0 起提供。
+::: tip Version note
+The large-screen layout described on this page is available starting from 1.11.0.
 :::
 
-大屏下 XenCode 会自动换成双栏布局：侧边栏常驻、聊天旁边可以并排开着代码或终端。手机上的界面和操作完全不变。
+On large screens XenCode automatically switches to a two-pane layout: the sidebar stays put, and code or a terminal can sit beside the chat. The interface and interactions on phones stay exactly the same.
 
-## 切换时机
+## When the Layout Switches
 
-判断依据是**当前窗口的宽度**，不是屏幕大小：
+The deciding factor is the **current window width**, not the screen size:
 
-| 窗口宽度 | 界面形态 |
+| Window width | Layout |
 | --- | --- |
-| 窄（多数手机竖屏） | 单栏，侧边栏靠汉堡键滑出，和原来一样 |
-| 中等（平板竖握、手机横屏） | 单栏，侧边栏稍宽一些 |
-| 宽（平板横屏、折叠屏展开、桌面窗口） | 侧边栏常驻，聊天页可开右栏 |
+| Narrow (most phones in portrait) | Single pane; the sidebar slides out from the hamburger button, same as before |
+| Medium (tablets held upright, phones in landscape) | Single pane, with a slightly wider sidebar |
+| Wide (tablets in landscape, foldables unfolded, desktop windows) | Persistent sidebar; the chat page can open a right pane |
 
-因为判断依据是窗口宽度，因此在平板上把 XenCode 拖成半屏或三分之一屏时，它会自动退回单栏，不会挤成一团。
+Because the deciding factor is window width, dragging XenCode to half or a third of the screen on a tablet makes it fall back to the single-pane layout instead of getting cramped.
 
-## 常驻侧边栏
+## Persistent Sidebar
 
-宽屏进入聊天页时，会话列表和文件树直接固定在左侧，无需每次滑出。此时标题栏的汉堡键会消失（侧栏已常驻）。
+On a wide screen entering the chat page, the session list and file tree are pinned to the left — no need to slide them out every time. The hamburger button in the title bar disappears (the sidebar is already persistent).
 
-点文件树里的文件、或者选中另一个会话，侧栏都不会收起，可以连续点着看。
+Tapping a file in the file tree or selecting another session never collapses the sidebar, so you can keep tapping to browse.
 
-## 并排的工作台
+## Side-by-Side Workbench
 
-宽屏下聊天页右侧可以并排显示一个面板：
+On a wide screen, a panel can be displayed alongside the chat page:
 
-- 点标题栏的**终端**图标 → 右栏开终端，再点一次收起
-- 点标题栏的 **Git** 图标 → 右栏开 Git 面板，再点一次收起
-- 点文件树里的文件，或点 AI 回复里的文件路径链接 → 右栏打开代码编辑器（文件树里的图片改为全屏预览、APK 改为系统安装器）
+- Tap the **Terminal** icon in the title bar → the right pane opens a terminal; tap again to collapse it
+- Tap the **Git** icon in the title bar → the right pane opens the Git panel; tap again to collapse it
+- Tap a file in the file tree, or a file path link in an AI reply → the right pane opens the code editor (images in the file tree open as a fullscreen preview instead, and APKs open with the system installer)
 
-右栏当前开的是哪个，标题栏对应图标会高亮显示。
+Whichever panel the right pane is showing, its icon in the title bar is highlighted.
 
-一边看 AI 改代码、一边在右侧核对文件内容或执行命令，无需来回切换页面。
+Watch the AI edit code while checking file contents or running commands on the right — no need to flip back and forth between pages.
 
-**调整宽度**：拖动中间的竖线，可以在三七和七三之间任意调整，比例会记住。
+**Adjust the width**: Drag the vertical divider to any ratio between 30/70 and 70/30; the ratio is remembered.
 
-**关掉右栏**：点右栏左上角的 ✕，或者按一次返回键。编辑器里有未保存的修改时，仍然会先弹出保存提示。
+**Close the right pane**: Tap the ✕ in its top-left corner, or press the back button once. If the editor has unsaved changes, the save prompt still appears first.
 
-## 设置页双栏
+## Two-Pane Settings
 
-宽屏打开设置后，左边是设置项列表（一直显示），右边是选中项的内容。切换设置项时只有右半边变化，不再整页跳转。左上角的返回箭头用于离开设置回到聊天。
+On a wide screen, Settings shows the item list on the left (always visible) and the selected item's content on the right. Switching items only changes the right half — no more whole-page jumps. The back arrow in the top-left leaves Settings and returns to the chat.
 
-## 旋转和分屏不再中断
+## Rotation and Split Screen No Longer Interrupt
 
-横竖屏切换、拖动分屏大小时，界面会跟着重新排布，但不会重新加载：
+When rotating the screen or resizing a split-screen window, the layout reflows but nothing reloads:
 
-- 终端里运行着的命令继续执行，输出不丢
-- 编辑器里未保存的修改还在
-- 聊天列表停在原来的位置
+- Commands running in the terminal keep running, and their output is not lost
+- Unsaved changes in the editor are still there
+- The chat list stays right where it was
 
-## 阅读宽度
+## Reading Width
 
-宽屏下聊天内容不会拉满整个屏幕，而是限制在适合阅读的宽度并居中——单行文字过长会增加阅读负担。右栏打开后左半边变窄，内容会自动跟着收窄。
+On wide screens the chat content does not stretch across the whole screen; it is centered at a comfortable reading width — overly long lines are harder to read. When the right pane opens, the left half narrows and the content narrows along with it.
 
-## 鼠标与触控板
+## Mouse and Trackpad
 
-连接鼠标时，把指针移到分栏竖线上会变成拖拽光标，按住左右拖动即可调整两栏宽度。
+With a mouse connected, moving the pointer over the pane divider turns it into a drag cursor; hold and drag left or right to adjust the two panes' widths.

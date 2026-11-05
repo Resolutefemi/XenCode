@@ -1,34 +1,34 @@
-# 远程环境
+# Remote Environments
 
-「设置 → 远程环境」用来接入云端 Linux 机器，让 AI 在手机容器之外跑重活、一次性沙盒或带桌面的远程电脑。当前可用提供商是 **InstaBox**；**E2B** 仅作占位，暂不可用。
+"Settings → Remote Environments" connects cloud Linux machines so the AI can run heavy jobs outside the phone's container, one-off sandboxes, or remote desktops. The currently available provider is **InstaBox**; **E2B** is a placeholder and not yet usable.
 
 ## InstaBox
 
-InstaBox 提供一台持久的云端 Debian 虚拟机（默认模板 `agent-browser`，家目录 `/data/home`）。启用并保存 API Key 后，对话里才会出现 `linux_machine` 工具。
+InstaBox provides a persistent cloud Debian VM (default template `agent-browser`, home directory `/data/home`). The `linux_machine` tool only appears in conversations after you enable it and save an API key.
 
-### 首次配置
+### First-time setup
 
-1. 打开 **设置 → 远程环境 → InstaBox**。
-2. 打开启用开关，填入 InstaBox API Key（`ibk_…`）。API 地址默认 `https://api.instabox.sh`，模板默认 `agent-browser`，一般不用改。
-3. 可选：填写要复用的机器 id（`m_…`）。留空时，AI 会自动创建或复用本应用标记过的机器。
-4. 点 **保存**。
-5. 切到底部 **Arsenal** 页，点「测试连接」确认 Key 可用，并查看工具能力列表。
+1. Open **Settings → Remote Environments → InstaBox**.
+2. Turn on the enable switch and enter your InstaBox API key (`ibk_…`). The API URL defaults to `https://api.instabox.sh` and the template to `agent-browser` — usually no need to change either.
+3. Optional: enter the id of a machine to reuse (`m_…`). Left empty, the AI creates a machine or reuses one this app has tagged before.
+4. Tap **Save**.
+5. Switch to the **Arsenal** page at the bottom, tap "Test connection" to confirm the key works, and check the tool capability list.
 
-Key 经系统密钥库加密后存在应用私有目录，不会出现在对话内容里。
+The key is stored encrypted in the app's private directory via the system keystore and never appears in conversation content.
 
-### AI 会怎么用
+### How the AI uses it
 
-- 用户明确要求远程电脑、任务对手机/容器过重，或需要立刻出结果的一次性沙盒时，使用 `linux_machine`。
-- 同一会话会复用已钉住的机器，不必每次传 `machineId`。
-- Build 模式下写操作（创建/执行命令/写文件/桌面控制等）会弹窗确认。
-- Plan / Ask 模式只允许只读动作：`info`、`list`、`files_list`、`files_read`、`files_exists`、`list_ports`、`desktop_status`、`metrics`。
+- Use `linux_machine` when the user explicitly asks for a remote computer, the task is too heavy for the phone/container, or a one-off sandbox is needed right away.
+- The same session reuses the pinned machine, so there is no need to pass `machineId` every time.
+- In Build mode, write operations (create / run commands / write files / desktop control, etc.) pop a confirmation dialog.
+- Plan / Ask modes allow only read-only actions: `info`, `list`, `files_list`, `files_read`, `files_exists`, `list_ports`, `desktop_status`, `metrics`.
 
-关掉开关或清空 Key 后，`linux_machine` 会从本轮工具列表里消失。
+After the switch is turned off or the key cleared, `linux_machine` disappears from the current turn's tool list.
 
-### 常见失败
+### Common failures
 
-| 提示 | 原因与处理 |
+| Message | Cause and fix |
 | --- | --- |
-| 工具未出现 | 未启用或未保存 Key；到 InstaBox 页检查开关与 Key |
-| `DISABLED` / `NO_KEY` | 同上；保存后再发一条消息 |
-| 连接测试失败 | Key 无效、网络不通或 API 地址填错；对照 InstaBox 控制台核对 |
+| Tool does not appear | Not enabled or key not saved; check the switch and key on the InstaBox page |
+| `DISABLED` / `NO_KEY` | Same as above; save first, then send another message |
+| Connection test failed | Invalid key, network unreachable, or wrong API URL; verify against the InstaBox console |

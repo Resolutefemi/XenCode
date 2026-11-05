@@ -6,9 +6,9 @@ import javax.inject.Inject
 import javax.inject.Singleton
 
 /**
- * 「模型默认思考强度」记忆：key = "providerId:model"，value = ReasoningEffort.name。
- * 用户在某模型下切换思考强度时写入；新建会话绑定该模型时用它初始化会话档位，
- * 实现模型级档位记忆（类似 opencode 的 variants 选中态按模型存储）。
+ * Memory of "default reasoning effort per model": key = "providerId:model", value = ReasoningEffort.name.
+ * Written when the user switches the reasoning effort under a model; used to initialize the session tier when a new session binds that model,
+ * achieving per-model tier memory (similar to opencode storing the variants selection state per model).
  */
 @Singleton
 class ModelReasoningEffortRepository @Inject constructor(
@@ -16,11 +16,11 @@ class ModelReasoningEffortRepository @Inject constructor(
 ) {
     private val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
 
-    /** 读取某模型的默认档位 name；未记忆过返回 null。 */
+    /** Reads the default tier name for a model; returns null if never remembered. */
     fun get(providerId: String, model: String): String? =
         prefs.getString(key(providerId, model), null)
 
-    /** 记忆某模型的默认档位 name。 */
+    /** Remembers the default tier name for a model. */
     fun set(providerId: String, model: String, effortName: String) {
         prefs.edit().putString(key(providerId, model), effortName).apply()
     }

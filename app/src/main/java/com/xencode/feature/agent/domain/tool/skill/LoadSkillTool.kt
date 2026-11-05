@@ -14,15 +14,15 @@ import kotlinx.serialization.json.jsonPrimitive
 import javax.inject.Inject
 
 /**
- * 让 AI 按需加载一个技能的完整指令正文。
+ * Lets the AI load the full instruction body of a skill on demand.
  *
- * 系统提示里只注入了各 skill 的 name+description 清单（受预算限制可能省略部分）；AI 判断某个 skill 适用时，调用本工具拿到
- * SKILL.md 正文（可能含「先 apk add python3，再 python ~/.xencode/skills/<name>/x.py」之类的执行步骤），
- * 随后用 read_file/execute_command 等工具按正文行事。skill 目录在当前执行环境为 `~/.xencode/skills/<name>/`。
+ * The system prompt only injects a name+description list of skills (partially omitted under budget limits); once the AI decides a skill applies, it calls this tool to fetch
+ * the SKILL.md body (which may contain execution steps such as "first apk add python3, then python ~/.xencode/skills/<name>/x.py"),
+ * then acts on that body via read_file/execute_command and other tools. The skill directory in the current execution environment is `~/.xencode/skills/<name>/`.
  *
- * 描述措辞对标 Codex/Claude Code 的硬性要求（本机实测：清单里 118 个对口技能，239 次工具调用中
- * loadSkill 为 0——软措辞「适用时使用」等于没有约束）：
- * 必须先加载再行动、宣布用了哪个及原因、跳过明显适配的要说理由。
+ * The description wording mirrors the hard requirements of Codex/Claude Code (local field test: with 118 relevant skills in the list, across 239 tool calls
+ * loadSkill was used 0 times — soft wording like "use when applicable" provides no constraint):
+ * load before acting, announce which skill was used and why, and justify skipping an obviously matching one.
  */
 class LoadSkillTool @Inject constructor(
     private val skillRepository: SkillRepository

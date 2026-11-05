@@ -78,11 +78,11 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlin.math.roundToInt
 
-/** 工具卡片入场时长（ms）与上浮起点：略微下移再淡入到位，只走 draw 层不影响布局。 */
+/** Tool card entry duration (ms) and rise offset: dips down slightly then fades into place; draw-layer only, layout untouched. */
 private const val MESSAGE_ENTRY_ANIM_MS = 260
 private val MESSAGE_ENTRY_RISE = 10.dp
 
-/** 一轮任务的划分结果：轮起点 + 轮内所有助手消息（1 轮 n 步）+ 轮末那条。 */
+/** Result of splitting one turn: turn start + all assistant messages in the turn (n steps per turn) + the closing one. */
 private data class AgentTurn(
     val startMillis: Long,
     val assistantMessages: List<AgentUIMessage>,
@@ -90,8 +90,8 @@ private data class AgentTurn(
 )
 
 /**
- * 一轮任务内的 token 合计：轮内**每一步**（每次 LLM 调用）的输入/输出/缓存命中求和。
- * 与 [computeTaskDurations] 同挂在轮末那条助手消息下，见 [computeTurnUsage]。
+ * Token totals within one turn: sum of input/output/cache hits over **every step** of the turn (each LLM call).
+ * Attached to the same closing assistant message as [computeTaskDurations]; see [computeTurnUsage].
  */
 internal data class TurnUsage(
     val inputTokens: Int = 0,
@@ -100,13 +100,13 @@ internal data class TurnUsage(
 )
 
 /**
- * 把消息按「用户消息 → 下一个用户消息之前」切成轮。
+ * Splits messages into turns at "user message → up to the next user message".
  *
- * 轮末判定：其后第一条消息是用户消息，或它就是列表末条且本轮已结束（[lastTurnFinished]，
- * 由 agent 是否空闲给出）。仍在生成中的末轮不计入——耗时与用量都要等本轮收工才成立。
+ * Turn-end check: the first message after it is a user message, or it is the list's last item and the turn has finished
+ * ([lastTurnFinished], derived from whether the agent is idle). The still-generating trailing turn is excluded — duration and usage only hold once the turn wraps up.
  *
- * 上下文压缩插入的锚点/摘要落在轮内（压缩发生在请求前），若参与划分会把轮起点算到压缩
- * 时刻上，故先剔除。
+ * Anchors/summaries inserted by context compaction land inside a turn (compaction happens before the request); if they
+ * took part in the split, the turn start would land at the compaction moment, so strip them out first.
  */
 private fun splitTurns(messages: List<AgentUIMessage>, lastTurnFinished: Boolean): List<AgentTurn> {
     val turnMessages = messages.filter {
@@ -142,9 +142,9 @@ private fun splitTurns(messages: List<AgentUIMessage>, lastTurnFinished: Boolean
 }
 
 /**
- * 每轮任务的总耗时（毫秒）：轮末助手消息落库时刻 − 该轮用户消息发出时刻，即用户按下发送
- * 到本轮 AI 收工的挂钟时间（含工具执行与等待用户授权的时间）。返回「消息 id → 耗时」，
- * 只有轮末的那条助手消息才有条目。
+ * Total duration (ms) per turn: the closing assistant message's persisted timestamp − the turn's user message send time, i.e.
+ * the wall-clock time from the user hitting send to the AI finishing the turn (including tool execution and waits for user approval). Returns "message id → duration";
+ * only the closing assistant message of a turn has an entry.
  */
 internal fun computeTaskDurations(
     messages: List<AgentUIMessage>,
@@ -154,11 +154,11 @@ internal fun computeTaskDurations(
     .associate { it.endMessage.id to (it.endMessage.timestamp - it.startMillis) }
 
 /**
- * 每轮任务的 token 合计：轮内**所有步骤**的输入/输出/缓存命中求和，返回「消息 id → [TurnUsage]」，
- * 同样只有轮末的那条助手消息才有条目。
+ * Token totals per turn: input/output/cache hits summed over **all steps** of the turn; returns "message id → [TurnUsage]",
+ * likewise only the closing assistant message of a turn has an entry.
  *
- * 口径是「这一轮总共花了多少」，不是「这一步花了多少」：一轮里可能调了 n 次模型（工具循环），
- * 逐步显示会把一次任务的开销拆成碎片，中间步骤的数字对用户也没有意义。
+ * The intent is "what the whole turn cost", not "what this step cost": a turn may call the model n times (tool loop),
+ * per-step display would shatter one task's cost into fragments, and mid-turn numbers mean nothing to the user.
  */
 internal fun computeTurnUsage(
     messages: List<AgentUIMessage>,
@@ -171,7 +171,7 @@ internal fun computeTurnUsage(
     )
 }
 
-/** 任务耗时格式化：不足 1 分钟显示 `12s`，不足 1 小时显示 `2:05`，更长显示 `1:02:05`。 */
+/** Task duration formatting: under 1 minute shows `12s`, under 1 hour shows `2:05`, longer shows `1:02:05`. */
 internal fun formatTaskDuration(millis: Long): String {
     val totalSeconds = ((millis + 500) / 1000).coerceAtLeast(1)
     val hours = totalSeconds / 3600
@@ -186,8 +186,8 @@ internal fun formatTaskDuration(millis: Long): String {
 }
 
 /**
- * 单条消息的缓存命中率：命中缓存的输入 / 总输入（inputTokens 含缓存命中部分），与设置页 Token 统计同口径。
- * 无输入统计或本次未命中缓存时返回 null（不占位，避免把「渠道不报缓存数据」误示为 0% 命中）。
+ * Cache hit rate of a single message: cached input / total input (inputTokens includes the cache-hit portion), same basis as the settings page Token stats.
+ * Returns null when there is no input stat or no cache hit this time (no placeholder, so "channel reports no cache data" is not misread as a 0% hit rate).
  */
 internal fun formatCacheHitRate(inputTokens: Int, cachedInputTokens: Int): String? {
     if (inputTokens <= 0 || cachedInputTokens <= 0) return null
@@ -198,41 +198,41 @@ internal fun formatCacheHitRate(inputTokens: Int, cachedInputTokens: Int): Strin
 @Composable
 internal fun AgentMessageItem(
     message: AgentUIMessage,
-    /** 是否为整段会话最新的一条消息（只有它挂「复制 / 更多」）。用户消息不受此限：每条都常驻
-     *  这一排按钮，随时能复制或回退自己发的话；助手消息只挂最新一条，避免历史回复下面吊满
-     *  重复按钮把聊天记录割碎。时间戳与用量、耗时属于信息，不受它控制。 */
+    /** Whether this is the newest message of the whole session (only it gets "copy / more"). User messages are exempt: each one
+     *  permanently carries this button row so users can copy or rewind their own words anytime; assistant messages only get the
+     *  newest one, avoiding rows of duplicate buttons dangling under old replies and fragmenting the chat log. Timestamp, usage and duration are informational, not governed by this. */
     showActions: Boolean = false,
     liveOutput: String? = null,
     markdownCache: MarkdownRenderCache? = null,
     onRewindClick: ((String) -> Unit)? = null,
     onMoreClick: ((AgentUIMessage) -> Unit)? = null,
     onToolToggle: (() -> Unit)? = null,
-    /** 工具行展开态的持久化覆盖（null = 尚未手动开关过，按内容类型取默认）；见 [ToolMessageBody]。 */
+    /** Persisted override for the tool row's expanded state (null = never toggled manually, default by content type); see [ToolMessageBody]. */
     toolExpandedOverride: Boolean? = null,
-    /** 工具行手动展开/收起时回传新状态，由上层持久化。 */
+    /** Reports the new state when the tool row is expanded/collapsed manually; persisted by the layer above. */
     onToolExpandedChange: ((Boolean) -> Unit)? = null,
-    /** 本 item 内容的外层内边距：工具调用分组展开时由 [AIChatPanel] 传入缩进，用于区分层级。 */
+    /** Outer padding for this item's content: when a tool-call group is expanded, [AIChatPanel] passes in an indent to distinguish hierarchy. */
     contentPadding: PaddingValues = PaddingValues(0.dp),
-    /** 本轮任务总耗时（ms）：仅轮末助手消息非空，见 [computeTaskDurations]。 */
+    /** Total duration (ms) of this turn: non-null only on the closing assistant message; see [computeTaskDurations]. */
     taskDurationMs: Long? = null,
-    /** 本轮任务的 token 合计（1 轮 n 步求和）：仅轮末助手消息非空，见 [computeTurnUsage]。 */
+    /** Token totals of this turn (summed over n steps in 1 turn): non-null only on the closing assistant message; see [computeTurnUsage]. */
     turnUsage: TurnUsage? = null,
-    /** 新消息入场动画延迟（ms）：null 表示历史消息直接显示；非 null 时首次组合延迟后淡入展开。 */
+    /** Entry animation delay (ms) for new messages: null means history messages show immediately; non-null fades in after the delay on first composition. */
     entryDelayMs: Long? = null,
-    /** 长消息分块渲染：非 null 时正文 MarkdownContent 只渲染该片段。
-     *  分块之间气泡无缝衔接（首块带思考、末块带操作行与底部圆角），复制按钮仍复制整条 message.content。 */
+    /** Chunked rendering of long messages: when non-null, the body MarkdownContent renders only this slice.
+     *  Chunks join seamlessly (first chunk carries reasoning, last carries the action row and bottom corners); the copy button still copies the whole message.content. */
     contentSlice: String? = null,
-    /** 是否为分块的首块（渲染思考块、顶部圆角）；非分块消息恒为 true。 */
+    /** Whether this is the first chunk (renders the reasoning block and top corners); always true for non-chunked messages. */
     isChunkHeader: Boolean = true,
-    /** 是否渲染本条消息自带的思考块。默认 true；整轮折叠把思考抽出为独立过程项时传 false，避免重复。 */
+    /** Whether to render this message's own reasoning block. Defaults to true; pass false when whole-turn collapsing pulls reasoning out as a standalone process item, to avoid duplication. */
     reasoningVisible: Boolean = true,
-    /** 思考过程耗时（ms）：由上层记录的思考实际耗时。 */
+    /** Reasoning duration (ms): actual thinking time recorded by the layer above. */
     reasoningDurationMs: Long? = null,
-    /** 是否为分块的末块（渲染操作行、底部圆角、与下一条列表 item 的间距）；非分块消息恒为 true。 */
+    /** Whether this is the last chunk (renders the action row, bottom corners, and spacing to the next list item); always true for non-chunked messages. */
     isChunkFooter: Boolean = true,
 ) {
     if (message.isCompactionMarker) {
-        // 压缩内部锚点不再渲染分隔线：摘要卡片已提供压缩反馈，避免与卡片重复。
+        // Internal compaction anchors no longer render a divider: the summary card already gives compaction feedback, so this would duplicate it.
         return
     }
 
@@ -254,15 +254,15 @@ internal fun AgentMessageItem(
     val hasReasoning = message.role == MessageRole.ASSISTANT && !message.reasoning.isNullOrEmpty()
     val hasContent = message.content.hasVisibleContent()
     val hasAttachments = message.attachments.isNotEmpty()
-    // 模型直出的图片走附件落库，纯图消息没有正文与思考，同样要展示（不能提前 return）。
+    // Images emitted directly by the model are persisted as attachments; image-only messages have no body or reasoning yet still need displaying (no early return).
     if (message.role == MessageRole.ASSISTANT && !hasContent && !hasReasoning && !hasAttachments) return
 
     val isUser = message.role == MessageRole.USER
-    // 分块消息：块间只留一个段落间距，视觉上仍是连续的一段正文（DSH 扁平文档流下不再有描边接缝）。
+    // Chunked messages: one paragraph gap between chunks keeps the body visually continuous (no outline seams under the DSH flat document flow).
     val chunked = contentSlice != null
     val screenWidthDp = LocalConfiguration.current.screenWidthDp
-    // 用户气泡随文字撑开，最大撑到与 AI 气泡同宽（消息列宽 - 列表两侧 padding）。
-    // 大屏下消息列已限宽居中，气泡上限跟着收窄，不能再拿整个屏宽算。
+    // The user bubble grows with its text, capped at the AI bubble width (message column width - list side padding).
+    // On large screens the message column is already width-limited and centered, so the bubble cap narrows accordingly; full screen width no longer applies.
     val maxUserBubbleWidth = remember(screenWidthDp) {
         minOf(screenWidthDp.dp, ContentWidth.readable) - Spacing.lg * 2
     }
@@ -270,12 +270,12 @@ internal fun AgentMessageItem(
     val clipboard = LocalClipboard.current
     val copyScope = rememberCoroutineScope()
 
-    // 工具卡片入场：只对本次浏览期间新追加进来的消息播（entryDelayMs 非空），
-    // 历史、切页返回、item 回收重挂载都直接显示（谁该入场由 MessageEntryScheduler 定）。
-    // 入场只改 alpha 与 translationY（draw 阶段生效），卡片高度从插入那一帧就到位：
-    // 用 AnimatedVisibility 的话未入场的卡片完全不占位，每张卡片入场都让列表高度跳一次，
-    // 与贴底跟随的 scrollToItem 叠加就是一连串抖动——而那正是这个动画本来要消除的。
-    // 现在列表高度只在消息插入时变一次，之后动画全程不碰布局。
+    // Tool card entry: plays only for messages newly appended during this browsing session (entryDelayMs non-null);
+    // history, returning from page switches, and recycled item re-mounts all display directly (who enters is decided by MessageEntryScheduler).
+    // Entry only changes alpha and translationY (effective in the draw phase); card height is final from the insertion frame:
+    // with AnimatedVisibility, not-yet-entered cards take no space at all, so each entry jumps the list height once,
+    // which stacked with the bottom-following scrollToItem becomes a run of jitters — exactly what this animation is meant to remove.
+    // Now the list height changes only once when a message is inserted, and the animation never touches layout afterwards.
     var entered by rememberSaveable(message.id) { mutableStateOf(entryDelayMs == null) }
     LaunchedEffect(message.id) {
         if (entered) return@LaunchedEffect
@@ -289,22 +289,22 @@ internal fun AgentMessageItem(
         label = "tool-entry"
     )
 
-    // 超长助手消息由 AIChatPanel 拆成多条有界 item（拆块）渲染，这里不再做任何限高内滚；
-    // 每条分块都视为普通消息的一段：正文按块渲染、思考只在首块、操作行只在末块。
+    // Over-long assistant messages are split by AIChatPanel into multiple bounded items (chunks); no more height-capped internal scrolling here;
+    // each chunk acts as one segment of a normal message: body rendered per chunk, reasoning only in the first, action row only in the last.
     Column(
         modifier = Modifier
             .fillMaxWidth()
-            // 分组成员的层级缩进（见 contentPadding 注释）：加在最外层，卡片自带的分隔细线与
-            // 「指令 / 结果」面板都跟着内缩，不会出现分组头与成员行起始位置齐平的观感。
+            // Hierarchy indent for group members (see the contentPadding comment): applied at the outermost layer, so the card's own hairline and
+            // the "command / result" panels indent along with it — no group-header-flush-with-member-rows look.
             .padding(contentPadding)
-            // LazyColumn 不再统一 spacedBy：末块（或非分块消息）自带与下一条 item 的间距，
-            // 相邻分块之间零间距无缝衔接，整段长回复在外观上仍是连续的一整段。
-            // 扁平文档流下正文之间没有气泡边框兜底，紧凑排布分清「轮次」。
+            // No more uniform spacedBy on the LazyColumn: the last chunk (or a non-chunked message) carries its own spacing to the next item,
+            // and adjacent chunks join seamlessly with zero gap, so a long reply still reads as one continuous block.
+            // Under the flat document flow there is no bubble border fallback between bodies; compact spacing keeps turns distinct.
             .padding(bottom = if (isChunkFooter) Spacing.sm else 0.dp),
         verticalArrangement = Arrangement.spacedBy(Spacing.xs)
     ) {
         if (hasReasoning && isChunkHeader && reasoningVisible) {
-            // 思考默认收起：折叠行只占一行（显示思考的第一行），要看全文手动点开
+            // Reasoning is collapsed by default: the collapsed row takes a single line (the first line of reasoning); tap to read the full text
             ReasoningBubble(
                 text = message.reasoning.orEmpty(),
                 cache = markdownCache,
@@ -314,7 +314,7 @@ internal fun AgentMessageItem(
         if (hasContent || hasAttachments || message.role != MessageRole.ASSISTANT) {
             Column(
                 modifier = Modifier.fillMaxWidth(),
-                // 助手消息左对齐，用户消息右对齐
+                // Assistant messages align left, user messages align right
                 horizontalAlignment = if (isUser) Alignment.End else Alignment.Start
             ) {
                 if (hasContent || message.role == MessageRole.TOOL) {
@@ -322,7 +322,7 @@ internal fun AgentMessageItem(
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         if (message.role == MessageRole.TOOL) {
-                            // 工具行自带 1px 细线与状态图标；这里只负责入场动画（只改 draw 层，不动布局）
+                            // The tool row carries its own 1px hairline and status icon; this spot only handles the entry animation (draw layer only, layout untouched)
                             Box(
                                 modifier = Modifier
                                     .fillMaxWidth()
@@ -340,7 +340,7 @@ internal fun AgentMessageItem(
                                 )
                             }
                         } else if (isUser) {
-                            // 用户消息：右对齐浅色药丸 + 深色文字（不再整块主题色反白）。
+                            // User messages: right-aligned light pill + dark text (no longer a solid theme-color block with inverted text).
                             Surface(
                                 shape = ChatStyle.bubbleShape,
                                 color = chatUserBubbleColor(),
@@ -363,8 +363,8 @@ internal fun AgentMessageItem(
                                 }
                             }
                         } else {
-                            // 助手正文：不套容器，直接铺在页面底色上（文档流）。分块之间只留一个段落间距，
-                            // 整条消息看起来仍是连续的一段正文。
+                            // Assistant body: no container, laid directly on the page background (document flow). A single paragraph gap between chunks
+                            // keeps the whole message reading as one continuous body of text.
                             SelectionContainer {
                                 CompositionLocalProvider(
                                     LocalTextSelectionColors provides TextSelectionColors(
@@ -386,12 +386,12 @@ internal fun AgentMessageItem(
                 if ((isUser || message.role == MessageRole.ASSISTANT) && hasAttachments) {
                     MessageAttachmentList(attachments = message.attachments)
                 }
-                // 气泡下方的元信息行（工具消息不显示）：用户消息每条都常驻「时间 + 复制/回退/更多」，
-                // 助手消息只挂整段会话最新的一条，避免每条回复下面都吊一排按钮把聊天记录割碎。
-                // 排列固定为「统计（用量/缓存/耗时）→ 复制 → 更多选项」：信息在前，操作入口收在行尾。
+                // Meta row under the bubble (not shown for tool messages): user messages permanently carry "time + copy/rewind/more",
+                // assistant messages carry it only on the session's newest one, avoiding a row of buttons dangling under every reply and fragmenting the chat log.
+                // The layout is fixed as "stats (usage/cache/duration) → copy → more options": information first, action entries tucked at the end of the row.
                 //
-                // 用量与耗时按**本轮合计**（1 轮 n 步的所有调用求和）挂在轮末那条助手消息上：
-                // 逐步显示会把一次任务的开销拆成碎片，中间步骤的数字对用户也没有意义。
+                // Usage and duration are attached as **whole-turn totals** (summed over all calls of the n steps) to the closing assistant message:
+                // per-step display would shatter a task's cost into fragments, and mid-turn numbers mean nothing to the user.
                 val tokenStats = turnUsage
                     ?.takeIf { it.inputTokens > 0 || it.outputTokens > 0 }
                     ?.let {
@@ -410,9 +410,9 @@ internal fun AgentMessageItem(
                 ) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         val iconTint = MaterialTheme.colorScheme.onSurfaceVariant
-                        // 排过内容才补间隔，否则本行首个元素会被凭空缩进一格
+                        // Only add spacing after something has been emitted; otherwise this row's first element gets spuriously indented
                         var emitted = false
-                        // 用户消息：时间戳排在复制按钮之前（对齐参考图里气泡下方的「17:55 ⧉」）
+                        // User messages: the timestamp comes before the copy button (matching "17:55 ⧉" under the bubble in the reference design)
                         if (isUser) {
                             ChatMetaText(text = formatClockTime(message.timestamp))
                             emitted = true
@@ -432,7 +432,7 @@ internal fun AgentMessageItem(
                                 }
                             )
                         }
-                        // 用户消息：复制紧跟时间戳，回退按钮在其后（保持原顺序）
+                        // User messages: copy follows the timestamp immediately, rewind comes after (original order preserved)
                         if (isUser && actionsVisible) {
                             if (emitted) Spacer(Modifier.width(Spacing.xs))
                             if (hasContent) copyButton()
@@ -475,14 +475,14 @@ internal fun AgentMessageItem(
                             ChatMetaText(text = durationText)
                             emitted = true
                         }
-                        // 助手消息的复制按钮排在「更多选项」左边（统计信息之后）
+                        // Assistant messages: the copy button sits to the left of "more options" (after the stats)
                         if (!isUser && actionsVisible && hasContent) {
                             if (emitted) Spacer(Modifier.width(Spacing.xs))
                             copyButton()
                             emitted = true
                         }
-                        // 「更多选项」排在这一行的**最后**：助手消息里它跟在复制按钮后面（先给信息，
-                        // 再给操作入口）；用户消息没有统计项，它自然接着回退按钮，间距与按钮组一致。
+                        // "More options" goes **last** in this row: on assistant messages it follows the copy button (information first,
+                        // then action entries); user messages have no stats, so it naturally follows the rewind button with the same spacing as the button group.
                         if (actionsVisible && onMoreClick != null) {
                             if (emitted) Spacer(Modifier.width(Spacing.xs))
                             MessageActionIconButton(
@@ -493,7 +493,7 @@ internal fun AgentMessageItem(
                             )
                         }
                     }
-                    // 复制成功 1.5s 后恢复图标
+                    // Restore the icon 1.5s after a successful copy
                     if (copied) {
                         LaunchedEffect(copied) {
                             delay(1500)
@@ -507,10 +507,10 @@ internal fun AgentMessageItem(
 }
 
 /**
- * 整轮任务折叠头（最外层）：一行「执行中 / 已完成 Xs + 箭头」，点一下展开/收起整轮过程。
+ * Whole-turn collapse header (outermost layer): one "running / completed in Xs + chevron" row; a single tap expands/collapses the whole turn.
  *
- * 收起态用右箭头（ChevronRight），展开态用下箭头（ChevronDown）——与参考图一致；
- * 运行中（[running]）只显示「执行中」，完成后显示本轮耗时。风格对齐 [ToolCallGroupHeader]。
+ * Collapsed uses a right chevron (ChevronRight), expanded a down chevron (ChevronDown) — matching the reference design;
+ * while running ([running]) it only shows "running", and shows the turn duration once finished. Styled to match [ToolCallGroupHeader].
  */
 @Composable
 internal fun TurnCollapseHeader(
@@ -573,8 +573,8 @@ private fun MessageActionIconButton(
 }
 
 /**
- * 后台任务完成通知的轻量提示条：不作为普通用户气泡展示，仅以紧凑横条形式告知用户
- * 哪个后台命令结束了、成功与否。从通知文本里提取 <status>/<summary> 字段。
+ * Lightweight notice bar for background-task completion notifications: not shown as a normal user bubble, just a compact strip
+ * telling the user which background command finished and whether it succeeded. Extracts <status>/<summary> fields from the notification text.
  */
 @Composable
 private fun BackgroundNotificationBar(message: AgentUIMessage) {
@@ -584,7 +584,7 @@ private fun BackgroundNotificationBar(message: AgentUIMessage) {
     val summaries = Regex("<summary>(.*?)</summary>")
         .findAll(content).map { it.groupValues.getOrNull(1)?.trim() }.filterNotNull().toList()
     val dotColor = when {
-        // status 为 message 的是代理间消息（非失败），用主色；其余非 completed 视为失败。
+        // A status of "message" means an inter-agent message (not a failure), so use the primary color; any other non-completed status counts as a failure.
         statuses.any { it != "completed" && it != "message" } -> MaterialTheme.colorScheme.error
         statuses.any { it == "message" } -> MaterialTheme.colorScheme.primary
         else -> MaterialTheme.semanticColors.success
@@ -592,8 +592,8 @@ private fun BackgroundNotificationBar(message: AgentUIMessage) {
     val label = when {
         summaries.size <= 1 -> summaries.firstOrNull() ?: stringResource(R.string.chat_bg_command_done)
         else -> {
-            // 摘要原文由 domain 层生成（同一份还要喂给 AI），这里不按中文标记切字符串取任务名——
-            // 换文案或切到英文界面这段解析就废了。多条时只报数量与失败数。
+            // The raw summary is generated by the domain layer (the same text is also fed to the AI); don't slice task names out by Chinese markers here —
+            // rewording the copy or switching the UI to English would break that parsing. For multiple items, just report the count and failures.
             val failedCount = statuses.count { it != "completed" }
             if (failedCount > 0) {
                 stringResource(R.string.chat_bg_commands_partial_failed, summaries.size, failedCount)
@@ -630,8 +630,8 @@ private fun BackgroundNotificationBar(message: AgentUIMessage) {
 }
 
 /**
- * 上下文压缩成功行：默认折叠为「圆点 + 上下文已压缩 + 箭头」，点击展开查看摘要全文。
- * 扁平行 + 弱底面板，与工具行同构，只用圆点颜色区分事件类型。
+ * Context compaction success row: collapsed by default to "dot + context compressed + chevron"; tap to expand the full summary.
+ * Flat row + muted panel, isomorphic to the tool row; only the dot color distinguishes the event type.
  */
 @Composable
 private fun CompactionSummaryCard(message: AgentUIMessage, markdownCache: MarkdownRenderCache?) {
@@ -682,8 +682,8 @@ private fun CompactionSummaryCard(message: AgentUIMessage, markdownCache: Markdo
 }
 
 /**
- * 上下文压缩失败行：默认折叠为「圆点 + 压缩失败 + 原因首行 + 箭头」，点击展开查看完整原因。
- * 与工具行同构的扁平行，用 error 色圆点区分。
+ * Context compaction failure row: collapsed by default to "dot + compaction failed + first line of the reason + chevron"; tap to expand the full reason.
+ * Flat row isomorphic to the tool row, distinguished by an error-colored dot.
  */
 @Composable
 private fun CompactionFailureCard(message: AgentUIMessage) {

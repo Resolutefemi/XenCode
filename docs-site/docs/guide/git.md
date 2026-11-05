@@ -1,143 +1,143 @@
-# Git 版本管理
+# Git Version Management
 
-在项目工作区打开 Git 页面，可以可视化地管理代码版本。底部有三个标签页：状态、分支、提交。如果当前目录不是 Git 仓库，可一键初始化为空白仓库（默认分支为 `main`），或输入远程地址直接克隆已有仓库（**1.12.0 起**）。
+Open the Git page in a project workspace to manage code versions visually. There are three tabs at the bottom: Status, Branches, and Commits. If the current directory is not a Git repository, you can initialize an empty repository with one tap (default branch `main`) or enter a remote URL to clone an existing repository directly (**since 1.12.0**).
 
-右上角的钥匙图标进入「凭据与署名」页，内含署名和凭据两个标签页——**首次使用必须先配好署名，否则无法提交**。
+The key icon in the top-right corner opens the "Identity & Credentials" page, which contains the Identity and Credentials tabs—**identity must be configured before first use, or commits will fail**.
 
-## 状态
+## Status
 
-查看当前仓库的工作区状态。
+View the working tree status of the current repository.
 
-顶部卡片显示当前分支名、相对远程领先或落后多少个提交（上下箭头），以及已暂存、已修改、未跟踪的文件数量。
+The top card shows the current branch name, how many commits ahead or behind the remote it is (up/down arrows), and the counts of staged, modified, and untracked files.
 
-**提交**是全宽的主按钮，需要先暂存改动并配好署名才能点击，点击后填写提交信息。
+**Commit** is the full-width primary button. It requires staged changes and a configured identity before it can be tapped; tapping it opens the commit message form.
 
-次级操作一行四个按钮：
+The secondary actions are four buttons in a row:
 
-- **暂存全部**：把所有改动加入暂存区。
-- **储藏**（**1.12.0 起**）：打开储藏箱，见下文「储藏」小节。
-- **拉取 / 推送**：需要已配置远程仓库。当前分支没有上游时，推送会自动建立关联。
+- **Stage all**: adds all changes to the staging area.
+- **Stash** (**since 1.12.0**): opens the stash list; see the "Stash" section below.
+- **Pull / Push**: requires a configured remote. When the current branch has no upstream, pushing creates the association automatically.
 
-分组标题右侧还有：
+Next to the group headers there are also:
 
-- **全部取消暂存**：在已暂存分组，执行前会二次确认。此操作只取消暂存，不会删除文件内容。
-- **全部回退**（**1.11.0 起**）：在已修改分组，把所有未暂存的改动还原成上次暂存或提交的内容。已暂存的内容不受影响，但丢弃掉的改动无法找回，执行前会二次确认。
+- **Unstage all**: in the staged group; asks for confirmation before running. This only unstages—it never deletes file contents.
+- **Revert all** (**since 1.11.0**): in the modified group; restores all unstaged changes to the last staged or committed content. Staged content is unaffected, but discarded changes cannot be recovered; asks for confirmation before running.
 
-文件改动按「已暂存 / 已修改 / 未跟踪」分成三组：
+File changes are grouped into "Staged / Modified / Untracked":
 
-- 已暂存：点行查看暂存区与上次提交的差异，行尾「−」取消暂存。
-- 已修改：点行查看工作区与上次提交的差异，行尾「+」暂存该文件。被删除的文件也在这一组，状态徽标是红色的 D。
-- 未跟踪：点行查看这个新文件的内容（整份按新增显示），行尾「+」暂存。git 会把新建的目录折叠成一行（如 `feature/`），点它展开里面的文件，再点单个文件即可查看内容。
+- Staged: tap a row to view the diff between the staging area and the last commit; the "−" at the end of the row unstages.
+- Modified: tap a row to view the diff between the working tree and the last commit; the "+" at the end stages the file. Deleted files are in this group too, with a red D status badge.
+- Untracked: tap a row to view the new file's contents (shown entirely as additions); the "+" at the end stages. git folds newly created directories into one row (e.g. `feature/`); tap it to expand the files inside, then tap an individual file to view its contents.
 
-如果工作区有未提交的改动，点「拉取」会先提示可能产生冲突，确认后才执行。
+If the working tree has uncommitted changes, tapping "Pull" first warns about possible conflicts and only proceeds after confirmation.
 
-### 提交弹窗（1.12.0 起增强）
+### The Commit Dialog (enhanced since 1.12.0)
 
-点「提交更改」弹出的窗口里：
+In the dialog that opens when you tap "Commit changes":
 
-- **AI 生成**：点标题栏右侧的按钮，让 AI 读取暂存区与工作区的差异，自动生成一条符合 Conventional Commits 的提交信息。生成期间按钮显示「正在生成…」，生成失败会提示检查模型或网络。
-- **快捷类型**：输入框上方一排 Chip（`feat`、`fix`、`refactor`、`chore`、`docs`、`style`、`perf`、`test`），点一下即把对应前缀套到当前信息上。
-- **追加到上次提交（--amend）**：底部开关，开启后这次提交会合并进上一次提交，而不是新建一条。
+- **AI generation**: tap the button to the right of the title bar and the AI reads the diff of the staging area and working tree, automatically generating a commit message that follows Conventional Commits. While generating, the button shows "Generating…"; if generation fails, it prompts you to check the model or network.
+- **Quick types**: a row of chips above the input box (`feat`, `fix`, `refactor`, `chore`, `docs`, `style`, `perf`, `test`); tap one to prepend the corresponding prefix to the current message.
+- **Amend last commit (--amend)**: a switch at the bottom; when on, this commit is merged into the previous one instead of creating a new one.
 
-### 合并冲突（1.12.0 起）
+### Merge Conflicts (since 1.12.0)
 
-合并分支后如果产生冲突，状态页顶部会显示「检测到合并冲突」，并单独列出冲突文件（状态徽标为紫红色 U），提示你在编辑器中解决冲突后暂存，或点「中止合并」放弃本次合并、还原到合并前的状态。
+If merging branches produces conflicts, the top of the Status page shows "Merge conflicts detected" and lists the conflicted files separately (with a magenta U status badge), prompting you to resolve them in the editor and stage, or tap "Abort merge" to give up this merge and restore the pre-merge state.
 
-## 储藏（1.12.0 起）
+## Stash (since 1.12.0)
 
-储藏用于临时收起当前改动、让工作区回到干净状态，之后再取回来。点状态页的「储藏」按钮打开储藏箱：
+Stashing temporarily sets aside your current changes to bring the working tree back to a clean state, then takes them out again later. Tap the "Stash" button on the Status page to open the stash list:
 
-- **储藏改动**：可填一句可选说明，并可勾选「包含未跟踪文件（-u）」把新文件也一并收起。
-- **弹出 (Pop)**：取出这条储藏并把它从储藏列表移除。
-- **应用 (Apply)**：取出内容但保留这条储藏记录。
-- **丢弃 (Drop)**：删除单条储藏，执行前二次确认。
-- **清空全部**：删除所有储藏，执行前二次确认。
+- **Stash changes**: an optional one-line note can be entered, and "Include untracked files (-u)" can be checked to set new files aside too.
+- **Pop**: takes out this stash and removes it from the stash list.
+- **Apply**: takes out the contents but keeps the stash entry.
+- **Drop**: deletes a single stash; asks for confirmation before running.
+- **Clear all**: deletes all stashes; asks for confirmation before running.
 
-丢弃与清空都不可撤销。
+Drop and Clear all are irreversible.
 
-## 回退与删除（1.11.0 起）
+## Revert and Delete (since 1.11.0)
 
-::: tip 版本说明
-状态页的长按操作菜单（回退改动、恢复文件、删除未跟踪项）与「全部回退」从 1.11.0 起提供；菜单里的「添加到 .gitignore」从 1.12.0 起提供。
+::: tip Version note
+The long-press action menu on the Status page (Revert changes, Restore file, Delete untracked) and "Revert all" are available since 1.11.0; "Add to .gitignore" in the menu is available since 1.12.0.
 :::
 
-**长按任意文件行**会从底部弹出操作菜单，菜单顶部显示完整路径。可用的操作按文件所在分组不同：
+**Long-press any file row** to open the action menu from the bottom; the full path is shown at the top of the menu. The available actions depend on the group the file is in:
 
-| 分组 | 菜单项 |
+| Group | Menu items |
 | --- | --- |
-| 冲突文件 | 查看差异、暂存、复制路径 |
-| 已暂存 | 查看差异、回退改动（还原到上次提交，已暂存和未暂存的改动都会丢失）、复制路径 |
-| 已修改 | 查看差异、回退改动（还原成上次暂存或提交的内容）、复制路径 |
-| 已修改中被删除的文件 | 查看差异、**恢复文件**（从上次提交把文件取回来）、复制路径 |
-| 未跟踪文件 | 查看差异、**添加到 .gitignore**（忽略此文件 / 忽略同类型文件）、删除文件、复制路径 |
-| 未跟踪目录 | **添加到 .gitignore**（忽略整个目录）、删除目录、复制路径 |
+| Conflicted files | View diff, Stage, Copy path |
+| Staged | View diff, Revert changes (restores to the last commit; both staged and unstaged changes are lost), Copy path |
+| Modified | View diff, Revert changes (restores to the last staged or committed content), Copy path |
+| Deleted files within Modified | View diff, **Restore file** (retrieves the file from the last commit), Copy path |
+| Untracked files | View diff, **Add to .gitignore** (ignore this file / ignore similar files), Delete file, Copy path |
+| Untracked directories | **Add to .gitignore** (ignore the whole directory), Delete directory, Copy path |
 
-两类操作的后果完全不同，注意区分：
+The two kinds of actions have completely different consequences—keep them straight:
 
-- **回退改动 / 恢复文件**：针对 Git 已经跟踪过的文件。内容存在版本库里，因此无论文件是被你删的、还是被终端命令或 AI 删的，都能取回来。代价是这次没提交的改动会丢失。
-- **删除文件 / 删除目录**：只出现在未跟踪项上。这些文件从来没进过版本库，**删除后 Git 无法恢复**。
+- **Revert changes / Restore file**: for files Git has already tracked. Their content lives in the repository, so whether the file was deleted by you, by a terminal command, or by the AI, it can be brought back. The cost is losing this round's uncommitted changes.
+- **Delete file / Delete directory**: only appears on untracked items. These files never entered the repository—**once deleted, Git cannot recover them**.
 
-所有回退和删除操作执行前都会弹确认框，说明将丢失什么。
+All revert and delete operations show a confirmation dialog before running, stating what will be lost.
 
-## 分支
+## Branches
 
-分成 HEAD、本地分支、远程分支、标签四组显示。当前分支卡片会显示分支名和三类引用的数量。本地分支按路径树形展示，当前分支高亮。
+Displayed in four groups: HEAD, local branches, remote branches, and tags. The current branch card shows the branch name and the counts of the three kinds of refs. Local branches are shown as a path tree with the current branch highlighted.
 
-**切换分支**：点任意分支或标签，确认后切换。点远程分支会创建一个本地跟踪分支再切过去。切换到标签会进入 detached HEAD 状态（此时的提交不属于任何分支，注意不要在该状态下长期工作）。
+**Switch branch**: tap any branch or tag and confirm to switch. Tapping a remote branch creates a local tracking branch and switches to it. Switching to a tag enters detached HEAD state (commits made in this state belong to no branch—avoid working in that state for long).
 
-**点分支行**弹出操作菜单：
+**Tap a branch row** to open the action menu:
 
-- **切换**：切到该分支。
-- **合并分支**（**1.12.0 起**）：把该分支合并到当前分支，确认框里可选「创建合并提交（--no-ff）」。当前分支自身不显示这一项。
-- **重命名**：改本地分支名。
-- **删除**：本地分支使用安全删除，只能删已合并的分支；未合并的分支会被拒绝并给出原因。远程分支的删除会直接作用到远端，**不可撤销**。当前所在的分支不能删除。
+- **Switch**: switches to this branch.
+- **Merge branch** (**since 1.12.0**): merges this branch into the current branch; the confirmation dialog offers "Create a merge commit (--no-ff)". This item doesn't appear on the current branch itself.
+- **Rename**: renames the local branch.
+- **Delete**: local branches use safe delete—only merged branches can be deleted; unmerged ones are refused with a reason. Deleting a remote branch acts on the remote directly and is **irreversible**. The branch you are currently on cannot be deleted.
 
-**新建分支**：点本地分支分组标题右侧的 +，填分支名、选基准分支（默认当前分支），「创建并切换」开关默认开启。
+**New branch**: tap the + to the right of the local branches group header, enter a branch name and pick a base branch (the current branch by default); the "Create and switch" switch is on by default.
 
-**标签**：点标签分组标题右侧的 + 从当前 HEAD 创建轻量标签；点已有标签 → 操作菜单 → 删除可以删本地标签。
+**Tags**: tap the + to the right of the tags group header to create a lightweight tag at the current HEAD; tap an existing tag → action menu → Delete to delete the local tag.
 
-### 首次推送 master 分支的命名建议（1.12.0 起）
+### Renaming Suggestion for the First Push of the master Branch (since 1.12.0)
 
-如果当前本地分支叫 `master` 且还没建立上游，第一次推送时会弹窗建议重命名为 `main`（GitHub、GitLab 的默认主分支）。可以选择「重命名为 main 并推送」，或「保留 master 推送」。
+If the current local branch is named `master` and has no upstream yet, the first push shows a dialog suggesting renaming it to `main` (the default primary branch on GitHub and GitLab). You can choose "Rename to main and push" or "Keep master and push".
 
-## 提交
+## Commits
 
-显示最近的提交，带彩色的分支拓扑图。每条显示短哈希、作者、相对时间、提交信息，以及所在分支或标签的标记。
+Shows recent commits with a colored branch topology. Each entry shows the short hash, author, relative time, commit message, and markers for the branch or tag it is on.
 
-**搜索过滤**（**1.12.0 起**）：列表上方有搜索框，输入关键词即可按提交说明、作者或短哈希实时筛选。
+**Search filter** (**since 1.12.0**): there is a search box above the list; type a keyword to filter in real time by commit message, author, or short hash.
 
-点一条提交会弹出底部详情面板：完整提交信息、作者与时间、完整哈希（短哈希和完整哈希都可以复制）、是否是合并提交，以及这次改动的文件清单。点文件可以查看该文件的差异。
+Tapping a commit opens a bottom detail panel: the full commit message, author and time, full hash (both the short and full hash can be copied), whether it is a merge commit, and the list of files changed. Tap a file to view that file's diff.
 
-详情面板上方还有一排深度操作（**1.12.0 起**）：
+Above the detail panel there is also a row of advanced actions (**since 1.12.0**):
 
-- **分支**：基于这条提交新建分支并切换过去。
-- **标签**：在这条提交上打标签。
-- **Reset**：把当前分支重置到这条提交，可选 `Soft`（保留工作区与暂存区）或 `Mixed`（保留工作区，清空暂存区）。
+- **Branch**: creates a new branch based on this commit and switches to it.
+- **Tag**: tags this commit.
+- **Reset**: resets the current branch to this commit, with a choice of `Soft` (keep the working tree and index) or `Mixed` (keep the working tree, clear the index).
 
-往下滚动接近底部时会自动加载更早的提交，全部加载完会显示「没有更多了」。
+Scrolling near the bottom loads earlier commits automatically; "No more" is shown once everything is loaded.
 
-## 差异视图
+## Diff View
 
-点文件或提交查看差异时进入独立的差异页：
+Tapping a file or commit to view its diff opens the standalone diff page:
 
-- 差异按带行号的 `+ / −` 彩色显示，顶栏可以**在编辑器中打开**该文件（**1.12.0 起**），直接跳到代码编辑器对应文件。
-- 单侧文件超过 2MB 时直接提示「文件过大」，不展示内容（二进制文件同理）。
+- Diffs are shown as numbered `+ / −` colored lines; the top bar can **open in editor** (**since 1.12.0**), jumping straight to that file in the code editor.
+- When a single side of the file exceeds 2MB, it just says "File too large" and shows no content (same for binary files).
 
-## 超大输出
+## Oversized Output
 
-为保护手机内存，Git 页面不会将超大内容完整读入：状态、分支、提交列表等读取 git 输出超过上限时，会提示「输出过大，已截断，请缩小范围后重试」，不再尝试加载。
+To protect the phone's memory, the Git page never reads oversized content in full: when reading git output for the status, branch, and commit lists exceeds the limit, it shows "Output too large, truncated—narrow the scope and try again" and stops trying to load.
 
-## 常见错误提示
+## Common Error Messages
 
-操作失败时 Git 的原始报错会被翻译成中文提示：
+When an operation fails, Git's raw error is translated into a friendly message:
 
-| 场景 | 提示 |
+| Scenario | Message |
 | --- | --- |
-| 删除当前所在分支 | 无法删除当前所在分支，请先切换到其他分支 |
-| 删除有未合并提交的分支 | 该分支有未合并的提交，无法安全删除 |
-| 切换到不存在的分支 | 分支或引用不存在 |
-| 切换时本地改动会被覆盖 | 本地有未提交的改动会被覆盖，请先提交或暂存后再切换 |
-| 推送被拒（远程有更新） | 推送被拒绝，远程有更新的提交，请先拉取 |
-| 远程鉴权失败 | 远程鉴权失败，请检查凭据配置（用户名/密码/Token） |
-| 未配置提交署名 | 尚未配置提交署名，请在设置中填写用户名和邮箱 |
-| 未配置远程仓库 | 未配置远程仓库，无法推送/拉取 |
+| Deleting the branch you are on | Cannot delete the current branch; switch to another branch first |
+| Deleting a branch with unmerged commits | This branch has unmerged commits and cannot be safely deleted |
+| Switching to a nonexistent branch | Branch or reference does not exist |
+| Local changes would be overwritten by switching | Uncommitted local changes would be overwritten; commit or stash them before switching |
+| Push rejected (remote has updates) | Push rejected—the remote has newer commits; pull first |
+| Remote authentication failed | Remote authentication failed; check your credentials (username/password/token) |
+| Commit identity not configured | Commit identity is not configured; fill in the user name and email in settings |
+| No remote configured | No remote repository configured; cannot push/pull |

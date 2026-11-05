@@ -12,20 +12,20 @@ import javax.crypto.spec.PBEKeySpec
 import javax.crypto.spec.SecretKeySpec
 
 /**
- * 备份文件的对称加密：PBKDF2WithHmacSHA256 派生密钥 + 分块 AES/GCM/NoPadding。
+ * Symmetric encryption of backup files: PBKDF2WithHmacSHA256 key derivation + chunked AES/GCM/NoPadding.
  *
- * Android 的 AES/GCM（Conscrypt 的 OpenSSLAeadCipher）不支持流式输出：`Cipher.update` 恒返回空数组、
- * 把喂进去的数据全量攒进内部缓冲，直到 `doFinal` 才一次性产出。所以无法靠「多次 update」写出大文件——
- * 整个明文都会堆在 cipher 里。这里改为把明文切成固定大小的块，每块各自做一次独立的 AES-GCM（STREAM 结构）：
+ * AES/GCM on Android (Conscrypt's OpenSSLAeadCipher) doesn't support streaming output: `Cipher.update` always returns an empty array and
+ * buffers everything fed to it internally, producing output in one shot at `doFinal`. So large files can't be written via "multiple updates" —
+ * the whole plaintext would pile up inside the cipher. Instead, the plaintext is cut into fixed-size chunks, each getting its own independent AES-GCM (STREAM construction):
  *
- * - 整个文件只派生一把密钥（随机 salt），每块 nonce = 随机 8 字节基值 || 块序号（4 字节），保证同密钥不重用 nonce；
- * - 每块把「是否末块」写进 AAD，读端必须读到末块，防止密文被截断；块序号由 nonce 绑定，重排/换块会 tag 校验失败；
- * - 每块 doFinal 的产出有界，内存峰值与备份总大小无关。
+ * - One key is derived for the whole file (random salt); each chunk's nonce = random 8-byte base || chunk index (4 bytes), guaranteeing no nonce reuse under the same key;
+ * - Each chunk writes "is this the last chunk" into the AAD; the reader must see the last chunk, preventing truncated ciphertext; the chunk index is bound to the nonce, so reordering/substituting chunks fails the tag check;
+ * - Each chunk's doFinal output is bounded, so peak memory is independent of the total backup size.
  *
- * 文件头为 [MAGIC] + 版本号 + salt + nonce 基值，随后是分块序列。开头不带 MAGIC 的文件按旧版
- * 「salt + IV + 单次 GCM」格式解密（[decryptLegacy]），旧加密备份仍可导入。
+ * The file header is [MAGIC] + version + salt + nonce base, followed by the chunk sequence. Files not starting with MAGIC are decrypted
+ * in the legacy "salt + IV + single GCM" format ([decryptLegacy]), so old encrypted backups remain importable.
  *
- * 口令不落盘、不记忆。GCM 自带完整性校验，口令错误或文件被篡改时解密抛 [BackupDecryptionException]。
+ * The passphrase is never persisted or remembered. GCM provides integrity checks; a wrong passphrase or a tampered file makes decryption throw [BackupDecryptionException].
  */
 class BackupDecryptionException(cause: Throwable? = null) : IllegalArgumentException(
     "Wrong backup passphrase, or the encrypted backup file is corrupted; leave the passphrase empty if the backup is not encrypted",
@@ -38,12 +38,12 @@ object BackupCrypto {
     private const val GCM_TAG_BITS = 128
     private const val TAG_BYTES = GCM_TAG_BITS / 8
 
-    /** 每块明文大小；每块独立做一次 GCM，单次 doFinal 产出有界。 */
+    /** Plaintext size per chunk; each chunk gets its own GCM, so a single doFinal's output is bounded. */
     private const val CHUNK_SIZE = 256 * 1024
 
     private val MAGIC = "XENCODEBK".toByteArray(Charsets.US_ASCII)
 
-    /** 旧版（AiCode 时代）文件头：读取时兼容，旧版导出的加密备份仍可导入。 */
+    /** Legacy (AiCode-era) file header: kept for read compatibility, so encrypted backups exported by old versions remain importable. */
     private val LEGACY_MAGIC = "AICODEBK".toByteArray(Charsets.US_ASCII)
 
     private fun ByteArray.hasPrefix(prefix: ByteArray): Boolean =
@@ -53,7 +53,7 @@ object BackupCrypto {
 
     const val SALT_LEN = 16
 
-    /** 旧格式的单次 GCM IV 长度；仅 [decryptLegacy] 使用。 */
+    /** IV length of the legacy single-shot GCM; used only by [decryptLegacy]. */
     const val IV_LEN = 12
 
     private val random = SecureRandom()
@@ -65,7 +65,7 @@ object BackupCrypto {
         return SecretKeySpec(tmp.encoded, "AES")
     }
 
-    /** 分块 nonce：随机基值（8 字节）+ 大端块序号（4 字节），共 96 位。 */
+    /** Chunked nonce: random base (8 bytes) + big-endian chunk index (4 bytes), 96 bits total. */
     private fun chunkNonce(nonceBase: ByteArray, index: Long): ByteArray {
         val nonce = ByteArray(nonceBase.size + 4)
         System.arraycopy(nonceBase, 0, nonce, 0, nonceBase.size)
@@ -79,7 +79,7 @@ object BackupCrypto {
 
     private fun aad(isLast: Boolean): ByteArray = byteArrayOf((if (isLast) 1 else 0).toByte())
 
-    /** 流式加密：先写 v2 文件头，再把 [input] 分块加密写入 [output]。 */
+    /** Streaming encryption: writes the v2 header first, then encrypts [input] chunk by chunk into [output]. */
     fun encryptStream(input: InputStream, output: OutputStream, password: CharArray) {
         val salt = ByteArray(SALT_LEN).also { random.nextBytes(it) }
         val nonceBase = ByteArray(NONCE_BASE_LEN).also { random.nextBytes(it) }
@@ -102,7 +102,7 @@ object BackupCrypto {
             }
             n += readUpTo(input, buffer, n, CHUNK_SIZE - n)
 
-            // 读满一整块时需预读 1 字节才能判断是否末块，多出的字节留到下一块开头
+            // When a full chunk is read, 1 extra byte must be peeked to decide whether it's the last chunk; the extra byte carries over to the start of the next chunk
             val isLast: Boolean
             if (n < CHUNK_SIZE) {
                 isLast = true
@@ -125,11 +125,11 @@ object BackupCrypto {
         output.flush()
     }
 
-    /** 流式解密：v2 文件按分块解密（新头与旧版头均兼容），其余按旧格式（单次 GCM）兼容解密。 */
+    /** Streaming decryption: v2 files decrypt chunk by chunk (both the new header and the legacy header are accepted); the rest decrypt in the legacy format (single GCM) for compatibility. */
     fun decryptStream(input: InputStream, output: OutputStream, password: CharArray) {
         val header = readFully(input, MAGIC.size)
         val isCurrent = header.hasPrefix(MAGIC)
-        // 旧版头比新头短 1 字节：命中旧头时，版本号恰为 header 的最后一个字节
+        // The legacy header is 1 byte shorter than the new one: on a legacy-header hit, the version is exactly the last byte of header
         val isLegacyV2 = header.hasPrefix(LEGACY_MAGIC)
         if (!isCurrent && !isLegacyV2) {
             decryptLegacy(input, output, password, header)
@@ -168,7 +168,7 @@ object BackupCrypto {
         output.flush()
     }
 
-    /** 旧格式：salt + IV + 单次 AES-GCM。仅用于兼容旧版导出的加密备份。 */
+    /** Legacy format: salt + IV + single AES-GCM. Used only for compatibility with encrypted backups exported by old versions. */
     private fun decryptLegacy(input: InputStream, output: OutputStream, password: CharArray, header: ByteArray) {
         val salt = ByteArray(SALT_LEN)
         val fromHeader = minOf(header.size, SALT_LEN)
@@ -207,7 +207,7 @@ object BackupCrypto {
         return (b0 shl 24) or (b1 shl 16) or (b2 shl 8) or b3
     }
 
-    /** 尽量读满 [len] 字节，只有流结束时才会少于 [len]。 */
+    /** Reads up to [len] bytes; only returns fewer than [len] at end of stream. */
     private fun readUpTo(input: InputStream, buffer: ByteArray, offset: Int, len: Int): Int {
         var total = 0
         while (total < len) {

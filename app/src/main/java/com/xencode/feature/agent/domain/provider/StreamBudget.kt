@@ -1,18 +1,18 @@
 package com.xencode.feature.agent.domain.provider
 
 /**
- * 单次流式响应允许累积的增量字符上限。
+ * Cap on incremental characters allowed to accumulate per streaming response.
  *
- * 日志缓冲 `rawSse` 已有 512K 封顶，但**业务侧**的累积器（正文 / 思考 / 工具入参）此前没有任何上限：
- * provider 的 baseUrl 用户可自定义，异常或被劫持的上游可以无限下发 delta，客户端照单全收会撑爆堆。
+ * The log buffer `rawSse` is already capped at 512K, but the **business-side** accumulators (body / reasoning / tool arguments) previously had no limit:
+ * a provider's baseUrl is user-defined, so a broken or hijacked upstream can stream deltas forever, and blindly accepting them would blow up the heap.
  */
 const val MAX_STREAM_CHARS = 4 * 1024 * 1024
 
 /**
- * 统计一次流式响应累积的增量字符数，超过 [maxChars] 即抛 [StreamApiException] 中断本次请求。
+ * Counts incremental characters accumulated in one streaming response; throws [StreamApiException] past [maxChars] to abort the request.
  *
- * 选择中断而非静默截断：工具入参被截断会变成半截 JSON 被当作参数执行，正文被截断会让用户拿到残缺回答，
- * 都不如直接报错。4M 字符比任何模型的正常输出高两个数量级，正常使用不会触发。
+ * Aborting rather than silently truncating: truncated tool arguments become half-finished JSON that gets executed as-is, and a truncated body hands the user a broken answer —
+ * both are worse than a clean error. 4M chars is two orders of magnitude above any model's normal output, so normal use never triggers it.
  */
 class StreamBudget(private val maxChars: Int = MAX_STREAM_CHARS) {
     private var total = 0L

@@ -4,93 +4,93 @@ import java.io.File
 import java.io.InputStream
 import java.nio.charset.Charset
 
-/** 目录条目信息，供 [FileAccessProvider.listFiles] 返回。 */
+/** Directory entry info, returned by [FileAccessProvider.listFiles]. */
 data class FileEntry(
     val name: String,
     val isDirectory: Boolean,
-    /** 文件大小（字节）；目录可为 0。 */
+    /** File size in bytes; may be 0 for directories. */
     val size: Long,
-    /** 最后修改时间（epoch 毫秒）。 */
+    /** Last modified time (epoch milliseconds). */
     val lastModified: Long,
-    /** 本地模式下可提供宿主 [File]，供需要本地路径的调用方（如 [BitmapFactory]）使用；远程模式为 null。 */
+    /** In local mode may carry the host [File] for callers needing a local path (e.g. [BitmapFactory]); null in remote mode. */
     val localFile: File? = null,
-    /** 可读/可写/可执行权限位（rwx 字符串，如 "rwx"）；远程按 SFTP 权限解析，无法获取时给合理默认。 */
+    /** Read/write/execute permission bits (an rwx string such as "rwx"); parsed from SFTP permissions remotely, with a sensible default when unavailable. */
     val permissions: String = "---"
 )
 
 /**
- * 文件读写后端抽象：把"在哪读写文件"从硬编码的本地 java.io.File 解耦。
+ * Abstraction for the file read/write backend: decouples "where files are read/written" from hardcoded local java.io.File.
  *
- * 两套实现：
- * - `LocalFileAccess`：包一层 [WorkspacePathMapper]，走 java.io.File 直读（本地模式原行为不变）；
- * - `RemoteSftpFileAccess`：用 SFTP 读写远程文件。
+ * Two implementations:
+ * - `LocalFileAccess`: wraps a [WorkspacePathMapper] and goes through java.io.File directly (local-mode behavior unchanged);
+ * - `RemoteSftpFileAccess`: reads/writes remote files over SFTP.
  *
- * 路径入参统一为 AI 给的"容器路径"（`~/workspace/...`），由实现内部映射到本地宿主路径或远程路径。
- * 工具层（FileTools/ImageTools/ListFilesTool/EditFileTool）依赖本接口而非具体实现，
- * 由 DI 按当前执行模式注入对应实例。
+ * Path parameters are uniformly the "container paths" the AI provides (`~/workspace/...`); each implementation maps them internally to local host paths or remote paths.
+ * The tool layer (FileTools/ImageTools/ListFilesTool/EditFileTool) depends on this interface, not a concrete implementation,
+ * and DI injects the right instance for the current execution mode.
  *
- * 需要本地文件路径的能力（如 [android.graphics.BitmapFactory.decodeFile]）用 [readBytes] 或
- * [copyToLocal] 拿到本地临时文件再处理——远程模式下会 SFTP 下载到临时目录。
+ * Capabilities that need a local file path (e.g. [android.graphics.BitmapFactory.decodeFile]) should use [readBytes] or
+ * [copyToLocal] to obtain a local temp file first — in remote mode this SFTP-downloads into a temp directory.
  */
 interface FileAccessProvider {
 
     /**
-     * 读取文件全文文本。文件不存在时抛 [NoSuchFileException]。
-     * 远程模式对超过实现上限的文件抛 [RemoteOutputTooLargeException]，避免整篇读进内存。
+     * Reads a file's full text. Throws [NoSuchFileException] when the file does not exist.
+     * In remote mode, files over the implementation limit throw [RemoteOutputTooLargeException] to avoid reading the whole thing into memory.
      */
     fun readFile(path: String): String
 
     /**
-     * 惰性逐行读取文件，供 [ReadFileTool] 按行窗口读取：读到哪算哪，整文件不进内存；
-     * 单行超过上限（默认 64K 字符）会被截断。
-     * 序列可重复迭代（每次迭代重新打开底层读取）；调用方需在 IO 线程上迭代；文件不存在时抛 [NoSuchFileException]。
+     * Lazily reads a file line by line, for [ReadFileTool]'s line-windowed reads: consume as you go, the whole file never enters memory;
+     * lines over the cap (64K characters by default) are truncated.
+     * The sequence is re-iterable (each iteration reopens the underlying read); callers must iterate on an IO thread; throws [NoSuchFileException] when the file does not exist.
      */
     fun readLines(path: String): Sequence<String>
 
     /**
-     * 写入文件全文。父目录不存在则自动创建。[overwrite] 为 false 且文件已存在时抛 [FileAlreadyExistsException]。
-     * [encoding] 指定落盘字符编码；缺省 UTF-8。调用方应把「读入时检测到的编码」原样回传，
-     * 避免 GBK 等非 UTF-8 文件在保存时被静默转码破坏。
+     * Writes a file's full content. Parent directories are created automatically. When [overwrite] is false and the file exists, throws [FileAlreadyExistsException].
+     * [encoding] selects the on-disk charset; default is UTF-8. Callers should pass back the "encoding detected at read time" as-is,
+     * so non-UTF-8 files like GBK are not silently transcoded and corrupted on save.
      */
     fun writeFile(path: String, content: String, overwrite: Boolean = true, encoding: Charset = Charsets.UTF_8)
 
-    /** 文件是否存在。 */
+    /** Whether the file exists. */
     fun exists(path: String): Boolean
 
-    /** 文件是否为目录。 */
+    /** Whether the path is a directory. */
     fun isDirectory(path: String): Boolean
 
-    /** 文件是否为普通文件。 */
+    /** Whether the path is a regular file. */
     fun isFile(path: String): Boolean
 
-    /** 文件大小（字节）。 */
+    /** File size in bytes. */
     fun fileSize(path: String): Long
 
-    /** 最后修改时间（epoch 毫秒）。 */
+    /** Last modified time (epoch milliseconds). */
     fun lastModified(path: String): Long
 
-    /** 权限位字符串（如 "rwx"）。 */
+    /** Permission bit string (e.g. "rwx"). */
     fun permissions(path: String): String
 
     /**
-     * 列出目录下的条目。本地实现用 [File.listFiles]；远程实现用 SFTP ls。
-     * 不含 `.` 和 `..`。返回的 [FileEntry.localFile] 在远程模式下为 null。
+     * Lists entries under a directory. The local implementation uses [File.listFiles]; the remote one uses SFTP ls.
+     * Excludes `.` and `..`. The returned [FileEntry.localFile] is null in remote mode.
      */
     fun listFiles(path: String): List<FileEntry>
 
     /**
-     * 递归列出 [path] 下所有普通文件，深度不超过 [maxDepth]（[path] 的直接子项算第 1 层）。
-     * 返回相对 [path] 的路径（`/` 分隔）；目录不存在时返回空列表。
-     * 供技能/子代理目录扫描使用。
+     * Recursively lists all regular files under [path] up to [maxDepth] (direct children of [path] count as level 1).
+     * Returns paths relative to [path] (`/`-separated); an empty list when the directory does not exist.
+     * Used for skill/sub-agent directory scans.
      */
     fun listFilesRecursive(path: String, maxDepth: Int): List<String>
 
     /**
-     * 批量读取多个文件全文，返回 `path -> content`；单个文件读取失败时该条目缺席（不抛）。
+     * Batch-reads multiple files in full, returning `path -> content`; entries that fail to read are absent (no throw).
      *
-     * 默认实现逐个 [readFile]。真机 ROOT / SFTP 这类「一次调用 = 一次跨进程或跨网络往返」
-     * 的通道**必须**覆写为一次往返批量取回：技能扫描、子代理扫描会一次读上百个文件，
-     * 逐个读会退化成上百次子进程 fork（每个数十~数百毫秒），直接把调用方拖到 ANR。
+     * The default implementation calls [readFile] one by one. Channels where "one call = one cross-process or cross-network round-trip"
+     * such as device ROOT / SFTP **must** override this to fetch the batch in one round-trip: skill scans and sub-agent scans read a hundred files at a time,
+     * and reading them one by one degenerates into a hundred subprocess forks (tens to hundreds of ms each), dragging the caller straight into ANR.
      */
     fun readFiles(paths: List<String>): Map<String, String> {
         if (paths.isEmpty()) return emptyMap()
@@ -100,13 +100,13 @@ interface FileAccessProvider {
     }
 
     /**
-     * 批量读取多个文件的前 [maxBytes] 个字符（按字符截断，不保证 UTF-8 边界对齐——
-     * 仅用于解析 frontmatter 等只关心文件头的场景）。
+     * Batch-reads the first [maxBytes] characters of multiple files (truncated by characters, not guaranteed to align to UTF-8 boundaries —
+     * only for scenarios like frontmatter parsing that care about file heads).
      *
-     * 默认实现 = [readFiles] 后逐条截断；真机 ROOT / SFTP 这类「一次调用 = 一次跨进程或跨网络往返」的
-     * 通道**必须**覆写为一次往返批量取回：按技能名定位技能要读上百个 SKILL.md 的文件头，
-     * 逐个读会退化成上百次子进程 fork（每个数十~数百毫秒），直接把 loadSkill 拖到 ANR。
-     * 与 [readFiles] 同一套返回约定：读取失败的条目缺席，不抛。
+     * The default implementation = [readFiles] then per-entry truncation; channels where "one call = one cross-process or cross-network round-trip"
+     * such as device ROOT / SFTP **must** override this to fetch the batch in one round-trip: locating skills by name reads the heads of a hundred SKILL.md files,
+     * and doing it one by one degenerates into a hundred subprocess forks (tens to hundreds of ms each), dragging loadSkill straight into ANR.
+     * Same return convention as [readFiles]: failed entries are absent, no throw.
      */
     fun readFileHeads(paths: List<String>, maxBytes: Int): Map<String, String> {
         if (paths.isEmpty()) return emptyMap()
@@ -116,73 +116,73 @@ interface FileAccessProvider {
     }
 
     /**
-     * 读取文件原始字节。供 [ViewImageTool] 等需要二进制数据的工具使用。
-     * 远程模式下若调用方需要本地文件路径，改用 [copyToLocal]；文件过大时抛 [RemoteOutputTooLargeException]。
+     * Reads a file's raw bytes. For tools like [ViewImageTool] that need binary data.
+     * In remote mode, if the caller needs a local file path, use [copyToLocal] instead; oversized files throw [RemoteOutputTooLargeException].
      */
     fun readBytes(path: String): ByteArray
 
     /**
-     * 写入文件原始字节。父目录不存在则自动创建。[overwrite] 为 false 且文件已存在时抛 [FileAlreadyExistsException]。
-     * 供 [GenerateImageTool] 等需要落盘二进制数据（图片等）的工具使用，也用于上传附件等二进制写入；
-     * 文本内容仍用 [writeFile]。
+     * Writes a file's raw bytes. Parent directories are created automatically. When [overwrite] is false and the file exists, throws [FileAlreadyExistsException].
+     * For tools like [GenerateImageTool] that persist binary data (images etc.), and also for binary writes such as attachment uploads;
+     * text content still goes through [writeFile].
      */
     fun writeBytes(path: String, bytes: ByteArray, overwrite: Boolean = true)
 
     /**
-     * 从 [input] 流式写入文件，返回写入的字节数；内容不整体驻留内存。
-     * 父目录不存在则自动创建。[overwrite] 为 false 且文件已存在时抛 [FileAlreadyExistsException]。
-     * 供上传大附件等场景使用。
+     * Streams [input] into a file, returning the number of bytes written; content is never held in memory as a whole.
+     * Parent directories are created automatically. When [overwrite] is false and the file exists, throws [FileAlreadyExistsException].
+     * For scenarios like uploading large attachments.
      */
     fun writeStream(path: String, input: InputStream, overwrite: Boolean = true): Long
 
     /**
-     * 把文件复制到本地临时文件并返回其 [File]。
-     * 本地模式直接返回映射后的宿主 [File]（不复制）；
-     * 远程模式 SFTP 下载到缓存目录，返回本地临时文件。
-     * 供 [ViewImageTool]（需本地路径喂 BitmapFactory）等使用。
+     * Copies the file to a local temp file and returns its [File].
+     * Local mode directly returns the mapped host [File] (no copy);
+     * remote mode SFTP-downloads into the cache directory and returns a local temp file.
+     * Used by [ViewImageTool] (which needs a local path for BitmapFactory) and friends.
      */
     fun copyToLocal(path: String): File
 
-    /** 删除文件或空目录。 */
+    /** Deletes a file or empty directory. */
     fun delete(path: String)
 
-    /** 递归删除文件或目录（目录非空时连同内容一起删）。目标不存在时静默返回。 */
+    /** Recursively deletes a file or directory (non-empty directories go with their contents). Silently returns when the target is missing. */
     fun deleteRecursively(path: String)
 
     /**
-     * 重命名 / 移动。[newPath] 已存在时抛 [FileAlreadyExistsException]，
-     * [path] 不存在时抛 [NoSuchFileException]，其它失败抛 [java.io.IOException]。
+     * Rename / move. Throws [FileAlreadyExistsException] when [newPath] already exists,
+     * [NoSuchFileException] when [path] is missing, and [java.io.IOException] for other failures.
      */
     fun rename(path: String, newPath: String)
 
     /**
-     * 复制文件或目录（含子内容）到 [newPath]。[path] 不存在时抛 [NoSuchFileException]，
-     * 其它失败抛 [java.io.IOException]。[overwrite] 为 false 且 [newPath] 已存在时抛
-     * [FileAlreadyExistsException]；为 true 时覆盖。
+     * Copies a file or directory (with contents) to [newPath]. Throws [NoSuchFileException] when [path] is missing,
+     * and [java.io.IOException] for other failures. When [overwrite] is false and [newPath] exists, throws
+     * [FileAlreadyExistsException]; when true, it overwrites.
      */
     fun copy(path: String, newPath: String, overwrite: Boolean = false)
 
     /**
-     * 将 [path] 移动（剪切）到 [newPath]。[path] 不存在时抛 [NoSuchFileException]，
-     * 其它失败抛 [java.io.IOException]。[overwrite] 为 false 且 [newPath] 已存在时抛
-     * [FileAlreadyExistsException]；为 true 时覆盖。
-     * 实现可用 rename 或「复制 + 删除源」。
+     * Moves (cuts) [path] to [newPath]. Throws [NoSuchFileException] when [path] is missing,
+     * and [java.io.IOException] for other failures. When [overwrite] is false and [newPath] exists, throws
+     * [FileAlreadyExistsException]; when true, it overwrites.
+     * Implementations may use rename or "copy + delete source".
      */
     fun move(path: String, newPath: String, overwrite: Boolean = false)
 
-    /** 创建目录（含父目录）。 */
+    /** Creates a directory (with parents). */
     fun mkdirs(path: String)
 
-    /** 获取父目录路径（容器路径形式）。 */
+    /** Returns the parent directory path (in container-path form). */
     fun parentPath(path: String): String?
 
-    /** 把内部真实路径还原为 AI 视角的容器路径（回显用）。 */
+    /** Restores an internal real path back to the AI-facing container path (for display). */
     fun toDisplayPath(path: String): String
 }
 
 /**
- * 单个目录条目名是否合法：非空、不含路径分隔符、不是 `.` 或 `..`。
- * 拦掉 `../` 这类会跳出当前目录的输入，供文件浏览的新建/重命名使用。
+ * Whether a single directory entry name is legal: non-empty, no path separators, not `.` or `..`.
+ * Blocks inputs like `../` that would escape the current directory; used by file browsing for create/rename.
  */
 fun isValidFileEntryName(name: String): Boolean {
     val trimmed = name.trim()

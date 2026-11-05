@@ -5,10 +5,10 @@ import com.xencode.feature.agent.domain.prompt.SystemPromptProvider
 import javax.inject.Inject
 
 /**
- * /init —— 触发一次 agent 回合，分析当前工作区代码库并生成/改进项目规则文件
- * （`AGENTS.md`，仅有 `CLAUDE.md` 时改进它）。
+ * /init — triggers one agent turn that analyzes the current workspace codebase and
+ * generates/improves the project rules file (`AGENTS.md`; improves `CLAUDE.md` if that is all there is).
  *
- * 指令正文存放在 `prompts/agent/init.md`，可被 `~/.xencode/prompts.custom/agent/init.md` 覆盖。
+ * The command body lives in `prompts/agent/init.md` and can be overridden by `~/.xencode/prompts.custom/agent/init.md`.
  */
 class InitCommandHandler @Inject constructor(
     private val systemPromptProvider: SystemPromptProvider
@@ -22,7 +22,7 @@ class InitCommandHandler @Inject constructor(
     }
 
     companion object {
-        /** 指令正文片段名，与 `prompts/` 下路径一致。 */
+        /** Command body snippet name, matching the path under `prompts/`. */
         const val PROMPT_NAME = "agent/init.md"
     }
 }

@@ -1,42 +1,42 @@
-# 备份与还原
+# Backup and Restore
 
-「设置 → 备份与还原」可以把应用配置、聊天历史、凭据和工作区文件导出成一个加密压缩包，也能从备份还原回来。
+"Settings → Backup and Restore" exports app configuration, chat history, credentials, and workspace files into an encrypted archive, and can restore from a backup as well.
 
-## 导出
+## Export
 
-页面上方勾选要导出的范围：AI 供应商、Git 凭据、连接与同步、聊天历史、MCP 服务器、授权规则、应用设置、工作区文件。勾选状态会记住，下次进来沿用。
+At the top of the page, pick what to export: AI providers, Git credentials, connections and sync, chat history, MCP servers, authorization rules, app settings, workspace files. The checkboxes are remembered and reused next time.
 
-其中**工作区文件默认关闭**，需要时手动打开。它会打包所有本地模式的内部工作区文件，包含 `.git` 目录，因此仓库历史和未推送的提交都能完整还原。通过「添加本地目录」加进来的外部工作区属于你设备上的原始目录，不会被打包。排除规则是各工作区自己的 `.gitignore` 加上同步功能的默认忽略清单（`node_modules`、`build`、`dist` 等），符号链接不备份。
+**Workspace files are off by default**; turn them on manually when needed. This packs up all internal workspace files in local mode, including the `.git` directory, so repository history and unpushed commits are fully restored. External workspaces added via "Add local directory" are the original directories on your device and are not packed. Exclusions are each workspace's own `.gitignore` plus the sync feature's default ignore list (`node_modules`, `build`, `dist`, etc.); symlinks are not backed up.
 
-::: tip 代码优先用 Git 备份
-Git 仓库本身就完整保存了代码和历史，这里的导出更适合作为额外的备用手段，而不是主要的代码备份方式。
+::: tip Prefer Git for code backups
+A Git repository already preserves code and history completely; the export here is better as an extra safety net than as your primary way of backing up code.
 :::
 
-点「导出备份」后会弹窗设置口令：
+Tapping "Export backup" opens a dialog to set a passphrase:
 
-- **填写口令**：使用 AES-GCM 加密。
-- **留空**：输出明文 tar.gz。
+- **With a passphrase**: encrypted with AES-GCM.
+- **Left empty**: outputs a plaintext tar.gz.
 
-导出的包里含 API Key 等凭据，通过系统文件选择器保存到你指定的位置。
+The exported archive contains credentials such as API keys and is saved wherever you choose via the system file picker.
 
-::: danger 务必牢记加密口令
-加密备份在遗失口令时无法解密恢复，没有任何后门或找回途径。
+::: danger Remember your passphrase
+An encrypted backup cannot be decrypted without its passphrase; there is no backdoor or recovery path.
 :::
 
-## 导入
+## Import
 
-从备份文件还原，采用**合并方式**，不会清除现有数据。需要输入对应的口令，未加密的备份留空即可。
+Restores from a backup file using a **merge**; existing data is never wiped. Enter the matching passphrase; for an unencrypted backup, leave it empty.
 
-如果备份中含工作区文件，会先弹出「恢复工作区」选择弹窗，列出备份中的每个工作区（名称和文件数），你可以勾选要恢复哪些。
+If the backup contains workspace files, a "Restore workspaces" dialog first lists every workspace in the backup (name and file count) so you can check which ones to restore.
 
-::: warning 恢复工作区会直接覆盖
-勾选的工作区会覆盖本地同名工作区里的文件，且无法撤销。本地没有同名工作区时会自动新建一个再写入，因此更换设备或重装后不会丢数据。远程模式的工作区（文件在服务器上）不参与还原。
+::: warning Restoring workspaces overwrites directly
+Checked workspaces overwrite files in local workspaces of the same name, and this cannot be undone. If no local workspace has that name, one is created automatically before writing, so no data is lost when switching devices or reinstalling. Remote-mode workspaces (files on the server) do not participate in the restore.
 :::
 
-导入完成后会显示还原数据的汇总清单：供应商、Git 凭据、远程连接、远程挂载、聊天会话、聊天消息、待办项、MCP 服务器、全局授权规则、工作区文件各恢复了多少。
+When the import finishes, a summary lists how many of each were restored: providers, Git credentials, remote connections, remote mounts, chat sessions, chat messages, to-dos, MCP servers, global authorization rules, workspace files.
 
-聊天会话会按备份时的所属工作区归位：本地有同名工作区直接还原过去，没有同名工作区时会自动新建一个空工作区再挂入会话（与「恢复工作区」自动新建的逻辑一致），更换设备或重装后各工作区的会话不会集中到同一处。
+Chat sessions are placed back into the workspace they belonged to when the backup was taken: restored directly if a local workspace of that name exists; otherwise an empty workspace is created automatically and the session attached (the same auto-create logic as "Restore workspaces"), so after switching devices or reinstalling, sessions are not all dumped into one place.
 
-## 补充说明
+## Additional notes
 
-备份口令只作用于导出的备份文件本身。应用内部存储的 API Key、连接密码、SSH 私钥等敏感配置另由系统密钥库（Android Keystore）加密保存，与备份口令相互独立；更换设备时请通过备份导入迁移，直接拷贝应用数据目录会因密钥不匹配而无法解密。
+The backup passphrase only protects the exported backup file itself. Sensitive configuration stored inside the app — API keys, connection passwords, SSH private keys — is separately encrypted with the system keystore (Android Keystore), independent of the backup passphrase; when switching devices, migrate via backup import, since copying the app data directory directly fails to decrypt due to key mismatch.

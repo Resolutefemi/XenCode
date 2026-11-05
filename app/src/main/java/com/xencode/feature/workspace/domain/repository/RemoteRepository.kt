@@ -54,20 +54,20 @@ class RemoteRepository @Inject constructor(
     private val activeEngines = ConcurrentHashMap<String, SyncEngine>()
     private val activeEngineIds = MutableStateFlow<Set<String>>(emptySet())
 
-    /** 各挂载的实时连接健康度，由 SyncEngine.connectionState 回写。 */
+    /** Live connection health per mount, written back by SyncEngine.connectionState. */
     private val mountStates = MutableStateFlow<Map<String, SyncConnectionState>>(emptyMap())
     private val stateJobs = ConcurrentHashMap<String, Job>()
 
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
-    /** 每个挂载的自动连接重试协程，切换工作区/手动断开时取消。 */
+    /** Auto-connect retry coroutine per mount; cancelled on workspace switch or manual disconnect. */
     private val autoConnectJobs = ConcurrentHashMap<String, Job>()
 
-    /** 每个挂载的本地文件变更订阅协程，断开挂载时取消。 */
+    /** Local file-change subscription coroutine per mount; cancelled when the mount is disconnected. */
     private val watchJobs = ConcurrentHashMap<String, Job>()
 
     init {
-        // 跟随当前工作区：App 启动（工作区就绪）与切换工作区时，自动断开非当前工作区的挂载、
-        // 连接当前工作区里勾了「应用启动时自动连接」的挂载（失败退避重试直到成功）。
+        // Follows the current workspace: on app startup (workspace ready) and workspace switches, automatically disconnects mounts outside the current workspace
+        // and connects the current workspace's mounts whose "auto-connect on app start" is checked (retrying with backoff until success).
         scope.launch {
             workspaceRepository.current.collect { workspace ->
                 if (workspace != null) {
@@ -77,16 +77,16 @@ class RemoteRepository @Inject constructor(
         }
     }
 
-    /** 把激活挂载集合对齐到当前工作区。 */
+    /** Aligns the active mount set to the current workspace. */
     private suspend fun syncMountsToWorkspace(workspacePath: String) {
         val mounts = dao.getAllMountsOnce()
-        // 1. 断开不属于当前工作区的激活挂载（含手动连接的，保证切换后只同步当前工作区）
+        // 1. Disconnect active mounts that do not belong to the current workspace (including manually connected ones, so after a switch only the current workspace syncs)
         activeEngineIds.value
             .filter { activeId ->
                 mounts.firstOrNull { it.id == activeId }?.let { !belongsTo(it, workspacePath) } ?: true
             }
             .forEach { disconnectMount(it) }
-        // 2. 自动连接当前工作区里勾了 autoConnect 的挂载
+        // 2. Auto-connect the current workspace's mounts with autoConnect checked
         mounts.filter { it.autoConnect && belongsTo(it, workspacePath) && it.id !in activeEngineIds.value }
             .forEach { connectMountWithRetry(it.id, workspacePath) }
     }
@@ -94,7 +94,7 @@ class RemoteRepository @Inject constructor(
     private fun belongsTo(mount: RemoteMountEntity, workspacePath: String): Boolean =
         mount.localMountPath == workspacePath || mount.localMountPath.startsWith("$workspacePath/")
 
-    /** 带退避重试的自动连接：直到成功，或挂载不再属于当前工作区/被手动断开。 */
+    /** Auto-connect with backoff retry: until success, or until the mount no longer belongs to the current workspace / is manually disconnected. */
     private fun connectMountWithRetry(mountId: String, workspacePath: String) {
         autoConnectJobs[mountId]?.cancel()
         autoConnectJobs[mountId] = scope.launch {
@@ -105,7 +105,7 @@ class RemoteRepository @Inject constructor(
                 if (mountId in activeEngineIds.value) break
                 val result = connectMount(mountId)
                 if (result.isSuccess) break
-                FileLogger.w(TAG, "自动连接挂载 ${mount.localMountPath} 失败: ${result.exceptionOrNull()?.message}，${backoffMs / 1000}s 后重试")
+                FileLogger.w(TAG, "Auto-connect mount ${mount.localMountPath} failed: ${result.exceptionOrNull()?.message}, retrying in ${backoffMs / 1000}s")
                 delay(backoffMs)
                 backoffMs = (backoffMs * 2).coerceAtMost(5 * 60_000L)
             }
@@ -138,7 +138,7 @@ class RemoteRepository @Inject constructor(
         val authType = if (auth is RemoteAuth.Password) "PASSWORD" else "PRIVATE_KEY"
         val authData = if (auth is RemoteAuth.Password) auth.password else (auth as RemoteAuth.PrivateKey).privateKeyPath
         val passphrase = if (auth is RemoteAuth.PrivateKey) auth.passphrase else null
-        // 编辑（updateConnection 复用本方法）时保留原创建时间，避免刷新排序位置
+        // On edit (updateConnection reuses this method) keep the original creation time so the sort position does not jump
         val existing = dao.getConnectionById(conn.id)
         val entity = RemoteConnectionEntity(
             id = conn.id,
@@ -149,8 +149,8 @@ class RemoteRepository @Inject constructor(
             username = conn.username,
             authType = authType,
             authData = if (authType == "PASSWORD") KeystoreCipher.encryptString(authData) else authData,
-            // 口令以密钥条目为准。这里只在密钥口令有值时镜像到连接；密钥未设置口令时保留连接上的
-            // 存量口令（升级前用户在连接里填的），避免编辑连接把它抹掉。
+            // The key entry is authoritative for passphrases. The passphrase is mirrored onto the connection only when the key's passphrase has a value;
+            // when the key has none, the connection's existing passphrase (filled by the user pre-upgrade) is kept, so editing a connection does not wipe it.
             passphrase = passphrase?.let { KeystoreCipher.encryptString(it) }
                 ?: existing?.takeIf { authType == "PRIVATE_KEY" }?.passphrase,
             createdAt = existing?.createdAt ?: System.currentTimeMillis()
@@ -205,7 +205,7 @@ class RemoteRepository @Inject constructor(
 
     suspend fun connectMount(mountId: String): Result<Unit> = withContext(Dispatchers.IO) {
         try {
-            // 已存在旧连接时先清理，避免重复/并发连接泄漏 engine
+            // Clean up any old connection first, so repeated/concurrent connects do not leak engines
             activeEngines[mountId]?.shutdown()
             activeEngines.remove(mountId)
             activeEngineIds.update { it - mountId }
@@ -235,7 +235,7 @@ class RemoteRepository @Inject constructor(
                 useGitIgnore = syncSettings.useGitIgnore.value,
                 maxSyncBatchSize = syncSettings.maxSyncBatchSize.value
             )
-            // 移除默认的全量下载以免覆盖本地修改，交由用户手动点击同步
+            // Default full download removed to avoid overwriting local edits; left to the user to trigger sync manually
 
             activeEngines[mountId] = engine
             activeEngineIds.update { it + mountId }
@@ -243,7 +243,7 @@ class RemoteRepository @Inject constructor(
             startStateWatch(mountId, engine)
             Result.success(Unit)
         } catch (e: Exception) {
-            // 挂载连接不弹确认：提示用户先去连接配置页测试连通性完成确认
+            // Mount connections do not pop a confirmation: prompt the user to run a connectivity test on the connection config page to confirm first
             val pending = hostKeyVerifier.consumePending()
             if (pending != null) {
                 Result.failure(Exception("Host key not confirmed yet; run a connectivity test on the connection config page to confirm it"))
@@ -254,8 +254,8 @@ class RemoteRepository @Inject constructor(
     }
 
     /**
-     * 本地文件变更由中心服务统一监听（含剪枝与合并批量），这里只把事件投进该挂载的同步队列；
-     * 订阅随挂载断开而取消，无人订阅时中心服务不持有任何句柄。
+     * Local file changes are watched centrally by the hub service (with pruning and merged batches); this only feeds events into the mount's sync queue;
+     * the subscription is cancelled when the mount disconnects, and with no subscribers the hub service holds no handles.
      */
     private fun startLocalWatching(mountId: String, mount: RemoteMount, engine: SyncEngine) {
         watchJobs.remove(mountId)?.cancel()
@@ -270,7 +270,7 @@ class RemoteRepository @Inject constructor(
                 ),
                 fallbackPoll = false
             ).collect { batch ->
-                FileLogger.d(TAG, "同步监听收到变更: mount=$mountId count=${batch.changes.size} truncated=${batch.truncated}")
+                FileLogger.d(TAG, "Sync watcher received changes: mount=$mountId count=${batch.changes.size} truncated=${batch.truncated}")
                 for (change in batch.changes) engine.enqueueLocalChange(change.hostPath)
             }
         }
@@ -286,7 +286,7 @@ class RemoteRepository @Inject constructor(
         activeEngineIds.update { it - mountId }
     }
 
-    /** 订阅某挂载的实时连接健康度并回写到 [mountStates]。 */
+    /** Subscribes to a mount's live connection health and writes it back into [mountStates]. */
     private fun startStateWatch(mountId: String, engine: SyncEngine) {
         mountStates.update { it + (mountId to engine.connectionState.value) }
         stateJobs[mountId]?.cancel()
@@ -322,12 +322,12 @@ class RemoteRepository @Inject constructor(
         }
     }
 
-    /** 保存用户确认过的主机指纹，之后同主机连接直接放行。 */
+    /** Saves the user-confirmed host fingerprint; later connections to the same host are allowed through directly. */
     fun confirmHostKey(host: String, port: Int, fingerprint: String) {
         hostKeyStore.save(host, port, fingerprint)
     }
 
-    /** 测试连通性：待确认（首次/指纹变化）时抛 [HostKeyConfirmationRequiredException]，供 UI 弹出确认。 */
+    /** Tests connectivity: when confirmation is pending (first time / fingerprint changed) it throws [HostKeyConfirmationRequiredException] so the UI can show a confirmation. */
     suspend fun testConnection(
         host: String,
         port: Int,
@@ -374,7 +374,7 @@ class RemoteRepository @Inject constructor(
         }
     }
 
-    /** 解析连接的认证方式：密钥口令优先取密钥条目上的设置，回退到连接自身的存量口令。 */
+    /** Resolves a connection's auth: for key passphrases the key entry's setting wins, falling back to the connection's own stored passphrase. */
     private fun resolveAuth(connEntity: RemoteConnectionEntity): RemoteAuth =
         if (connEntity.authType == "PASSWORD") {
             RemoteAuth.Password(KeystoreCipher.decryptString(connEntity.authData))
@@ -407,7 +407,7 @@ class RemoteRepository @Inject constructor(
     )
 }
 
-/** 主机密钥待确认（首次连接或指纹变化），由测试连通性抛出供 UI 确认。 */
+/** Host key awaiting confirmation (first connection or changed fingerprint); thrown by the connectivity test for the UI to confirm. */
 class HostKeyConfirmationRequiredException(
     val host: String,
     val port: Int,

@@ -17,10 +17,10 @@ import java.io.InputStream
 import java.nio.charset.Charset
 
 /**
- * list 工具的 `| head [-n N]` 输出截断与管道白名单。
+ * Output truncation and pipe allowlist for the list tool's `| head [-n N]`.
  *
- * list 不走 shell（直接遍历宿主文件系统），`| head` 在语义上等价于「只输出前 N 行」，
- * 但安全校验与 search 共用同一套 [headLinesOf] 白名单，非 head 管道一律拒绝。
+ * list does not go through a shell (it walks the host file system directly); `| head` is semantically equivalent to "output only the first N lines",
+ * but the security validation shares the same [headLinesOf] allowlist as search — non-head pipes are always rejected.
  */
 class ListFilesToolTest {
 
@@ -97,10 +97,10 @@ class ListFilesToolTest {
         assertEquals(2, entriesOf(result))
         assertTrue(truncatedOf(result))
         val content = contentOf(result)
-        // 尾随换行会让 lines() 多出一个空元素，先 trimEnd 再数行
+        // A trailing newline adds an empty element to lines(); trimEnd before counting lines
         assertTrue(content.trimEnd('\n').lines().size == 2)
-        // head 截断是用户主动要求，不应追加系统「已达上限」提示
-        assertFalse(content.contains("已达"))
+        // head truncation is user-requested; no system "limit reached" notice should be appended
+        assertFalse(content.contains("reached the"))
     }
 
     @Test

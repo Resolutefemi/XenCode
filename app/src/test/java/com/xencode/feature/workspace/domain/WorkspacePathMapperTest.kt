@@ -11,10 +11,10 @@ import org.junit.Test
 import java.io.File
 
 /**
- * WorkspacePathMapper：容器路径 ↔ 宿主真实路径互转。
- * 固定环境：宿主工作区=/data/ws、AI 配置目录=/data/xencode、rootfs=/data/rootfs、容器 home=/root。
- * activeProfileIdFlow 用 emptyFlow()，让 init 协程的 collect 永不触发，避免真实 DataStore 调用
- * 与异步 profile 切换（extraBindings 挂载分支依赖该异步更新，纯 JVM 下竞态不稳定，不在本类覆盖）。
+ * WorkspacePathMapper: converting container paths ↔ real host paths both ways.
+ * Fixed environment: host workspace=/data/ws, AI config dir=/data/xencode, rootfs=/data/rootfs, container home=/root.
+ * activeProfileIdFlow uses emptyFlow() so the init coroutine's collect never fires, avoiding real DataStore calls
+ * and the async profile switch (the extraBindings mount branch depends on that async update; racy and unstable in pure JVM, not covered here).
  */
 class WorkspacePathMapperTest {
 
@@ -34,7 +34,7 @@ class WorkspacePathMapperTest {
         every { containerInstaller.rootfsDirFor(any()) } returns File(rootfsDir)
         every { containerSettingsRepository.activeProfileIdFlow } returns emptyFlow()
         every { pathHomeResolver.home() } returns home
-        // expandHome 保持真实展开语义，让 toHostFile 里的 ~ 前缀与生产行为一致
+        // expandHome keeps real expansion semantics so the ~ prefix in toHostFile behaves exactly as in production
         every { pathHomeResolver.expandHome(any()) } answers {
             val p = firstArg<String>()
             when {
@@ -46,7 +46,7 @@ class WorkspacePathMapperTest {
         return WorkspacePathMapper(workspaceRepository, containerInstaller, containerSettingsRepository, pathHomeResolver)
     }
 
-    // ---------- toHostFile：容器路径 → 宿主文件 ----------
+    // ---------- toHostFile: container path → host file ----------
 
     @Test
     fun toHostFile_workspaceRootTilde_mapsToHostWorkspaceRoot() {
@@ -79,7 +79,7 @@ class WorkspacePathMapperTest {
     @Test
     fun toHostFile_otherAbsolutePath_mapsToRootfs() {
         assertEquals(File(rootfsDir, "etc/hosts"), newMapper().toHostFile("/etc/hosts"))
-        // /root 本身不在工作区/配置目录前缀下，走通用绝对路径规则落到 rootfs
+        // /root itself is not under the workspace/config-dir prefix; the generic absolute-path rule lands it in rootfs
         assertEquals(File(rootfsDir, "root"), newMapper().toHostFile("/root"))
     }
 
@@ -93,7 +93,7 @@ class WorkspacePathMapperTest {
         assertEquals(File(wsRoot), newMapper().toHostFile("  ~/workspace  "))
     }
 
-    // ---------- toContainerPath：宿主路径 → 容器路径 ----------
+    // ---------- toContainerPath: host path → container path ----------
 
     @Test
     fun toContainerPath_workspaceRoot_mapsToContainerRoot() {

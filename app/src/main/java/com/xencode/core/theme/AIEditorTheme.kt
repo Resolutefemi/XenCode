@@ -49,7 +49,7 @@ object Brand {
     val Orange = Color(0xFFF57C00)
 }
 
-/** 全局统一语义色彩，解决业务代码私自 hardcode 颜色问题。 */
+/** App-wide unified semantic colors, solving the problem of business code hard-coding its own colors. */
 data class AppSemanticColors(
     val success: Color,
     val onSuccess: Color,
@@ -151,18 +151,18 @@ fun chatChromeColor(): Color {
 /** Git graph lane palette. */
 object GitLanePalette {
     val colors = listOf(
-        Color(0xFF2563EB), // 1. 经典蓝
-        Color(0xFF16A34A), // 2. 翠绿
-        Color(0xFFF59E0B), // 3. 琥珀
-        Color(0xFF8B5CF6), // 4. 优雅紫
-        Color(0xFF06B6D4), // 5. 青蓝
-        Color(0xFFEF4444), // 6. 珊瑚红
-        Color(0xFFEC4899), // 7. 亮粉
-        Color(0xFFEAB308)  // 8. 柠檬金
+        Color(0xFF2563EB), // 1. Classic blue
+        Color(0xFF16A34A), // 2. Emerald
+        Color(0xFFF59E0B), // 3. Amber
+        Color(0xFF8B5CF6), // 4. Elegant purple
+        Color(0xFF06B6D4), // 5. Cyan blue
+        Color(0xFFEF4444), // 6. Coral red
+        Color(0xFFEC4899), // 7. Bright pink
+        Color(0xFFEAB308)  // 8. Lemon gold
     )
 }
 
-/** Git 状态徽章统一色彩映射 */
+/** Unified color mapping for Git status badges. */
 object GitStatusColors {
     val Added = Color(0xFF16A34A)
     val Modified = Color(0xFFD97706)
@@ -174,7 +174,7 @@ object GitStatusColors {
     val Default = Color(0xFF64748B)
 }
 
-/** 日志级别统一色彩映射 */
+/** Unified color mapping for log levels. */
 object LogLevelColors {
     val Verbose = Color(0xFF94A3B8)
     val Debug = Color(0xFF3B82F6)
@@ -184,7 +184,7 @@ object LogLevelColors {
     val None = Color(0xFF64748B)
 }
 
-/** Token / 统计图表统一调色板 */
+/** Unified palette for token / stats charts. */
 object TokenStatsPalette {
     val Input = Color(0xFF3B82F6)
     val Output = Color(0xFFF59E0B)
@@ -194,7 +194,7 @@ object TokenStatsPalette {
     val Progress = Color(0xFF22C55E)
 }
 
-/** 存储空间页各占用分类的色标（堆叠条与行前色点共用）。 */
+/** Color swatches for each usage category on the storage page (shared by the stacked bar and row leading dots). */
 object StorageUsagePalette {
     val Chat = Color(0xFF3B82F6)
     val Container = Color(0xFF8B5CF6)
@@ -289,8 +289,8 @@ private val AppTypography = Typography().run {
 }
 
 /**
- * @param preset 用户选定的配色主题。
- * @param dynamicColor 是否启用系统莫奈取色；低于 Android 12 时自动回退到 [preset]。
+ * @param preset The color theme chosen by the user.
+ * @param dynamicColor Whether to use system Material You colors; automatically falls back to [preset] below Android 12.
  */
 @Composable
 fun AIEditorTheme(

@@ -1,35 +1,35 @@
-# 终端
+# Terminal
 
-XenCode 内置一个完整的终端。本地模式下它连着手机上的 Linux 容器，远程模式下它连着你的 SSH 服务器——两种情况都是真实的 shell，可以安装软件包、编译、运行服务。
+XenCode has a full terminal built in. In local mode it connects to the Linux container on your phone; in remote mode it connects to your SSH server — both are real shells where you can install packages, compile code, and run services.
 
-从聊天页顶部标题栏的「终端」进入。点左上角返回按钮回到聊天页，返回过程中重复点击不会继续退出聊天页。返回不会关闭终端标签。
+Enter it via "Terminal" in the title bar at the top of the chat page. Tap the back button in the top-left corner to return to the chat page; repeated taps during the transition will not exit the chat page further. Going back does not close the terminal tab.
 
-## 标签管理
+## Tab Management
 
-终端支持多个标签同时存在，顶部标签栏可以横向滑动，切换时当前标签会自动滚动到可见位置。
+The terminal supports multiple tabs at once. The tab bar at the top scrolls horizontally, and the active tab automatically scrolls into view when you switch.
 
-- 标签名前的圆点表示状态：绿色是运行中，灰色是已结束。
-- 点标签右侧的 × 关闭，点标签栏末尾的 + 新建。关掉当前标签后会自动切到相邻的一个。
-- AI 执行命令时开启的终端也会出现在这里，你可以随时切过去查看它的运行情况。
+- The dot before a tab name indicates status: green means running, gray means finished.
+- Tap the × on the right of a tab to close it, or the + at the end of the tab bar to create a new one. Closing the current tab automatically switches to an adjacent one.
+- Terminals opened while the AI runs commands also show up here, so you can switch over at any time to check on them.
 
-## 输入与复制
+## Typing and Copying
 
-点击终端区域获得焦点，即可直接输入。长按可以选择并复制输出内容。
+Tap the terminal area to focus it and start typing. Long-press to select and copy output.
 
-## 辅助按键栏
+## Extra Keys Bar
 
-手机键盘没有 Esc、Ctrl 和方向键，所以终端底部提供了一条可横向滑动的辅助按键栏：
+Phone keyboards lack Esc, Ctrl, and arrow keys, so the terminal provides a horizontally scrollable extra keys bar at the bottom:
 
-- **控制键**：`ESC`、`TAB`、`CTRL`、`ALT`。Ctrl 和 Alt 按下后会高亮，再按字母键即组成组合键。
-- **方向键**：上下左右，长按可以连续发送，用来快速移动光标。
-- **常用组合**：`C-c` 中断当前命令、`C-d` 发送 EOF 或退出、`C-z` 挂起进程、`C-l` 清屏。
-- **常用符号**：`|`、`~`、`/`、`-`、`_`、`>`、`:`、`$`、`"`、`'` 等，免去切换符号键盘。
+- **Control keys**: `ESC`, `TAB`, `CTRL`, `ALT`. Ctrl and Alt light up when pressed; then press a letter key to form a key combination.
+- **Arrow keys**: Up, down, left, right; hold to send repeatedly and move the cursor quickly.
+- **Common combos**: `C-c` interrupts the current command, `C-d` sends EOF or exits, `C-z` suspends the process, `C-l` clears the screen.
+- **Common symbols**: `|`, `~`, `/`, `-`, `_`, `>`, `:`, `$`, `"`, `'`, and more, so you can skip switching to the symbol keyboard.
 
-## 外观设置
+## Appearance Settings
 
-点终端页右上角的齿轮图标（或者从「设置 → 通用设置 → 终端设置」进入）可以调整：
+Tap the gear icon in the top-right corner of the terminal page (or go to "Settings → General Settings → Terminal Settings") to adjust:
 
-- **配色主题**：内置 Termius Dark、Dracula、One Dark、Monokai、GitHub Dark 五套配色，选中立即生效，所有已打开的标签一起变。
-- **字体大小**：5 到 22 之间无级调节，面板顶部有实时预览；也可以直接在终端区域双指捏合缩放，和这里的取值是同一个。
-- **字体**（**1.11.0 起**）：默认是 JetBrains Mono（无连字版本），`0` 和 `O`、`1` 和 `l` 区分得很清楚。也可以切换成系统等宽字体，或点「导入」从手机里选一个 `ttf` / `otf` / `ttc` 字体文件；导入的字体会出现在列表里，点字体标签上的 × 可以删除，删掉正在用的会自动回落到系统等宽。中文字符始终由系统字体补齐。字体只影响终端，不改变 AI 对话区。
-- **光标样式**：方块、下划线、竖线三种。
+- **Color theme**: Five built-in themes — Termius Dark, Dracula, One Dark, Monokai, and GitHub Dark. A selection takes effect immediately across all open tabs.
+- **Font size**: Adjusts continuously from 5 to 22, with a live preview at the top of the panel; you can also pinch to zoom directly in the terminal area — it drives the same value as here.
+- **Font** (**since 1.11.0**): The default is JetBrains Mono (the no-ligatures variant), which keeps `0` vs `O` and `1` vs `l` clearly distinct. You can also switch to the system monospace font, or tap "Import" to pick a `ttf` / `otf` / `ttc` font file from your phone; imported fonts appear in the list, and tapping the × on a font chip deletes it — deleting the one in use falls back to the system monospace font. Chinese characters are always rendered by the system font. The font only affects the terminal, not the AI chat area.
+- **Cursor style**: Block, underline, or bar.

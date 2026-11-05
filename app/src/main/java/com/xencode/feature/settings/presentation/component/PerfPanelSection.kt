@@ -56,11 +56,11 @@ import java.util.Date
 import java.util.Locale
 
 /**
- * 性能面板：实时占用（app CPU/内存/FPS）、整机占用（设备内存/存储 + app 累计）、
- * 按模块聚合、JSONL 持久化与导出。数据来自 [PerfPanelViewModel] 转发的 [com.xencode.core.perf.PerfMonitor]。
+ * Performance panel: realtime usage (app CPU/memory/FPS), device-wide usage (device memory/storage + app totals),
+ * per-module aggregation, JSONL persistence and export. Data comes from [com.xencode.core.perf.PerfMonitor] forwarded by [PerfPanelViewModel].
  *
- * 模块归属不打点侵入各界面——由 MainActivity 的导航路由映射写入采样点，
- * 聚合粒度 = 「用户当时在哪个页面」，足够定位「哪个界面吃资源」。
+ * Module attribution requires no instrumentation inside each screen — MainActivity's navigation route mapping stamps samples,
+ * aggregation granularity = "which page the user was on", enough to locate "which screen eats resources".
  */
 @Composable
 internal fun PerfPanelSection(viewModel: PerfPanelViewModel) {
@@ -79,11 +79,11 @@ internal fun PerfPanelSection(viewModel: PerfPanelViewModel) {
     var showClearConfirm by remember { mutableStateOf(false) }
 
     val latest = samples.lastOrNull()
-    // 内存缓冲内的模块聚合。
-    // 单次遍历累加、不产生中间集合：原实现 groupBy 之后对每个模块再做两次
-    // list.map{}.average()，等于每秒制造 N 个中间 List 与成箱的 Float/Double——
-    // 面板每秒刷新一次，这正是堆在 24↔136MB 反复锯齿（GC 抖动→掉帧）的推手。
-    // 现在只有 O(模块数) 个结果对象。
+    // Module aggregation over the in-memory buffer.
+    // Accumulated in a single pass with no intermediate collections: the original implementation ran groupBy then two
+    // list.map{}.average() per module, effectively creating N intermediate Lists plus boxed Float/Double every second —
+    // with the panel refreshing every second, that was the driver of the heap sawtoothing between 24↔136MB (GC jitter -> dropped frames).
+    // Now there are only O(module count) result objects.
     val moduleAgg = remember(samples) {
         val acc = java.util.LinkedHashMap<String, DoubleArray>()
         for (s in samples) {
@@ -108,7 +108,7 @@ internal fun PerfPanelSection(viewModel: PerfPanelViewModel) {
         }.sortedByDescending { it.avgPss }
     }
 
-    // 导出：系统文件选择器保存，结果写回 exportStatus 展示。
+    // Export: saved via the system file picker, result written back to exportStatus for display.
     val rawLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.CreateDocument("application/json")
     ) { uri ->
@@ -150,7 +150,7 @@ internal fun PerfPanelSection(viewModel: PerfPanelViewModel) {
         contentPadding = PaddingValues(top = Spacing.sm, bottom = Spacing.xl),
         verticalArrangement = Arrangement.spacedBy(Spacing.md)
     ) {
-        // ── 采样总开关 ──
+        // ── Sampling master toggle ──
         item(key = "toggle") {
             SettingsGroup {
                 Row(
@@ -190,7 +190,7 @@ internal fun PerfPanelSection(viewModel: PerfPanelViewModel) {
             )
         }
 
-        // ── 实时占用 ──
+        // ── Realtime usage ──
         item(key = "realtime") {
             SettingsGroupHeader(text = stringResource(R.string.perf_group_realtime))
             SettingsGroup {
@@ -257,7 +257,7 @@ internal fun PerfPanelSection(viewModel: PerfPanelViewModel) {
             }
         }
 
-        // ── 整机占用 ──
+        // ── Device-wide usage ──
         item(key = "device") {
             SettingsGroupHeader(text = stringResource(R.string.perf_group_device))
             SettingsGroup {
@@ -329,7 +329,7 @@ internal fun PerfPanelSection(viewModel: PerfPanelViewModel) {
             }
         }
 
-        // ── 模块聚合 ──
+        // ── Module aggregation ──
         item(key = "modules") {
             SettingsGroupHeader(text = stringResource(R.string.perf_group_modules))
             if (moduleAgg.isEmpty()) {
@@ -381,7 +381,7 @@ internal fun PerfPanelSection(viewModel: PerfPanelViewModel) {
             }
         }
 
-        // ── 记录与导出 ──
+        // ── Records & export ──
         item(key = "records") {
             SettingsGroupHeader(text = stringResource(R.string.perf_group_records))
             SettingsGroup {
@@ -547,7 +547,7 @@ private fun PerfMetricCard(
     }
 }
 
-/** 毫秒 → 「H小时M分S秒」/「M分S秒」/「S秒」。 */
+/** Milliseconds -> "Hh Mm Ss" / "Mm Ss" / "Ss". */
 private fun formatDuration(ms: Long): String {
     if (ms <= 0) return "0s"
     val s = ms / 1000

@@ -9,16 +9,16 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 /**
- * 连续工具调用分组的展开判定 + 整轮任务折叠。
+ * Expansion rules for consecutive tool-call groups + whole-turn task folding.
  *
- * 分组展开与否 = **上层持久化的手动选择**（[AIAgentViewModel.toolExpansionOverrides]，按 [toolGroupKey] 取）：
- * 没有手动记录就一律收起——工具调用统一默认不展开。
+ * Group expanded or not = **the manually persisted choice from the upper layer** ([AIAgentViewModel.toolExpansionOverrides], keyed by [toolGroupKey]):
+ * with no manual record, always collapsed — tool calls default to collapsed uniformly.
  *
- * 整轮折叠（最外层）只认 [AIAgentViewModel.turnExpansionOverrides]；没记录时「末轮运行中默认展开、
- * 其余默认收起」，任务收工由 activeTurnKey 归 null 自动收起。
+ * Whole-turn folding (outermost) only honors [AIAgentViewModel.turnExpansionOverrides]; with no record, "the last running turn expands by default,
+ * the rest collapse by default", and finishing a task auto-collapses as activeTurnKey goes null.
  *
- * 结构：工具分组与过程项都挂在轮头 item 的 [ChatRenderItem.turnProcess] 里（与折叠头同一 Composable，
- * 展开时整体动画）；顶层 items 只有「用户消息 / 轮头 / 常显项与结果」。
+ * Structure: tool groups and process items hang off the turn-header item's [ChatRenderItem.turnProcess] (same Composable as the folding header,
+ * animated as a whole when expanded); top-level items are only "user messages / turn headers / always-visible items and results".
  */
 class ToolGroupExpansionTest {
 
@@ -28,7 +28,7 @@ class ToolGroupExpansionTest {
     private fun tool(id: String) = AgentUIMessage(id = id, role = MessageRole.TOOL, content = "done")
 
     private fun assistant(id: String) =
-        AgentUIMessage(id = id, role = MessageRole.ASSISTANT, content = "看一下")
+        AgentUIMessage(id = id, role = MessageRole.ASSISTANT, content = "take a look")
 
     private val groupKey = "toolgroup:t1"
 
@@ -39,18 +39,18 @@ class ToolGroupExpansionTest {
         activeTurnKey: String? = null,
     ) = buildChatItems(messages, overrides, turnOverrides, activeTurnKey)
 
-    /** 顶层 item 里唯一的轮头 item。 */
+    /** The single turn-header item among the top-level items. */
     private fun List<ChatRenderItem>.header() = first { it.turnHeader != null }
 
-    /** 所有轮头携带的工具分组项（按轮头顺序展开）。 */
+    /** All tool-group items carried by turn headers (flattened in turn-header order). */
     private fun List<ChatRenderItem>.groupItems(): List<ChatRenderItem> =
         flatMap { it.turnProcess }.filter { it.toolGroup != null }
 
-    // ---- 连续工具调用分组 ----
+    // ---- Consecutive tool-call groups ----
 
     @Test
     fun expandedTurn_groupCollapsesByDefault() {
-        // 整轮展开（末轮运行中）时，连续工具分组仍默认收起
+        // Even with the whole turn expanded (last turn running), consecutive tool groups stay collapsed by default
         val items = items(listOf(user("u0"), tool("t1"), tool("t2")), activeTurnKey = "turn:u0")
         val groups = items.groupItems()
         assertEquals(1, groups.size)
@@ -59,7 +59,7 @@ class ToolGroupExpansionTest {
 
     @Test
     fun singleTool_isNotGrouped() {
-        // 只有一条工具时不折成「1 次工具调用」，直接当普通工具行显示
+        // A single tool is not folded into a "1 tool call" group; it shows as a plain tool row
         val items = items(listOf(user("u0"), tool("t1")), activeTurnKey = "turn:u0")
         assertEquals(0, items.groupItems().size)
         assertTrue(items.header().turnProcess.any { it.key == "t1" })
@@ -67,8 +67,8 @@ class ToolGroupExpansionTest {
 
     @Test
     fun noGroupAutoExpands() {
-        // 回归：曾经「组内还在跑」或「本轮仍在进行且这是最后一个分组」会自动弹开整组。
-        // 现在一律默认收起，历史分组与最新分组一视同仁。
+        // Regression: "a group member still running" or "this is the last group of an in-progress turn" used to auto-expand the whole group.
+        // Now everything defaults to collapsed; historical and latest groups are treated alike.
         val messages = listOf(
             user("u0"),
             tool("t1"), tool("t2"),
@@ -77,7 +77,7 @@ class ToolGroupExpansionTest {
         )
         val groups = items(messages, activeTurnKey = "turn:u0").groupItems()
         assertEquals(2, groups.size)
-        assertTrue("默认全部收起", groups.none { it.groupExpanded })
+        assertTrue("all collapsed by default", groups.none { it.groupExpanded })
     }
 
     @Test
@@ -85,7 +85,7 @@ class ToolGroupExpansionTest {
         val messages = listOf(user("u0"), tool("t1"), tool("t2"))
         val expanded = items(messages, overrides = mapOf(groupKey to true), activeTurnKey = "turn:u0")
         assertTrue(expanded.groupItems().first().groupExpanded)
-        // 同一份覆盖重建（列表滚动回收 / 切页返回后重组走的就是这条路径）：状态必须一致
+        // Rebuilding with the same overrides (exactly the path list-scroll recycling / page-switch-return recomposition takes): state must agree
         val rebuilt = items(messages, overrides = mapOf(groupKey to true), activeTurnKey = "turn:u0")
         assertTrue(rebuilt.groupItems().first().groupExpanded)
         assertEquals(expanded.size, rebuilt.size)
@@ -98,7 +98,7 @@ class ToolGroupExpansionTest {
             overrides = mapOf(groupKey to false),
             activeTurnKey = "turn:u0",
         )
-        assertFalse("手动收起过：保持收起", items.groupItems().first().groupExpanded)
+        assertFalse("manually collapsed before: stays collapsed", items.groupItems().first().groupExpanded)
     }
 
     @Test
@@ -117,8 +117,8 @@ class ToolGroupExpansionTest {
 
     @Test
     fun toolWithAttachments_isNotGrouped() {
-        // sendFile / generateImage 产出的文件行就是结果本身：不参与「N 次工具调用」折叠，
-        // 也不参与整轮折叠（常显）。它自己是一级 item，同时把左右两批工具切开。
+        // File rows produced by sendFile / generateImage are the result itself: they take no part in the "N tool calls" folding,
+        // nor in whole-turn folding (always visible). Each is a first-level item and also splits the tool batches on both sides.
         val file = AgentAttachment(
             fileName = "report.pdf",
             containerPath = "~/workspace/report.pdf",
@@ -134,20 +134,20 @@ class ToolGroupExpansionTest {
             tool("t3"), tool("t4"),
         )
         val items = items(messages, activeTurnKey = "turn:u0")
-        // send 是常显项：顶层独立 item
-        assertTrue("带附件的工具是顶层常显项", items.any { it.key == "send" })
+        // send is an always-visible item: a standalone top-level item
+        assertTrue("a tool with attachments is an always-visible top-level item", items.any { it.key == "send" })
         val groups = items.groupItems()
         assertEquals(listOf("toolgroup:t1", "toolgroup:t3"), groups.map { it.key })
-        assertTrue("分组默认收起", groups.none { it.groupExpanded })
-        // send 不是任何分组的成员
+        assertTrue("groups collapse by default", groups.none { it.groupExpanded })
+        // send is not a member of any group
         assertFalse(groups.any { group -> group.toolGroup.orEmpty().any { it.id == "send" } })
     }
 
-    // ---- 整轮任务折叠 ----
+    // ---- Whole-turn task folding ----
 
     @Test
     fun activeTurn_expandsByDefault() {
-        // 末轮且 agent 忙：折叠头显示「执行中」并默认展开，过程项照常挂载
+        // Last turn and the agent is busy: the folding header shows "running" and expands by default, process items mount as usual
         val items = items(listOf(user("u0"), tool("t1"), tool("t2")), activeTurnKey = "turn:u0")
         val header = items.header().turnHeader!!
         assertTrue(header.running)
@@ -179,7 +179,7 @@ class ToolGroupExpansionTest {
 
     @Test
     fun finishedTurn_autoCollapses() {
-        // 收工（activeTurnKey 归 null）：折叠头转为「已完成」并默认收起；过程数据仍在，由动画收起
+        // Finished (activeTurnKey goes null): the header switches to "completed" and collapses by default; process data remains, collapsed by animation
         val items = items(listOf(user("u0"), tool("t1"), tool("t2")), activeTurnKey = null)
         val header = items.header().turnHeader!!
         assertFalse(header.running)
@@ -189,7 +189,7 @@ class ToolGroupExpansionTest {
 
     @Test
     fun manualTurnExpand_survivesFinish() {
-        // 用户手动展开过：任务收工也不自动收起
+        // Expanded manually by the user: finishing the task does not auto-collapse
         val items = items(
             listOf(user("u0"), tool("t1"), tool("t2")),
             turnOverrides = mapOf("turn:u0" to true),
@@ -202,10 +202,10 @@ class ToolGroupExpansionTest {
 
     @Test
     fun plainTextTurn_hasNoHeader() {
-        // 无过程（无思考、无工具）的纯文本轮：退化为现状，不加折叠头
+        // A plain-text turn with no process (no thinking, no tools): degrades to the old behavior, no folding header
         val messages = listOf(
             user("u0"),
-            AgentUIMessage(id = "a1", role = MessageRole.ASSISTANT, content = "直接回答"),
+            AgentUIMessage(id = "a1", role = MessageRole.ASSISTANT, content = "a direct answer"),
         )
         val items = items(messages, activeTurnKey = null)
         assertTrue(items.none { it.turnHeader != null })
@@ -214,13 +214,13 @@ class ToolGroupExpansionTest {
 
     @Test
     fun resultReasoning_becomesProcessItem() {
-        // 轮末助手的思考抽为过程项；结果正文块不再重复渲染思考
+        // The turn-end assistant's thinking is extracted as a process item; the result body block no longer re-renders it
         val messages = listOf(
             user("u0"),
-            AgentUIMessage(id = "a1", role = MessageRole.ASSISTANT, content = "最终答案", reasoning = "想一下"),
+            AgentUIMessage(id = "a1", role = MessageRole.ASSISTANT, content = "final answer", reasoning = "think a bit"),
         )
         val items = items(messages, turnOverrides = mapOf("turn:u0" to true), activeTurnKey = null)
-        assertTrue("思考成为轮头过程项", items.header().turnProcess.any { it.key == "a1#reasoning" })
-        assertFalse("结果正文块不重复渲染思考", items.first { it.key == "a1" }.reasoningVisible)
+        assertTrue("reasoning becomes a turn-header process item", items.header().turnProcess.any { it.key == "a1#reasoning" })
+        assertFalse("the result body block does not re-render reasoning", items.first { it.key == "a1" }.reasoningVisible)
     }
 }

@@ -20,13 +20,13 @@ import kotlinx.serialization.json.longOrNull
 import javax.inject.Inject
 
 /**
- * 通过 Shizuku 以 adb shell（uid 2000）身份执行命令的工具。
+ * Tool that runs commands as adb shell (uid 2000) via Shizuku.
  *
- * 与 [com.xencode.feature.agent.domain.tool.container.ExecuteCommandTool]（本地容器 / 远程 SSH）不同，
- * 本工具直接作用于 Android 系统本身：可执行 `pm` / `am` / `cmd` 等系统命令、读写 `/sdcard` 等。
- * 需用户已安装 Shizuku 并授予本应用权限，否则返回错误提示。
+ * Unlike [com.xencode.feature.agent.domain.tool.container.ExecuteCommandTool] (local container / remote SSH),
+ * this tool acts directly on the Android system itself: it can run system commands such as `pm` / `am` / `cmd` and read/write `/sdcard`.
+ * Requires the user to have Shizuku installed and to have granted permission to this app; otherwise an error is returned.
  *
- * UserService 的 AIDL 调用是同步、一次性的（无逐行回传），故不实现流式输出。
+ * The UserService AIDL call is synchronous and one-shot (no line-by-line output), so streaming output is not implemented.
  */
 class ShizukuTool @Inject constructor(
     private val shizukuManager: ShizukuManager

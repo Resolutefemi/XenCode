@@ -16,19 +16,19 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import javax.inject.Inject
 
-/** 提示词页状态：按编号列出最终生效的片段（含来源），以及内置开关。 */
+/** Prompts page state: the finally effective fragments listed by number (with sources), plus the built-in toggle. */
 data class PromptsUiState(
     val fragments: List<PromptFragment> = emptyList(),
     val builtinDisabled: Boolean = false,
-    /** 没有选中工作区时项目层不可写，编辑/新建回落到全局层。 */
+    /** With no workspace selected the project layer is not writable; editing/creating falls back to the global layer. */
     val hasWorkspace: Boolean = false,
     val loading: Boolean = true
 )
 
 /**
- * 提示词页状态：四级来源（项目 > 全局 > 本地 > 内置）的生效片段列表 + 内置开关。
+ * Prompts page state: the effective fragment list from four source levels (project > global > local > built-in) + the built-in toggle.
  *
- * 读写都是磁盘 IO，统一放 IO 线程。
+ * Both reads and writes are disk IO, uniformly on the IO dispatcher.
  */
 @HiltViewModel
 class PromptsViewModel @Inject constructor(
@@ -58,7 +58,7 @@ class PromptsViewModel @Inject constructor(
         }
     }
 
-    /** 保存某编号的覆盖（新建与编辑同一入口）：写到所选作用域层；编辑改编号时清掉旧编号。 */
+    /** Saves an override for a number (create and edit share one entry): written to the selected scope layer; when editing changes the number, the old one is cleared. */
     fun saveFragment(
         number: Int,
         title: String,
@@ -82,7 +82,7 @@ class PromptsViewModel @Inject constructor(
         }
     }
 
-    /** 删除某编号的覆盖，自动回退到下一层。 */
+    /** Deletes the override for a number, automatically falling back to the next layer. */
     fun deleteFragment(number: Int) {
         viewModelScope.launch {
             val projectRoot = workspaceRepository.currentPath()
@@ -91,7 +91,7 @@ class PromptsViewModel @Inject constructor(
         }
     }
 
-    /** 拖拽重排：按新顺序重新编号并落盘，改变注入顺序。乐观更新本地状态，避免重读导致列表跳动。 */
+    /** Drag reorder: renumbers in the new order and persists, changing the injection order. Updates local state optimistically to avoid list jumping from a re-read. */
     fun reorderFragments(reordered: List<PromptFragment>) {
         val numbers = reordered.map { it.number }.sorted()
         val renumbered = reordered.mapIndexed { index, fragment -> fragment.copy(number = numbers[index]) }

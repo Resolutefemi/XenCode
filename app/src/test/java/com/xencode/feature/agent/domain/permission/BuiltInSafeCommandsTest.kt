@@ -45,7 +45,7 @@ class BuiltInSafeCommandsTest {
 
     @Test
     fun gitWriteSubcommands_areNotSafe() {
-        // 写操作子命令不在白名单，必须弹窗——与「git pull/clone 单独授权」一致。
+        // Write subcommands are not on the allowlist and must prompt — consistent with "git pull/clone requiring separate authorization".
         assertFalse(safe("git pull"))
         assertFalse(safe("git clone https://x/y"))
         assertFalse(safe("git push"))
@@ -60,10 +60,10 @@ class BuiltInSafeCommandsTest {
 
     @Test
     fun mutatingOrExecutingCommands_areNotSafe() {
-        // 派生执行/可写/网络命令一律不放行，避免 env rm -rf / 之类被前缀规则误放。
+        // Derived execution / writable / network commands are never allowed, so env rm -rf / and the like can't slip through prefix rules.
         assertFalse(safe("rm -rf /"))
-        assertFalse(safe("env rm -rf /"))   // env 可派生子进程，绝不收
-        assertFalse(safe("command rm"))      // command 可派生
+        assertFalse(safe("env rm -rf /"))   // env can spawn child processes, never allow
+        assertFalse(safe("command rm"))      // command can derive
         assertFalse(safe("xargs rm"))
         assertFalse(safe("find . -exec rm {} \\;"))
         assertFalse(safe("sed -i s/a/b/ f"))
@@ -80,7 +80,7 @@ class BuiltInSafeCommandsTest {
 
     @Test
     fun leadingFlagOnGit_isNotSafe() {
-        // git --version 不匹配任何只读子命令前缀 → 不内置放行（无害但不在白名单，弹窗一次）。
+        // git --version matches no read-only subcommand prefix -> not auto-allowed (harmless but not on the allowlist, prompts once).
         assertFalse(safe("git --version"))
     }
 }

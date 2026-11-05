@@ -25,28 +25,28 @@ import kotlinx.serialization.json.jsonPrimitive
 import javax.inject.Inject
 
 /**
- * 取出 JSON 字符串参数的「真实内容」。
+ * Extracts the "real content" of a JSON string parameter.
  *
- * 注意：不能用 `toString().removeSurrounding("\"")`：[toString] 返回 JSON 序列化形式（外层带引号、
- * 内部引号被转义成 `\"`），剥掉外层引号后内部仍是字面 `\"`，会把 `echo "*.vue"` 变成
- * `echo \"*.vue\"` 导致 shell 把引号当字面输出。必须用 [jsonPrimitive]/[contentOrNull] 取解码后内容。
+ * Note: do not use `toString().removeSurrounding("\"")`: [toString] returns the JSON-serialized form (outer quotes present,
+ * inner quotes escaped as `\"`), so after stripping the outer quotes the inner `\"` remains literal, turning `echo "*.vue"` into
+ * `echo \"*.vue\"` and causing the shell to print the quotes literally. Use [jsonPrimitive]/[contentOrNull] to get the decoded content.
  */
 private fun JsonElement.asPlainString(): String? =
     (this as? JsonPrimitive)?.contentOrNull
 
 /**
- * 统一的后台终端会话工具：用一个 `action` 参数区分三种操作，把原先的
- * `run_background_command` / `send_terminal_input` / `read_terminal_output` 三个工具合一。
+ * Unified background terminal session tool: a single `action` parameter distinguishes the operations, merging the former
+ * `run_background_command` / `send_terminal_input` / `read_terminal_output` tools into one.
  *
- * - `start`：把长驻命令（如 `npm run dev`、服务进程）开在一个常驻后台终端标签里，立即返回 tab_id，
- *   不阻塞等待。命令进程持续运行，AI 之后凭返回的 id 用 send/read 继续。
- * - `send`：按 tab_id 向某个后台或交互终端发送一行命令/输入（默认自动回车执行），随后短暂捕获输出。
- * - `key`：按 tab_id 发送常见快捷键/控制字符（如 Ctrl-C、Ctrl-D、方向键）。
- * - `read`：按 tab_id 读取该终端当前的全部输出（含后台命令实时日志）；省略 tab_id 则列出所有标签。
- * - `close`：按 tab_id 主动关闭并销毁某个终端标签。
+ * - `start`: opens a long-lived command (e.g. `npm run dev`, service processes) in a persistent background terminal tab and returns tab_id immediately,
+ *   without blocking to wait. The command keeps running; the AI later continues with send/read using the returned id.
+ * - `send`: sends a line of command/input to a background or interactive terminal by tab_id (auto-presses Enter by default), then briefly captures output.
+ * - `key`: sends common shortcut keys/control characters (e.g. Ctrl-C, Ctrl-D, arrow keys) by tab_id.
+ * - `read`: reads all current output of that terminal by tab_id (including live background command logs); omitting tab_id lists all tabs.
+ * - `close`: proactively closes and destroys a terminal tab by tab_id.
  *
- * 授权：start 动作按 shell 命令前缀匹配（见 [com.xencode.feature.agent.domain.permission.ToolPermissionPolicyEngine]），
- * send 动作按输入内容匹配，key/read/close 按整工具匹配。
+ * Authorization: the start action matches by shell command prefix (see [com.xencode.feature.agent.domain.permission.ToolPermissionPolicyEngine]),
+ * the send action matches by input content, and key/read/close match the tool as a whole.
  */
 class TerminalSessionTool @Inject constructor(
     private val sessionManager: TerminalSessionProvider
@@ -54,10 +54,10 @@ class TerminalSessionTool @Inject constructor(
     private companion object {
         const val TAG = "TerminalSessionTool"
 
-        /** start 启动后捕获初始输出的最长时间（毫秒）：命令若提前退出则立即返回，否则最多等满。 */
+        /** Maximum time (ms) to capture initial output after start: returns immediately if the command exits early, otherwise waits the full duration. */
         const val START_CAPTURE_MS = 5_000L
 
-        /** 轮询命令是否退出的间隔（毫秒）。 */
+        /** Interval (ms) for polling whether the command has exited. */
         const val START_POLL_INTERVAL_MS = 200L
 
         val SUPPORTED_KEYS = listOf(
@@ -220,7 +220,7 @@ class TerminalSessionTool @Inject constructor(
 
     override suspend fun execute(args: Map<String, JsonElement>): ToolResult = execute(args, null)
 
-    /** 非流式兜底路径也带上发起会话 id，与 [executeStream] 保持一致（后台命令通知能回投到源会话）。 */
+    /** The non-streaming fallback path also carries the originating session id, matching [executeStream] (so background command notifications return to the source session). */
     override suspend fun executeWithContext(
         args: Map<String, JsonElement>,
         context: com.xencode.feature.agent.domain.model.AgentContext
@@ -237,8 +237,8 @@ class TerminalSessionTool @Inject constructor(
         }
 
     /**
-     * 事件流路径下，让 start/send 像 Bash 一样把等待窗口内的新输出实时推给 UI。
-     * 其它动作保持非流式语义，直接返回最终结果。
+     * On the event-stream path, start/send push new output to the UI in real time during the wait window, like Bash.
+     * Other actions keep non-streaming semantics and return the final result directly.
      */
     override fun executeStream(
         args: Map<String, JsonElement>,
@@ -267,12 +267,12 @@ class TerminalSessionTool @Inject constructor(
         } catch (e: CancellationException) {
             throw e
         } catch (e: Exception) {
-            FileLogger.e(TAG, "启动后台命令失败: $command", e)
+            FileLogger.e(TAG, "Failed to start background command: $command", e)
             emit(ToolStreamEvent.Completed(ToolResult.Error("Failed to start background command: ${e.message}")))
             return
         }
 
-        FileLogger.i(TAG, "后台命令已启动 tab=$tabId(流式捕获): $command")
+        FileLogger.i(TAG, "Background command started tab=$tabId (streaming capture): $command")
         captureOutputFor(tabId, initialOutput = "")
         val result = withContext(Dispatchers.Main) { capturedResult(tabId, actionLabel = "start") }
         emit(ToolStreamEvent.Completed(result))
@@ -302,7 +302,7 @@ class TerminalSessionTool @Inject constructor(
             emit(ToolStreamEvent.Completed(ToolResult.Error("Terminal tab not found: $tabId")))
             return
         }
-        FileLogger.i(TAG, "向 $tabId 发送输入(流式捕获): $input")
+        FileLogger.i(TAG, "Sent input to $tabId (streaming capture): $input")
 
         captureOutputFor(tabId, initialOutput = before)
         val result = withContext(Dispatchers.Main) { capturedResult(tabId, actionLabel = "send") }
@@ -330,14 +330,15 @@ class TerminalSessionTool @Inject constructor(
     }
 
     /**
-     * 启动后台命令标签，并捕获最多 [START_CAPTURE_MS] 毫秒内的初始输出后返回。
+     * Starts a background command tab and returns after capturing initial output for up to [START_CAPTURE_MS] ms.
      *
-     * 不像普通 start 那样只返回 tab_id 就结束——那样 AI 还得再调一次 read 才知道命令有没有立刻报错
-     * （如命令不存在、端口被占）。这里启动后轮询：命令提前退出则立即返回（早失败早看见），否则等满
-     * [START_CAPTURE_MS] 抓一段初始输出（dev server 的启动横幅、首次报错等通常都在这几秒内）。
-     * 返回对象含 tab_id / 是否仍在运行 / 捕获到的输出，AI 据此判断要不要继续 send/read。
+     * Unlike a plain start that ends by returning just the tab_id — which would force the AI to call read again to learn whether
+     * the command failed immediately (e.g. command not found, port in use) — this polls after startup: returns immediately if the
+     * command exits early (fail fast, visible early), otherwise waits the full [START_CAPTURE_MS] to grab some initial output
+     * (dev server startup banners, first errors, etc. usually appear within these seconds).
+     * The returned object contains tab_id / whether still running / captured output, letting the AI decide whether to continue with send/read.
      *
-     * TerminalSessionManager 内部需主线程，故整段切到 Main。
+     * TerminalSessionManager requires the main thread internally, so the whole block switches to Main.
      */
     private suspend fun start(args: Map<String, JsonElement>, sourceSessionId: String?): ToolResult = withContext(Dispatchers.Main) {
         val command = args["command"]?.asPlainString()
@@ -346,9 +347,9 @@ class TerminalSessionTool @Inject constructor(
         val notify = args["notify"]?.asPlainString()?.toBooleanStrictOrNull() ?: false
         try {
             val tabId = sessionManager.startBackgroundCommand(command, title, notify, sourceSessionId)
-            FileLogger.i(TAG, "后台命令已启动 tab=$tabId: $command")
+            FileLogger.i(TAG, "Background command started tab=$tabId: $command")
 
-            // 轮询捕获初始输出：命令退出则提前结束，否则最多等满 START_CAPTURE_MS。
+            // Poll to capture initial output: end early if the command exits, otherwise wait up to START_CAPTURE_MS.
             var elapsed = 0L
             while (elapsed < START_CAPTURE_MS) {
                 delay(START_POLL_INTERVAL_MS)
@@ -359,7 +360,7 @@ class TerminalSessionTool @Inject constructor(
 
             val running = sessionManager.listTabs().firstOrNull { it.id == tabId }?.running ?: false
             val output = sessionManager.getTabOutput(tabId) ?: ""
-            FileLogger.v(TAG, "start 捕获 tab=$tabId running=$running 输出 ${output.length} 字符")
+            FileLogger.v(TAG, "start captured tab=$tabId running=$running output ${output.length} chars")
             ToolResult.Success(
                 JsonObject(
                     mapOf(
@@ -370,16 +371,16 @@ class TerminalSessionTool @Inject constructor(
                 )
             )
         } catch (e: Exception) {
-            FileLogger.e(TAG, "启动后台命令失败: $command", e)
+            FileLogger.e(TAG, "Failed to start background command: $command", e)
             ToolResult.Error("Failed to start background command: ${e.message}")
         }
     }
 
     /**
-     * 向指定终端发送一行输入，默认回车执行，并等待一小段时间捕获输出。
+     * Sends a line of input to the given terminal (Enter by default) and waits briefly to capture output.
      *
-     * 与 start 保持一致：返回 tab_id / running / output，避免 AI 发送命令后必须再手动 read 一次
-     * 才能看到即时结果。交互 shell 没有可靠的“命令结束”信号，因此这里固定等待 [START_CAPTURE_MS]。
+     * Consistent with start: returns tab_id / running / output so the AI need not manually read again after sending
+     * a command to see the immediate result. An interactive shell has no reliable "command finished" signal, so this waits a fixed [START_CAPTURE_MS].
      */
     private suspend fun send(args: Map<String, JsonElement>): ToolResult = withContext(Dispatchers.Main) {
         val tabId = args["tab_id"]?.asPlainString()
@@ -389,7 +390,7 @@ class TerminalSessionTool @Inject constructor(
         val submit = args["submit"]?.asPlainString()?.toBooleanStrictOrNull() ?: true
         val ok = sessionManager.sendInput(tabId, input, appendNewline = submit)
         if (ok) {
-            FileLogger.i(TAG, "向 $tabId 发送输入: $input")
+            FileLogger.i(TAG, "Sent input to $tabId: $input")
             var elapsed = 0L
             while (elapsed < START_CAPTURE_MS) {
                 delay(START_POLL_INTERVAL_MS)
@@ -406,7 +407,7 @@ class TerminalSessionTool @Inject constructor(
         }
     }
 
-    /** 向指定终端发送预定义快捷键/控制字符。TerminalSessionManager 需主线程。 */
+    /** Sends a predefined shortcut key/control character to the given terminal. TerminalSessionManager requires the main thread. */
     private suspend fun sendKey(args: Map<String, JsonElement>): ToolResult = withContext(Dispatchers.Main) {
         val tabId = args["tab_id"]?.asPlainString()
             ?: return@withContext ToolResult.Error("key is missing required parameter: tab_id")
@@ -430,7 +431,7 @@ class TerminalSessionTool @Inject constructor(
             else -> return@withContext ToolResult.Error("Unsupported key: $key; supported: ${SUPPORTED_KEYS.joinToString(", ")}")
         }
         if (ok) {
-            FileLogger.i(TAG, "向 $tabId 发送快捷键: $normalized")
+            FileLogger.i(TAG, "Sent key to $tabId: $normalized")
             ToolResult.Success(JsonPrimitive("Sent key $normalized to terminal tab $tabId. Use terminal(action=\"read\", tab_id=\"$tabId\") to see the result."))
         } else {
             val exists = sessionManager.listTabs().any { it.id == tabId }
@@ -442,7 +443,7 @@ class TerminalSessionTool @Inject constructor(
         }
     }
 
-    /** 读取终端输出；省略 tab_id 则列出所有标签。TerminalSessionManager 需主线程。 */
+    /** Reads terminal output; lists all tabs if tab_id is omitted. TerminalSessionManager requires the main thread. */
     private suspend fun read(args: Map<String, JsonElement>): ToolResult = withContext(Dispatchers.Main) {
         val tabId = args["tab_id"]?.asPlainString()
         if (tabId.isNullOrBlank()) {
@@ -457,17 +458,17 @@ class TerminalSessionTool @Inject constructor(
         }
         val output = sessionManager.getTabOutput(tabId)
             ?: return@withContext ToolResult.Error("Terminal tab not found: $tabId")
-        FileLogger.v(TAG, "读取 $tabId 输出 ${output.length} 字符")
+        FileLogger.v(TAG, "Read $tabId output ${output.length} chars")
         ToolResult.Success(JsonPrimitive(output))
     }
 
-    /** 关闭指定终端标签。TerminalSessionManager 需主线程。 */
+    /** Closes the given terminal tab. TerminalSessionManager requires the main thread. */
     private suspend fun close(args: Map<String, JsonElement>): ToolResult = withContext(Dispatchers.Main) {
         val tabId = args["tab_id"]?.asPlainString()
             ?: return@withContext ToolResult.Error("close is missing required parameter: tab_id")
         val ok = sessionManager.closeTab(tabId)
         if (ok) {
-            FileLogger.i(TAG, "关闭终端标签: $tabId")
+            FileLogger.i(TAG, "Closed terminal tab: $tabId")
             ToolResult.Success(JsonPrimitive("Closed terminal tab $tabId."))
         } else {
             ToolResult.Error("Terminal tab not found: $tabId")
@@ -483,7 +484,7 @@ class TerminalSessionTool @Inject constructor(
         val rawOutput = sessionManager.getTabOutput(tabId) ?: ""
         FileLogger.v(
             TAG,
-            "$actionLabel 捕获 tab=$tabId running=${tab.running} 输出 ${rawOutput.length} 字符"
+            "$actionLabel captured tab=$tabId running=${tab.running} output ${rawOutput.length} chars"
         )
         return ToolResult.Success(
             JsonObject(

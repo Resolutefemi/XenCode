@@ -13,11 +13,11 @@ private val Context.visionModelDataStore by preferencesDataStore(
 )
 
 /**
- * 持久化「识图模型」选择（providerId + model 两字符串）。
+ * Persists the "vision model" selection (two strings: providerId + model).
  *
- * 识图（viewImage）默认跟随当前聊天模型；用户在此指定专用模型后，识图会话使用该模型。
- * 不校验模型的视觉能力，调用失败时错误信息原样作为工具结果返回。
- * DataStore 用法与 [KeepaliveSettingsRepository] / [LogSettingsRepository] 一致。
+ * Vision (viewImage) follows the current chat model by default; once the user designates a dedicated model here, vision sessions use that model.
+ * The model's vision capability is not validated; on call failure the error message is returned as-is as the tool result.
+ * DataStore usage matches [KeepaliveSettingsRepository] / [LogSettingsRepository].
  */
 @Singleton
 class VisionModelSettingsRepository @Inject constructor(
@@ -26,15 +26,15 @@ class VisionModelSettingsRepository @Inject constructor(
     context.visionModelDataStore, "vision_provider_id", "vision_model"
 ) {
 
-    /** 写入识图专用模型（设空字符串即等同 [clear]）。 */
+    /** Writes the dedicated vision model (setting an empty string is equivalent to [clear]). */
     suspend fun setVisionModel(providerId: String, model: String) = setSelection(providerId, model)
 
-    /** 清空配置——回退到「跟随当前聊天模型」。 */
+    /** Clears the configuration — falls back to "follow the current chat model". */
     suspend fun clear() = clearSelection()
 
-    /** 读取一次当前识图专用 providerId（冷读用）。 */
+    /** Reads the current dedicated vision providerId once (for cold reads). */
     suspend fun getVisionProviderId(): String = readProviderId()
 
-    /** 读取一次当前识图专用 model（冷读用）。 */
+    /** Reads the current dedicated vision model once (for cold reads). */
     suspend fun getVisionModel(): String = readModel()
 }

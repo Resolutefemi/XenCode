@@ -23,10 +23,10 @@ import java.util.UUID
 import javax.inject.Inject
 
 /**
- * 管理 AI Agent 当前会话的任务清单（待办列表）。
+ * Manages the task list (todo list) for the AI Agent's current session.
  *
- * 工具采用快照式接口：每次传入当前完整 items 列表，工具用它替换会话里的待办清单。
- * AI 不需要查询或记忆 todo_id，也不需要区分创建、更新、删除动作。
+ * The tool uses a snapshot-style interface: each call passes the complete current items list, which replaces the session's todo list.
+ * The AI never needs to query or remember todo_id, nor distinguish create, update, and delete actions.
  */
 class TodoTool @Inject constructor(
     private val todoItemDao: TodoItemDao
@@ -44,7 +44,7 @@ class TodoTool @Inject constructor(
     override val permissionPolicy = ToolPermissionPolicy.AUTO_APPROVE
     override val capabilities = setOf(ToolCapability.MODIFY_TODO_STATE)
 
-    /** items 数组中单个待办项的 JSON Schema */
+    /** JSON Schema for a single todo item in the items array */
     private val todoItemSchema: Map<String, Any> = mapOf(
         "type" to "object",
         "properties" to mapOf(

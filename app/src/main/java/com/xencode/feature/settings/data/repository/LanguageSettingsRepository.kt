@@ -21,10 +21,10 @@ private const val PREFS_NAME = "language_prefs_sync"
 private const val PREFS_KEY = "language_tag"
 
 /**
- * 持久化用户选择的应用语言。
+ * Persists the user-selected app language.
  *
- * 存储值为 BCP-47 language tag（如 "zh"、"en"），null 表示跟随系统。
- * 切换时写入同步 prefs，[com.xencode.MainActivity] 在 attachBaseContext 中读取并 recreate 生效。
+ * The stored value is a BCP-47 language tag (e.g. "zh", "en"); null means follow the system.
+ * On switch, the sync prefs are written; [com.xencode.MainActivity] reads it in attachBaseContext and recreates to apply.
  */
 @Singleton
 class LanguageSettingsRepository @Inject constructor(
@@ -51,7 +51,7 @@ class LanguageSettingsRepository @Inject constructor(
 
     suspend fun snapshot(): String? = languageFlow.first()
 
-    /** 同步读取语言 tag，供 attachBaseContext 在 Activity 创建前调用（此时 Hilt 尚未注入）。 */
+    /** Reads the language tag synchronously, for attachBaseContext to call before the Activity is created (when Hilt is not yet injected). */
     fun getLanguageSync(): String? = syncPrefs.getString(PREFS_KEY, null)
 
     suspend fun restore(value: String?) {

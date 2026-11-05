@@ -81,7 +81,7 @@ class FileChangeModelsTest {
         assertTrue(withGitignore.isIgnoredDir(listOf("out")))
         assertFalse(withGitignore.isIgnoredDir(listOf("src")))
 
-        // 空父段（订阅根本身）永不剪枝
+        // An empty parent segment (the subscription root itself) is never pruned
         assertFalse(rules.isIgnoredDir(emptyList()))
     }
 

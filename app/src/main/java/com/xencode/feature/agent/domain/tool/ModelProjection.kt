@@ -11,12 +11,12 @@ import kotlinx.serialization.json.jsonPrimitive
 private val projectionJson = Json { ignoreUnknownKeys = true }
 
 /**
- * 文件类工具喂给模型的精简结果文本，对齐 opencode 的 edit / write 语义：
- * - editFile：一句话确认 + 替换数 + 增删行数 + diff 预览（截断）；
- * - writeFile：一句话确认 + 行数，不回显内容。
+ * Slim result text fed to the model by file tools, aligned with opencode's edit / write semantics:
+ * - editFile: one-line confirmation + replacement count + added/removed lines + diff preview (truncated);
+ * - writeFile: one-line confirmation + line count, no content echo.
  *
- * 只投影成功结果，其它工具 / 失败返回 null，由调用方回退用完整 result。
- * 注意：此文本仅喂模型，UI 与持久化仍走 result 的完整 diff。
+ * Only success results are projected; other tools / failures return null and the caller falls back to the full result.
+ * Note: this text is model-only; the UI and persistence still use the full diff from result.
  */
 fun modelToolResultText(toolName: String, transportJson: String): String? {
     val raw = transportJson.trim()
@@ -58,7 +58,7 @@ private fun writeProjection(data: JsonObject): String? {
     return lines.joinToString("\n")
 }
 
-/** 从 hunks 里取 diff 的前几行做预览，每行超长截断。hunks 为空时返回 null。 */
+/** Takes the first few diff lines from the hunks as a preview, truncating overlong lines. Returns null when hunks is empty. */
 private fun diffPreview(data: JsonObject): List<String>? {
     val hunks = data["hunks"]?.jsonArray ?: return null
     val all = buildList {

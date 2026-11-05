@@ -24,11 +24,11 @@ import kotlinx.coroutines.launch
 import javax.inject.Inject
 
 /**
- * 凭据页 UI 编排：凭据 CRUD + 提交署名(user.name/email) 配置。
+ * Credentials page UI orchestration: credential CRUD + commit identity (user.name/email) configuration.
  *
- * 提交署名读写走 `git config`（[GitRepository.setUserIdentity] / [getUserName] / [getUserEmail]）：
- * **优先项目级**（当前工作区 ~/workspace/.git/config），无则退全局（持久挂载 /root/.xencode/.gitconfig）。
- * UI 与终端敲 `git config user.name` 读到的是同一份署名——优先项目级、无则退全局，无两套源头竞争。
+ * Commit identity reads/writes go through `git config` ([GitRepository.setUserIdentity] / [getUserName] / [getUserEmail]):
+ * **project-level first** (the current workspace's ~/workspace/.git/config), falling back to global (the persistently mounted /root/.xencode/.gitconfig).
+ * The UI and a terminal `git config user.name` read the same identity — project-level first, global fallback, no two competing sources.
  */
 @HiltViewModel
 class CredentialViewModel @Inject constructor(
@@ -44,24 +44,24 @@ class CredentialViewModel @Inject constructor(
 
     data class UiState(
         val credentials: List<GitCredential> = emptyList(),
-        /** 容器 git config 当前 user.name，作编辑框初值。 */
+        /** The container's git config user.name, used as the edit field's initial value. */
         val userName: String = "",
-        /** 容器 git config 当前 user.email，作编辑框初值。 */
+        /** The container's git config user.email, used as the edit field's initial value. */
         val userEmail: String = "",
-        /** 容器 `git config --global` 实际 user.name，回显「git 实际值」（与 userName 同源）。 */
+        /** The container's actual `git config --global` user.name, echoed back as the "git actual value" (same source as userName). */
         val globalUserName: String = "",
-        /** 容器 git config 当前 remote.origin.url，作仓库地址编辑框初值。 */
+        /** The container's git config remote.origin.url, used as the repo URL edit field's initial value. */
         val repoUrl: String = "",
-        /** 远程模式下「自动注入凭证到远程服务器」开关状态（按服务器独立记忆）。 */
+        /** Remote mode's "auto-inject credentials into the remote server" toggle state (remembered per server). */
         val autoInjectEnabled: Boolean = false,
-        /** 远程模式下该服务器是否首次进入（未询问过），UI 据此弹确认框。 */
+        /** Remote mode: whether this server is entered for the first time (never asked); the UI shows a confirmation dialog accordingly. */
         val showAutoInjectPrompt: Boolean = false,
-        /** 当前是否远程模式（决定开关是否显示）。 */
+        /** Whether currently in remote mode (decides the toggle's visibility). */
         val isRemote: Boolean = false,
         val toast: String? = null
     )
 
-    // 非反应式来源的状态：git config 读出的署名、仓库地址、注入开关、toast。credentials 走文件仓储 Flow。
+    // State from non-reactive sources: identity and repo URL read from git config, the injection toggle, toast. credentials flow from the file repository's Flow.
     private val _extra = MutableStateFlow(Extra())
     private data class Extra(
         val userName: String = "",
@@ -93,7 +93,7 @@ class CredentialViewModel @Inject constructor(
         refreshAutoInjectState()
     }
 
-    /** 从容器 git config 读取当前署名与仓库地址刷新 UI（编辑框初值 + 实际值回显）。可重入，进凭据页时调一次兜住终端改动。 */
+    /** Reads the current identity and repo URL from the container's git config to refresh the UI (edit field initial values + actual-value echo). Reentrant; called once on entering the credentials page to catch terminal edits. */
     fun refreshIdentity() {
         viewModelScope.launch {
             runCatching {
@@ -105,7 +105,7 @@ class CredentialViewModel @Inject constructor(
                         repoUrl = gitRepository.getRepoUrl()
                     )
                 }
-            }.onFailure { FileLogger.w(TAG, "读取 git 全局署名失败: ${it.message}") }
+            }.onFailure { FileLogger.w(TAG, "Failed to read the git global identity: ${it.message}") }
         }
     }
 
@@ -113,10 +113,10 @@ class CredentialViewModel @Inject constructor(
         viewModelScope.launch {
             try {
                 credentialRepository.save(credential)
-                syncInjectionIfEnabled() // 凭据变更后重新同步到已开启注入的远程服务器
+                syncInjectionIfEnabled() // After a credential change, re-sync to remote servers with injection enabled
                 toast(context.getString(R.string.credential_toast_saved))
             } catch (e: Exception) {
-                FileLogger.e(TAG, "保存凭据失败", e)
+                FileLogger.e(TAG, "Failed to save credential", e)
                 toast(context.getString(R.string.credential_toast_save_failed, e.message))
             }
         }
@@ -125,20 +125,20 @@ class CredentialViewModel @Inject constructor(
     fun deleteCredential(id: String) {
         viewModelScope.launch {
             credentialRepository.delete(id)
-            syncInjectionIfEnabled() // 删凭据后从远程注入文件移除，否则远程仍能用旧凭据
+            syncInjectionIfEnabled() // After deleting a credential, remove it from the remote injection file, or the remote could keep using the old credential
             toast(context.getString(R.string.credential_toast_deleted))
         }
     }
 
-    // ---------- 远程自动注入开关 ----------
+    // ---------- Remote auto-inject toggle ----------
 
-    /** 当前远程服务器标识（host:port 哈希）；本地模式/未连接时为 null。 */
+    /** Current remote server identity (host:port hash); null in local mode / disconnected. */
     private fun currentServerKey(): String? {
         val cfg = remoteSshConnection.config ?: return null
         return injectSettings.serverKey(cfg.host, cfg.port)
     }
 
-    /** 按当前服务器刷新开关状态与「是否首次询问」。进入凭据页/连接变化时调用。 */
+    /** Refreshes the toggle state and "first-time ask" for the current server. Called on entering the credentials page and on connection changes. */
     fun refreshAutoInjectState() {
         val key = currentServerKey()
         _extra.update {
@@ -150,7 +150,7 @@ class CredentialViewModel @Inject constructor(
         }
     }
 
-    /** 用户切换开关：持久化 + 立即注入/撤销。 */
+    /** User toggled the switch: persist + immediately inject/revoke. */
     fun setAutoInject(enabled: Boolean) {
         viewModelScope.launch {
             val key = currentServerKey() ?: return@launch
@@ -160,7 +160,7 @@ class CredentialViewModel @Inject constructor(
         }
     }
 
-    /** 首次询问弹窗选择后调用：标记已询问 + 应用选择。 */
+    /** Called after the first-ask dialog choice: mark as asked + apply the choice. */
     fun dismissAutoInjectPrompt(enabled: Boolean) {
         viewModelScope.launch {
             val key = currentServerKey() ?: return@launch
@@ -171,7 +171,7 @@ class CredentialViewModel @Inject constructor(
         }
     }
 
-    /** 开启时上传远程注入配置（凭据 + includeIf 限定的 gitconfig），关闭时撤销。 */
+    /** When enabled, uploads the remote injection config (credentials + includeIf-scoped gitconfig); when disabled, revokes it. */
     private suspend fun applyInjection(key: String, enabled: Boolean) {
         if (!enabled) {
             remoteSshConnection.removeGitCredentialConfig()
@@ -184,13 +184,13 @@ class CredentialViewModel @Inject constructor(
         remoteSshConnection.uploadGitCredentialConfig(creds, workspaceRoot)
     }
 
-    /** 凭据增删后若当前服务器已开启注入，重新同步到远程。 */
+    /** After credential add/delete, re-sync to the remote if injection is enabled for the current server. */
     private suspend fun syncInjectionIfEnabled() {
         val key = currentServerKey() ?: return
         if (injectSettings.isAutoInjectEnabled(key)) applyInjection(key, true)
     }
 
-    /** 保存提交署名与仓库地址：跑 `git config` 写入对应 key 真源 + 刷新回显。UI 与命令行同一文件。 */
+    /** Saves the commit identity and repo URL: runs `git config` to write the source of truth for each key + refreshes the echo. The UI and the command line share one file. */
     fun saveUserIdentity(name: String, email: String, repoUrl: String) {
         viewModelScope.launch {
             try {
@@ -199,7 +199,7 @@ class CredentialViewModel @Inject constructor(
                 refreshIdentity()
                 toast(context.getString(R.string.credential_toast_identity_saved))
             } catch (e: Exception) {
-                FileLogger.e(TAG, "保存署名失败", e)
+                FileLogger.e(TAG, "Failed to save identity", e)
                 toast(context.getString(R.string.credential_toast_save_failed, e.message))
             }
         }

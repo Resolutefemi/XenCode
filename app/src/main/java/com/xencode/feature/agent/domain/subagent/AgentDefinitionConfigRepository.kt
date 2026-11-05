@@ -28,12 +28,12 @@ import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.putJsonArray
 
 /**
- * 子代理启停配置持久化，与技能的 `skills.json` 同一套约定，支持全局 + 项目级两级：
- * - 全局：当前执行环境的 `~/.xencode/agents.json`（跨项目保留）；
- * - 项目级：`workspacePath/.xencode/agents.json`（随工作区走，可 git 追踪）。
+ * Persists sub-agent enable/disable config under the same conventions as skills' `skills.json`, at two levels, global + project:
+ * - Global: the current execution environment's `~/.xencode/agents.json` (kept across projects);
+ * - Project: `workspacePath/.xencode/agents.json` (travels with the workspace, git-trackable).
  *
- * 格式 `{"disabled": ["name-a"]}`，只存禁用名单；生效禁用集合 = 全局 + 项目并集。
- * 每次读取都从磁盘加载，外部手工编辑即时生效；名单里已不存在的子代理名在过滤时天然被忽略。
+ * Format `{"disabled": ["name-a"]}`, storing only the disabled list; the effective disabled set = global + project union.
+ * Every read loads from disk, so manual external edits take effect immediately; sub-agent names in the list that no longer exist are naturally ignored during filtering.
  */
 @Singleton
 class AgentDefinitionConfigRepository @Inject constructor(
@@ -42,18 +42,18 @@ class AgentDefinitionConfigRepository @Inject constructor(
     private val fileChangeHub: FileChangeHub,
     private val fileAccess: FileAccessProvider
 ) {
-    /** 本地全局配置文件，仅用于宿主文件变更监听。 */
+    /** Local global config file, used only for host file-change watching. */
     private fun globalFile(): File = File(containerInstaller.xencodeDir, CONFIG_FILE)
 
     private fun projectFile(): File = File(projectXencodeRoot.current(), CONFIG_FILE)
 
-    // ── 外部变更监听：容器内/手工直接增删改子代理目录或 agents.json 后，数秒内通知 UI 刷新 ──
+    // ── External change watching: after sub-agent directories or agents.json are added/removed/modified directly in the container or by hand, the UI is notified to refresh within seconds ──
 
     private val watchScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
     /**
-     * 子代理目录或配置文件被外部修改时广播一次。订阅驱动：只在有订阅者（设置页）期间才由
-     * [FileChangeHub] 监听子代理目录与两个 agents.json，无人订阅时零开销。
+     * Broadcast once when sub-agent directories or config files are modified externally. Subscription-driven: only while there are subscribers (the settings page) does
+     * [FileChangeHub] watch the sub-agent directories and both agents.json files; zero overhead with no subscribers.
      */
     val changes: SharedFlow<Unit> = merge(
         fileChangeHub.watchXencode(AGENTS_DIR, recursive = true),
@@ -62,11 +62,11 @@ class AgentDefinitionConfigRepository @Inject constructor(
         fileChangeHub.watchWorkspace("${FileChangeHub.CONTAINER_ROOT}/$XENCODE_DIR")
     ).mapNotNull { batch ->
         if (!batch.changes.any(::isAgentChange)) return@mapNotNull null
-        FileLogger.i(TAG, "检测到子代理目录或配置变化，已通知刷新")
+        FileLogger.i(TAG, "Sub-agent directory or config change detected; refresh notified")
         Unit
     }.shareIn(watchScope, SharingStarted.WhileSubscribed(), replay = 0)
 
-    /** 子代理相关变更：两个 agents.json，或全局/项目子代理目录自身及其下的任何文件。 */
+    /** Sub-agent-related changes: the two agents.json files, or the global/project sub-agent directories themselves and anything under them. */
     private fun isAgentChange(change: FileChange): Boolean {
         val path = change.hostPath
         if (path == globalFile().absolutePath) return true
@@ -77,11 +77,11 @@ class AgentDefinitionConfigRepository @Inject constructor(
         return path == projectAgents || path.startsWith("$projectAgents/")
     }
 
-    /** 当前生效的禁用子代理名集合（全局 + 项目并集，归一化为小写）。 */
+    /** Currently effective disabled sub-agent names (global + project union, normalized to lowercase). */
     fun disabledNames(): Set<String> =
         (readGlobalDisabled() + readDisabled(projectFile())).map { it.lowercase() }.toSet()
 
-    /** 在指定作用域的配置中启用/禁用某个子代理。 */
+    /** Enables/disables a sub-agent in the config of the given scope. */
     fun setDisabled(name: String, disabled: Boolean, scope: AgentDefinitionScope) {
         val names = (if (scope == AgentDefinitionScope.GLOBAL) readGlobalDisabled() else readDisabled(projectFile()))
             .toMutableSet()
@@ -97,7 +97,7 @@ class AgentDefinitionConfigRepository @Inject constructor(
         if (fileAccess.isFile(GLOBAL_CONFIG_PATH)) parseDisabled(fileAccess.readFile(GLOBAL_CONFIG_PATH))
         else emptySet()
     }.getOrElse {
-        FileLogger.w(TAG, "读取 $CONFIG_FILE 失败: ${it.message}")
+        FileLogger.w(TAG, "Failed to read $CONFIG_FILE: ${it.message}")
         emptySet()
     }
 
@@ -112,7 +112,7 @@ class AgentDefinitionConfigRepository @Inject constructor(
 
         internal fun parseDisabled(raw: String): Set<String> {
             val root = runCatching { JSON.parseToJsonElement(raw).jsonObject }.getOrElse {
-                FileLogger.w(TAG, "子代理配置 JSON 解析失败: ${it.message}")
+                FileLogger.w(TAG, "Failed to parse sub-agent config JSON: ${it.message}")
                 return emptySet()
             }
             return (root["disabled"] as? JsonArray)
@@ -131,7 +131,7 @@ class AgentDefinitionConfigRepository @Inject constructor(
         private fun readDisabled(file: File): Set<String> {
             if (!file.isFile) return emptySet()
             return runCatching { parseDisabled(file.readText()) }.getOrElse {
-                FileLogger.w(TAG, "读取 ${file.name} 失败: ${it.message}")
+                FileLogger.w(TAG, "Failed to read ${file.name}: ${it.message}")
                 emptySet()
             }
         }
@@ -139,7 +139,7 @@ class AgentDefinitionConfigRepository @Inject constructor(
         private fun writeDisabled(file: File, names: Set<String>) {
             file.parentFile?.mkdirs()
             val json = serializeDisabled(names)
-            // 临时文件 + rename 原子落盘，避免写一半崩溃损坏配置
+            // Atomic persist via temp file + rename, so a mid-write crash cannot corrupt the config
             val tmp = File(file.parentFile, "${file.name}.tmp")
             tmp.writeText(json)
             if (!tmp.renameTo(file)) file.writeText(json)

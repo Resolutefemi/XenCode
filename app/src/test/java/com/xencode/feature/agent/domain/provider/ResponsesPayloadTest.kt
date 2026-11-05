@@ -18,9 +18,9 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 /**
- * Responses API 请求体构造（[buildResponsesTools] / [buildResponsesInput]）。
- * 覆盖点即两类曾导致 400 的写法：工具定义嵌套 `function`、工具往返仍用 Chat Completions 的
- * assistant.tool_calls + role:"tool" 消息。
+ * Responses API request body construction ([buildResponsesTools] / [buildResponsesInput]).
+ * The coverage points are the two shapes that once caused 400s: nesting tool definitions in `function`, and keeping the Chat Completions style
+ * assistant.tool_calls + role:"tool" messages for tool round-trips.
  */
 class ResponsesPayloadTest {
 
@@ -48,9 +48,9 @@ class ResponsesPayloadTest {
         assertEquals("readFile", json.get("name").asString)
         assertTrue(json.has("description"))
         assertTrue(json.has("parameters"))
-        // strict 在官方 schema 里不带 optional 标记，必须出现；工具 schema 不保证严格子集，固定 false
+        // In the official schema strict carries no optional marker and must appear; tool schemas are not guaranteed strict subsets, so it is pinned to false
         assertFalse(json.get("strict").asBoolean)
-        // 嵌套写法会被服务端以「tools[0]: missing field `name`」拒绝
+        // The nested shape is rejected by the server with "tools[0]: missing field `name`"
         assertFalse(json.has("function"))
     }
 
@@ -71,10 +71,10 @@ class ResponsesPayloadTest {
             systemPrompt = "you are helpful",
             systemRole = "system",
             messages = listOf(
-                AgentMessage.UserMessage(id = "u1", content = "读一下 a.txt"),
+                AgentMessage.UserMessage(id = "u1", content = "read a.txt"),
                 AgentMessage.AssistantMessage(
                     id = "a1",
-                    content = "好的",
+                    content = "ok",
                     toolCalls = listOf(call("call_1", "readFile", "a.txt"))
                 ),
                 AgentMessage.ToolResultMessage(id = "call_1", toolName = "readFile", result = "file body")
@@ -85,12 +85,12 @@ class ResponsesPayloadTest {
         assertEquals("system", items[0]["role"])
         assertEquals("you are helpful", items[0]["content"])
         assertEquals("user", items[1]["role"])
-        assertEquals("读一下 a.txt", items[1]["content"])
+        assertEquals("read a.txt", items[1]["content"])
 
         assertEquals("assistant", items[2]["role"])
         val assistantParts = parts(items[2]["content"])
         assertEquals(ResponsesPart.OUTPUT_TEXT, assistantParts[0]["type"])
-        assertEquals("好的", assistantParts[0]["text"])
+        assertEquals("ok", assistantParts[0]["text"])
 
         assertEquals(ResponsesItem.FUNCTION_CALL, items[3]["type"])
         assertEquals("call_1", items[3]["call_id"])
@@ -139,13 +139,13 @@ class ResponsesPayloadTest {
             messages = listOf(
                 AgentMessage.AssistantMessage(
                     id = "a1",
-                    content = "要执行两个工具",
+                    content = "about to run two tools",
                     toolCalls = listOf(call("c1", "readFile", "a.txt"), call("c2", "readFile", "b.txt"))
                 ),
                 AgentMessage.ToolResultMessage(id = "c1", toolName = "readFile", result = "body a")
             )
         )
-        // assistant 文本 + c1 的调用与结果；被用户拒绝执行的 c2 不出现，避免上游报缺少工具响应
+        // The assistant text + c1's call and result; c2, refused by the user, does not appear, avoiding an upstream missing-tool-response error
         assertEquals(3, items.size)
         assertEquals("c1", items[1]["call_id"])
         assertEquals("c1", items[2]["call_id"])
@@ -175,15 +175,15 @@ class ResponsesPayloadTest {
 
     @Test
     fun multiple_calls_in_one_turn_are_written_before_their_outputs() {
-        // 调用/结果交替会让服务端把第二个起的调用归到新的 assistant 轮（中间隔了
-        // function_call_output），DeepSeek 思考模式下那些轮没有 reasoning 会直接 400
+        // Alternating call/result makes the server group the second call onward into a new assistant turn (a
+        // function_call_output sits in between); under DeepSeek's thinking mode those turns without reasoning 400 outright
         val items = buildResponsesInput(
             systemPrompt = "",
             systemRole = "system",
             messages = listOf(
                 AgentMessage.AssistantMessage(
                     id = "a1",
-                    content = "并行读三个文件",
+                    content = "read three files in parallel",
                     toolCalls = listOf(
                         call("c1", "readFile", "a.txt"),
                         call("c2", "readFile", "b.txt"),
@@ -213,7 +213,7 @@ class ResponsesPayloadTest {
             messages = listOf(
                 AgentMessage.UserMessage(
                     id = "u1",
-                    content = "这是什么",
+                    content = "what is this",
                     images = listOf(AgentImage(mimeType = "image/png", base64Data = "AAAA"))
                 )
             )
@@ -234,7 +234,7 @@ class ResponsesPayloadTest {
                 AgentMessage.ToolResultMessage(
                     id = "c1",
                     toolName = "viewImage",
-                    result = "截图如下",
+                    result = "screenshot below",
                     images = listOf(AgentImage(mimeType = "image/jpeg", base64Data = "BBBB"))
                 )
             )
@@ -259,32 +259,32 @@ class ResponsesPayloadTest {
             messages = listOf(
                 AgentMessage.AssistantMessage(
                     id = "a1",
-                    content = "先读文件",
-                    reasoning = "得先看看文件内容",
+                    content = "read the file first",
+                    reasoning = "need to look at the file contents first",
                     toolCalls = listOf(call("c1", "readFile", "a.txt"))
                 ),
                 AgentMessage.ToolResultMessage(id = "c1", toolName = "readFile", result = "body")
             ),
             includeReasoningItems = true
         )
-        // 思考 item 必须紧贴在所属 assistant 内容之前，服务端才能归并到同一轮
+        // The reasoning item must sit immediately before its assistant content so the server can merge them into the same turn
         assertEquals(4, items.size)
         assertEquals(ResponsesItem.REASONING, items[0]["type"])
         val reasoningParts = parts(items[0]["content"])
         assertEquals(ResponsesPart.REASONING_TEXT, reasoningParts[0]["type"])
-        assertEquals("得先看看文件内容", reasoningParts[0]["text"])
+        assertEquals("need to look at the file contents first", reasoningParts[0]["text"])
         assertEquals("assistant", items[1]["role"])
         assertEquals(ResponsesItem.FUNCTION_CALL, items[2]["type"])
     }
 
     @Test
     fun reasoning_is_not_sent_back_by_default() {
-        // 官方路径：reasoning item 需 id / summary / encrypted_content，只有明文反而会被拒，因此不发
+        // Official path: a reasoning item needs id / summary / encrypted_content; plaintext alone gets rejected, so it is not sent
         val items = buildResponsesInput(
             systemPrompt = "",
             systemRole = "system",
             messages = listOf(
-                AgentMessage.AssistantMessage(id = "a1", content = "好的", reasoning = "先想一下")
+                AgentMessage.AssistantMessage(id = "a1", content = "ok", reasoning = "think first")
             )
         )
         assertEquals(1, items.size)
@@ -293,11 +293,11 @@ class ResponsesPayloadTest {
 
     @Test
     fun empty_reasoning_gets_placeholder_item_when_included() {
-        // DeepSeek 思考模式：请求带 tools 时每轮 assistant 都要有 reasoning，未存思考则发空文本
+        // DeepSeek thinking mode: with tools in the request every assistant turn needs reasoning; when no thinking was stored, empty text is sent
         val items = buildResponsesInput(
             systemPrompt = "",
             systemRole = "system",
-            messages = listOf(AgentMessage.AssistantMessage(id = "a1", content = "好的")),
+            messages = listOf(AgentMessage.AssistantMessage(id = "a1", content = "ok")),
             includeReasoningItems = true
         )
         assertEquals(2, items.size)
@@ -307,8 +307,8 @@ class ResponsesPayloadTest {
 
     @Test
     fun assistant_with_nothing_to_send_gets_no_reasoning_item() {
-        // 无正文、且唯一调用因缺结果被裁掉（用户拒绝执行）：整轮不写 item，
-        // 否则 reasoning 会成为无相邻 assistant 消息可归并的孤立 item
+        // No body, and the only call pruned for a missing result (user refused to run): the whole turn writes no item,
+        // otherwise the reasoning would become an orphan item with no adjacent assistant message to merge into
         val items = buildResponsesInput(
             systemPrompt = "",
             systemRole = "system",
@@ -316,7 +316,7 @@ class ResponsesPayloadTest {
                 AgentMessage.AssistantMessage(
                     id = "a1",
                     content = "",
-                    reasoning = "打算调个工具",
+                    reasoning = "planning to call a tool",
                     toolCalls = listOf(call("c1", "readFile", "a.txt"))
                 )
             ),
@@ -327,15 +327,15 @@ class ResponsesPayloadTest {
 
     @Test
     fun encrypted_reasoning_snapshot_is_sent_back_when_valid() {
-        // OpenAI 官方/通用 Responses 规范：当存有包含有效 encrypted_content 的快照时，回传合法 reasoning item
-        val snapshot = """{"type":"reasoning","encrypted_content":"gAAAAABtest","summary":[{"type":"summary_text","text":"已完成分析"}]}"""
+        // OpenAI official / general Responses spec: when a snapshot with valid encrypted_content is stored, send back a legal reasoning item
+        val snapshot = """{"type":"reasoning","encrypted_content":"gAAAAABtest","summary":[{"type":"summary_text","text":"analysis finished"}]}"""
         val items = buildResponsesInput(
             systemPrompt = "",
             systemRole = "system",
             messages = listOf(
                 AgentMessage.AssistantMessage(
                     id = "a1",
-                    content = "最终回复",
+                    content = "final reply",
                     thinkingBlocksJson = snapshot
                 )
             )
@@ -346,13 +346,13 @@ class ResponsesPayloadTest {
         @Suppress("UNCHECKED_CAST")
         val summary = items[0]["summary"] as List<Map<String, Any>>
         assertEquals(1, summary.size)
-        assertEquals("已完成分析", summary[0]["text"])
+        assertEquals("analysis finished", summary[0]["text"])
         assertEquals("assistant", items[1]["role"])
     }
 
     @Test
     fun reasoning_snapshot_without_encrypted_content_is_safely_ignored() {
-        // 若快照缺少 encrypted_content，防御性过滤掉，绝不回传残缺项（防止 400）
+        // If the snapshot lacks encrypted_content, it is defensively filtered out; never send back an incomplete item (prevents a 400)
         val invalidSnapshot = """{"type":"reasoning","encrypted_content":"","summary":[]}"""
         val items = buildResponsesInput(
             systemPrompt = "",
@@ -360,7 +360,7 @@ class ResponsesPayloadTest {
             messages = listOf(
                 AgentMessage.AssistantMessage(
                     id = "a1",
-                    content = "最终回复",
+                    content = "final reply",
                     thinkingBlocksJson = invalidSnapshot
                 )
             )

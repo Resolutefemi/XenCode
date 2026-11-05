@@ -1,45 +1,45 @@
-# 文件浏览与代码编辑
+# File Browsing & Code Editing
 
-::: tip 版本说明
-文件树与代码编辑页从 1.11.0 起提供。
+::: tip Version note
+The file tree and code editing page are available since 1.11.0.
 :::
 
-侧边栏顶部的「文件」标签页用来浏览当前工作区，点文件默认打开全屏的代码编辑页（图片与安装包除外，见下文「图片与安装包」）。本地工作区和远程 SSH 工作区都支持，读写方式按当前模式自动决定。
+The "Files" tab at the top of the sidebar browses the current workspace; tapping a file opens the full-screen code editing page by default (images and installer packages excepted—see "Images and installers" below). Both local and remote SSH workspaces are supported, with reads and writes handled automatically according to the current mode.
 
-## 浏览文件
+## Browsing Files
 
-「文件」页是一棵从工作区根就地展开的缩进文件树。
+The "Files" page is an indented file tree expanded in place from the workspace root.
 
-- 第一行是工作区根 `workspace`，它自身也可折叠展开（默认展开），右侧有一个刷新按钮。
-- 点目录在原地展开或折叠，点文件直接打开编辑页（图片、安装包见下文「图片与安装包」）——无需逐级进入与返回。
-- 目录排在文件前面，同类按名称排序。
-- 文件按类型显示不同图标（代码、脚本、配置、文档、图片、音视频、压缩包等），采用与 App 全局一致的单色线性图标并跟随主题色着色。
-- 着色规则类似 VS Code：`.` 开头的隐藏文件显示为浅色弱化，被工作区根 `.gitignore` 命中的条目显示为橙色（只看根目录的 `.gitignore`，不解析子目录里的）。
-- 路径很深或文件名很长时不受影响：整棵树共享一个横向滚动，名称不会截断成省略号，左右滑动即可看全。
-- 你展开或折叠过的目录会**按工作区记住**，关掉 App 再打开、或者切走再切回同一个工作区，都会恢复上次的展开状态。
-- 浏览范围限定在工作区内，不能退到工作区外面。
+- The first row is the workspace root `workspace`; it can be collapsed and expanded too (expanded by default), with a refresh button on the right.
+- Tap a directory to expand or collapse it in place; tap a file to open the editing page directly (images and installers: see "Images and installers" below)—no drilling in and out level by level.
+- Directories come before files; within a group, entries sort by name.
+- Files show different icons by type (code, scripts, configuration, documents, images, audio/video, archives, etc.), using the same monochrome linear icons as the rest of the app, tinted with the theme color.
+- The coloring rules are similar to VS Code: hidden files starting with `.` are shown dimmed, and entries matched by the workspace root's `.gitignore` are orange (only the root `.gitignore` is consulted; ones in subdirectories are not parsed).
+- Deep paths and long file names are no problem: the whole tree shares one horizontal scroll and names are never truncated into ellipses—swipe left and right to see everything.
+- Directories you expand or collapse are **remembered per workspace**: closing and reopening the app, or switching away and back to the same workspace, restores the previous expansion state.
+- Browsing is confined to the workspace; you can't go above the workspace root.
 
-## 图片与安装包
+## Images and Installers
 
-文件树里的**图片**（png / jpg / jpeg / gif / webp / bmp）点击后进入应用内的全屏查看器，可以捏合缩放、双击放大，与聊天区看图一致；**APK / APKS / XAPK** 点击后直接调起系统安装器（首次会引导你开启「允许安装未知应用」）。这两类都不会进入代码编辑器，其余文件仍照常打开编辑页。
+**Images** in the file tree (png / jpg / jpeg / gif / webp / bmp) open the in-app fullscreen viewer, with pinch-to-zoom and double-tap zoom, same as viewing images in the chat area; **APK / APKS / XAPK** files invoke the system installer directly (the first time, it walks you through enabling "Allow installing unknown apps"). Neither type enters the code editor; every other file still opens the editing page as usual.
 
-## 从对话中打开文件
+## Opening Files from the Conversation
 
-AI 在对话中引用代码时会把路径写成可点击的链接（带下划线的 `文件路径:行号`）。点击这类链接会直接打开编辑页，带行号的还会自动滚动到那一行，并使其**尽量停在屏幕中间**（目标行靠近文件开头或末尾时受滚动范围所限会贴边）。打开后你一滑动，自动定位就交还给你，不会再把画面拽回目标行。
+When the AI references code in the conversation, the path is written as a clickable link (an underlined `file path:line number`). Tapping such a link opens the editing page directly; with a line number it also scrolls to that line and tries to **keep it near the middle of the screen** (the target line ends up flush with the edge when it's close to the beginning or end of the file, limited by the scroll range). Once you scroll, auto-positioning hands control back to you and never drags the view back to the target line.
 
-支持工作区内的文件、AI 配置目录（`~/.xencode/...`）以及容器系统文件（`/etc/...`、`/root/...`），远程 SSH 工作区下同样可以打开。指向普通网址的链接不受影响，仍然用系统浏览器打开。
+Files inside the workspace, the AI configuration directory (`~/.xencode/...`), and container system files (`/etc/...`, `/root/...`) are supported, and they can be opened under remote SSH workspaces as well. Links pointing to ordinary URLs are unaffected and still open in the system browser.
 
-点到不存在的路径、目录，或超过大小上限的文件时，编辑页会给出对应的失败提示。
+Tapping a nonexistent path, a directory, or a file over the size limit shows the corresponding failure message in the editor.
 
-## 列表刷新
+## List Refresh
 
-本地工作区下文件变动会**自动刷新**，不限于 AI 改的——你在终端里执行命令、或用其他 App 改动同样会被感知。
+In local workspaces, file changes **refresh automatically**—not just the AI's: changes made by running commands in the terminal or by other apps are picked up as well.
 
-它监听的是工作区根和当前所有**已展开**的目录，不递归整棵树，因此大仓库下也不会占用大量系统资源；折叠某个目录后就不再监听它。
+It watches the workspace root and all currently **expanded** directories—no recursive walk of the whole tree—so even large repositories don't consume much in the way of system resources; once a directory is collapsed, it is no longer watched.
 
-另外两个刷新时机：侧边栏每次出现都会重读一次（宽屏常驻侧栏下，每次从其它页面回到聊天页也算）；工作区根那行右侧的刷新按钮可随时手动重读。
+Two other refresh moments: the sidebar re-reads every time it appears (with a persistent sidebar on wide screens, every return to the chat page from another page counts), and the refresh button to the right of the workspace root row re-reads manually at any time.
 
-远程 SSH 工作区无法监听远程文件系统的变动，**只能**依靠这两个时机刷新，发现列表和实际不符时点击刷新按钮。远程模式下读目录要走网络，可能有短暂的加载状态，失败时会在列表位置显示具体原因。
+Remote SSH workspaces cannot watch the remote filesystem for changes and **can only** refresh at these two moments—tap the refresh button if the list looks out of sync. In remote mode, reading a directory goes over the network and may briefly show a loading state; on failure, the specific reason is shown in place of the list.
 
 ## Create, import, rename, delete
 
@@ -60,75 +60,75 @@ The same menu also imports from the device:
 - **Rename**: rename in the same folder only; this does not move across folders.
 - **Delete**: files are deleted immediately; folders are deleted recursively after a confirmation prompt.
 
-::: danger 删除不可撤销
-删除不进回收站，也不受检查点保护。确认前请考虑清楚，尤其是删除文件夹。
+::: danger Deletion is irreversible
+Deletion bypasses the recycle bin and is not protected by checkpoints. Think it through before confirming, especially when deleting folders.
 :::
 
-## 复制、剪切与粘贴
+## Copy, Cut, and Paste
 
-长按文件或子目录选择「复制」或「剪切」，再长按目标目录选择「粘贴到此处」。目标已存在同名条目时，会先询问是否覆盖；覆盖会替换原有条目及其内容，不可撤销。
+Long-press a file or subfolder and choose "Copy" or "Cut", then long-press the destination folder and choose "Paste here". If an entry with the same name already exists at the destination, you are asked whether to overwrite; overwriting replaces the existing entry and its contents and cannot be undone.
 
-不能在原目录用粘贴覆盖源条目，也不能把文件夹复制或移动到自身及其子目录。此类操作会被拒绝，源文件保持不变。
+You can't paste over the source entry in its original directory, nor copy or move a folder into itself or its subfolders. Such operations are rejected and the source files stay unchanged.
 
-## 代码编辑页
+## Code Editor Page
 
-点文件后侧边栏收起，进入全屏编辑页。
+After you tap a file, the sidebar collapses and the full-screen editing page opens.
 
-顶部左上是**汉堡按钮**，点开左侧的「Project Files tree」标准导航抽屉（内容被推向右侧，不是盖在上面），里面是和侧边栏同一份的完整文件树；点树里的文件抽屉平滑收回，并打开或切换到该文件。抽屉打开时汉堡按钮会带旋转渐变动效变成**关闭按钮**，再点一下即可收回抽屉；抽屉**只通过这个按钮开合，不支持从屏幕边缘侧滑拉出**，避免与编辑手势冲突。原「返回」由系统返回键承担：按返回键会先收起抽屉，再退出编辑页——从侧边栏文件树进入时，退出后抽屉会自动重新拉开。
+At the top left is the **hamburger button**, which opens the "Project Files tree" standard navigation drawer on the left (content is pushed to the right, not covered over) containing the same complete file tree as the sidebar; tapping a file in the tree smoothly closes the drawer and opens or switches to that file. While the drawer is open, the hamburger button animates with a rotation into a **close button**—tap it again to close the drawer. The drawer **opens and closes only through this button; swiping in from the screen edge is not supported**, to avoid conflicting with editing gestures. The old "Back" is handled by the system back key: pressing back first closes the drawer, then exits the editing page—when you entered from the sidebar file tree, the drawer automatically reopens after exiting.
 
-抽屉下面没有标签栏：在树里点文件会**直接把当前编辑内容换成那个文件**，再次选择之前打开过的文件同样直接打开（本次会话里未保存的草稿还在，切回去不丢）。未保存的草稿只保留在内存里：退出编辑页不丢，但进程结束就会丢弃。
+There is no tab bar under the drawer: tapping a file in the tree **directly replaces the current editing content** with that file, and picking a previously opened file again opens it just as directly (unsaved drafts from this session are kept—nothing is lost when you switch back). Unsaved drafts live in memory only: they survive leaving the editing page, but are discarded when the process ends.
 
-- **撤销按输入停顿分步**：连续快速输入算一步，停顿约半秒后再输入即算新的一步。一路撤销回打开时的样子后，文件名前的星号消失、保存按钮置灰，此时退出也不会再提示是否保存。
-- **按返回键退出时，若有未保存改动会先弹确认框**，可以选「不保存」或「保存并退出」。有大屏右栏时同样支持汉堡抽屉。
-- 打开 Markdown 文件时，撤销按钮左边会多一个**预览切换**按钮，点击切到渲染效果，再点切回源码。预览和源码共用同一编辑状态，切换不会丢失未保存的修改。
-- 预览是完整的 Markdown 渲染：**文档里内嵌的 HTML（居中标题、图片、表格排版、徽章等）会照常显示**，代码块带语法高亮，配色跟随应用深浅主题。文档里的相对路径图片（如 `docs/a.png`）会从当前工作区读取，远程工作区也能显示；网络图片（徽章、在线图表等）需要联网才能加载。预览页内点击链接不会跳转，避免离开当前文档。
-- 预览不含 LaTeX 公式渲染，含公式的文档切回源码查看。
-- **底部快捷符号栏**可横向滚动，最左是光标左右移动和缩进（Tab），后面是编程常用符号（括号、引号、运算符、`;` `:` `|` `&` 等），点击即在光标处插入。软键盘弹出时符号栏会浮在键盘上方。
-- 有未保存改动时，按系统返回键会先弹确认框，可以选「不保存」或「保存并退出」。
-- **滚到文件末尾还能再上滑半屏**：最后几行不会紧贴屏幕底边，方便在文件结尾处编辑。
+- **Undo steps follow input pauses**: rapid consecutive typing counts as one step; typing again after a pause of about half a second starts a new step. Once you have undone all the way back to how the file looked when opened, the asterisk before the file name disappears and the save button grays out; exiting then no longer prompts about saving.
+- **Pressing the back key to exit with unsaved changes first shows a confirmation dialog**, where you can choose "Discard" or "Save and exit". The hamburger drawer is also supported when there is a large-screen right pane.
+- When a Markdown file is open, an extra **preview toggle** button appears to the left of the undo button; tap it to switch to the rendered view, tap again to switch back to the source. Preview and source share the same editing state—switching never loses unsaved edits.
+- The preview is full Markdown rendering: **HTML embedded in the document (centered headings, images, table layouts, badges, etc.) displays as usual**, code blocks are syntax highlighted, and the color scheme follows the app's light/dark theme. Relative-path images in the document (e.g. `docs/a.png`) are read from the current workspace, so they display in remote workspaces too; web images (badges, online charts, etc.) need a network connection to load. Tapping links inside the preview doesn't navigate, to avoid leaving the current document.
+- The preview has no LaTeX formula rendering; switch back to the source view for documents containing formulas.
+- The **bottom quick-symbol bar** scrolls horizontally: leftmost are cursor left/right movement and indent (Tab), followed by symbols commonly used in programming (brackets, quotes, operators, `;` `:` `|` `&`, etc.); tapping inserts at the cursor. When the soft keyboard is up, the symbol bar floats above it.
+- With unsaved changes, pressing the system back key first shows a confirmation dialog where you can choose "Discard" or "Save and exit".
+- **You can scroll past the end of the file by another half screen**: the last few lines don't stick to the bottom edge, making it easier to edit at the end of the file.
 
-### 语法高亮
+### Syntax Highlighting
 
-内置了这些语言：Kotlin、Java、Python、JavaScript/JSX、TypeScript/TSX、JSON/JSONC、YAML、Shell、Go、Rust、C/C++、CSS、XML、HTML、Markdown、PHP、Lua。`.kts` 按 Kotlin 高亮。未识别的类型按纯文本显示，不影响编辑。
+These languages are built in: Kotlin, Java, Python, JavaScript/JSX, TypeScript/TSX, JSON/JSONC, YAML, Shell, Go, Rust, C/C++, CSS, XML, HTML, Markdown, PHP, Lua. `.kts` is highlighted as Kotlin. Unrecognized types display as plain text; editing is unaffected.
 
-配色用的是 VS Code 默认主题（深色 Dark+ / 浅色 Light+），随应用主题自动切换，编辑过程中切主题不会丢失未保存的内容。
+The color scheme uses the VS Code default themes (Dark+ for dark / Light+ for light), switching automatically with the app theme; changing the theme while editing never loses unsaved content.
 
-### 编辑器设置
+### Editor Settings
 
-点右上角设置按钮进入独立的设置页，改动即时生效并记住，下次打开沿用：
+Tap the settings button in the top-right corner to open the standalone settings page; changes take effect immediately and are remembered for the next time you open it:
 
-- **字体大小**：滑块调节。
-- **自动换行**：开启后长行折行显示，不再横向滚动。
-- **显示缩进参考线**：默认开启。
-- **显示自动换行箭头**：自动换行开启时在折行处画指示箭头，默认关闭。
-- **显示空白符号**：把空格、Tab、换行可视化，默认关闭。
+- **Font size**: adjust with the slider.
+- **Word wrap**: when on, long lines wrap instead of scrolling horizontally.
+- **Show indent guides**: on by default.
+- **Show word-wrap arrows**: draws indicator arrows at wrap points when word wrap is on; off by default.
+- **Show whitespace**: visualizes spaces, tabs, and line breaks; off by default.
 
-### 保存与并发
+### Saving and Concurrency
 
-保存是**整份覆盖写回**，成功后提示「已保存」。
+Saving is a **whole-file overwrite write-back**; a "Saved" notice appears on success.
 
-::: warning 不做外部并发检测
-AI 工具或终端可能同时在改同一个文件，而保存会直接用编辑器里的内容覆盖，不会提示文件已被外部改动。如果你和 AI 可能同时动同一个文件，先让一方改完再动手，避免互相覆盖。
+::: warning No external change detection
+AI tools or the terminal may be modifying the same file at the same time, and saving directly overwrites it with the editor's contents without warning that the file was changed externally. If you and the AI might touch the same file, let one side finish before the other starts, to avoid clobbering each other's work.
 :::
 
-### 限制
+### Limitations
 
-- **文件大小上限 2 MB**。超过上限的文件不打开——内容需要整份读进内存，再大会明显卡顿甚至崩溃。
-- **不支持二进制文件**。打开时会嗅探文件开头，识别为二进制（图片、可执行文件、压缩包等）会直接提示，不会把乱码当文本载入。
+- **File size limit is 2 MB**. Files over the limit don't open—the content has to be read into memory whole, and anything bigger would visibly stutter or even crash.
+- **Binary files are not supported**. The beginning of the file is sniffed on open; anything identified as binary (images, executables, archives, etc.) is rejected with a message rather than loading gibberish as text.
 
-## 工作区文件在手机上的位置
+## Where Workspace Files Are Stored on the Phone
 
-「文件」页浏览的是工作区内容，而工作区文件、AI 配置都存放在应用私有目录里，普通文件管理器默认看不到。想用外部工具打开或备份时，有几种办法：
+The "Files" page browses workspace content, but workspace files and the AI configuration all live in the app's private directory, which ordinary file managers can't see by default. When you want to open or back them up with external tools, there are a few options:
 
-**文件管理器挂载（推荐）**：App 实现了标准的 DocumentsProvider，可使用手机自带的「文件」管理器或第三方文件管理器（MT 管理器、Solid Explorer 等）找到并挂载 App 的私有根目录。挂载后能看到：
+**Mount with a file manager (recommended)**: the app implements a standard DocumentsProvider, so you can use the phone's built-in "Files" manager or a third-party one (MT Manager, Solid Explorer, etc.) to find and mount the app's private root. Once mounted, you can see:
 
-- `projects/`：工作区项目。通过「添加本地目录」加进来的外部工作区不在这里，它们在你自行选择的设备目录下。
-- `xencode/`：对应容器内的 `~/.xencode`，里面有 `skills/`（技能）、`docs/`（文档）、`mcp.json`（MCP 配置）等。
+- `projects/`: workspace projects. External workspaces added via "Add local directory" are not here—they live in the device directory you chose yourself.
+- `xencode/`: corresponds to `~/.xencode` inside the container, containing `skills/` (skills), `docs/` (documents), `mcp.json` (MCP configuration), and more.
 
-以 MT 管理器为例的挂载步骤：打开 MT 管理器 → 点左上角菜单（三横线）→ 侧边栏右上角的三个点 → 「添加本地存储」→ 系统文件选择器打开后点左上角三个点、选「XenCode」→ 点底部「使用此文件夹」。
+Mounting steps using MT Manager: open MT Manager → tap the menu in the top-left corner (three horizontal lines) → the three dots at the top right of the sidebar → "Add local storage" → when the system file picker opens, tap the three dots at the top left and choose "XenCode" → tap "Use this folder" at the bottom.
 
-**内置终端**：切到终端页，`cd ~/.xencode` 直接查看，用 `vi` 或 `cat` 查看编辑。
+**Built-in terminal**: switch to the terminal page, `cd ~/.xencode` to look around, and use `vi` or `cat` to view and edit.
 
-**交由 AI 处理**：AI 运行在容器里，你可以说“把 `~/.xencode/mcp.json` 打印出来查看”或“在 `~/.xencode/skills/` 下写一个新技能”。
+**Let the AI handle it**: the AI runs in the container; you can say "print `~/.xencode/mcp.json` so I can see it" or "write a new skill under `~/.xencode/skills/`".
 
-**Root 设备**：直接进 `/data/data/com.xencode/files/`（部分系统等价路径是 `/data/user/0/com.xencode/files/`）。其中 `projects/` 是工作区根，`xencode/` 对应 `~/.xencode`，`rootfs/` 是容器系统。注意 debug 构建的包名是 `com.xencode.debug`，两者私有目录完全隔离。
+**Rooted devices**: go straight to `/data/data/com.xencode/files/` (on some systems the equivalent path is `/data/user/0/com.xencode/files/`). There, `projects/` is the workspace root, `xencode/` corresponds to `~/.xencode`, and `rootfs/` is the container system. Note that debug builds use the package name `com.xencode.debug`; the two private directories are fully isolated.

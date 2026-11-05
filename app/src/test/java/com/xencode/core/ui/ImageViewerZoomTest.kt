@@ -8,7 +8,7 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 /**
- * 图片查看器的缩放数学。都是纯函数，不碰 android.*，无需 Robolectric。
+ * Zoom math for the image viewer. All pure functions, no android.* touched, no Robolectric needed.
  */
 class ImageViewerZoomTest {
 
@@ -36,9 +36,9 @@ class ImageViewerZoomTest {
 
     @Test
     fun maxPan_notZoomed_isZero() {
-        // 未放大时图钉死在正中，一点位移都不给，否则松手会漂
+        // When not zoomed the image is pinned dead center with zero pan allowance, otherwise it would drift on release
         assertEquals(0f, maxPan(contentPx = 1000f, containerPx = 1000f, scale = 1f), eps)
-        // 短边方向本来就没铺满容器，同样不给位移
+        // The short side never fills the container anyway, so no pan there either
         assertEquals(0f, maxPan(contentPx = 500f, containerPx = 1000f, scale = 1f), eps)
     }
 
@@ -68,8 +68,8 @@ class ImageViewerZoomTest {
             container = IntSize(1000, 1000),
             scale = 1f
         )
-        // 逐轴比较而不是直接和 Offset.Zero 比：夹到零边界时负向那一轴会得到 -0.0f，
-        // 而 Offset 是打包两个 float 的 value class，-0.0f 与 0.0f 的位模式不同、equals 不成立。
+        // Compare axis by axis instead of against Offset.Zero: when clamped to the zero boundary the negative axis gets -0.0f,
+        // and since Offset is a value class packing two floats, -0.0f and 0.0f have different bit patterns so equals fails.
         assertEquals(0f, clamped.x, eps)
         assertEquals(0f, clamped.y, eps)
     }
@@ -112,7 +112,7 @@ class ImageViewerZoomTest {
 
         val moved = zoomAround(centroid, center, oldScale, newScale, oldOffset, Offset.Zero)
 
-        // 手势前落在 centroid 处的内容点，手势后应当还在原处
+        // The content point under the centroid before the gesture should still be there after it
         val v = centroid - center
         val point = (v - oldOffset) / oldScale
         val after = point * newScale + moved
@@ -129,7 +129,7 @@ class ImageViewerZoomTest {
 
     @Test
     fun inSampleSize_longScreenshot_isDownsampled() {
-        // 回归用例：判定条件写成 && 时约束的是短边，4000×300 会整个逃过采样、按全尺寸解码
+        // Regression case: with && the check constrains the short edge, so 4000x300 would entirely escape sampling and decode at full size
         assertTrue(calculateInSampleSize(4000, 300, 1024) >= 2)
     }
 
@@ -153,7 +153,7 @@ class ImageViewerZoomTest {
 
     @Test
     fun inSampleSize_maxPixelsCap_applies() {
-        // 最大边没超限，但总像素 24MP，靠像素兜底那一层挡住
+        // Max edge is within the limit, but total pixels are 24MP, so the pixel-cap fallback layer catches it
         val sample = calculateInSampleSize(6000, 4000, maxEdge = 8192, maxPixels = 4_000_000L)
         assertTrue(sample > 1)
         assertTrue((6000L / sample) * (4000L / sample) <= 4_000_000L)

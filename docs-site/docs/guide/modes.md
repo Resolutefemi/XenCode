@@ -1,45 +1,45 @@
-# 三种模式：Build / Plan / Auto
+# Three Modes: Build / Plan / Auto
 
-输入框左侧的模式按钮点击循环切换：BUILD → PLAN → AUTO → BUILD。三种模式的区别是 AI 的**权限范围**。
+Tapping the mode button to the left of the input box cycles through them: BUILD → PLAN → AUTO → BUILD. What differs across the three modes is the AI's **permission scope**.
 
-## BUILD（构建模式）
+## BUILD (build mode)
 
-默认模式，功能完整。AI 可以写文件、改代码、执行构建命令，但每次需要授权的操作都会弹窗询问。
+The default mode, with full capabilities. The AI can write files, edit code and run build commands, but every operation needing authorization pops a dialog to ask you.
 
-日常开发建议使用此模式。被内置安全防护拦下的高危命令（如 `rm` 根目录），AI 可带 `elevate: true` 重试，转由你一次性授权（见[工具授权](/guide/permissions)）。
+Use this mode for everyday development. For high-risk commands blocked by the built-in guard (such as `rm` on the root directory), the AI can retry with `elevate: true`, turning it into a one-time authorization from you (see [Tool authorization](/guide/permissions)).
 
-## PLAN（计划模式）
+## PLAN (plan mode)
 
-进入这个模式后，AI 的写操作权限会被底层直接拦截禁用（工具层拦截，而非仅靠提示词约束）。AI 只能读取代码、检索文件并构思方案，无法修改任何文件或执行写操作命令。
+In this mode the AI's write permissions are disabled by an interception at a lower layer (blocked at the tool layer, not merely by prompt instruction). The AI can only read code, search files and devise plans — it cannot modify any file or run commands that write.
 
-适合这些场景：
+Good fits:
 
-- 你还不确定怎么改，想先让 AI 探索代码库、给出方案。
-- 改动涉及多个文件或架构决策，想先看计划再决定。
-- 你只想问问题、了解现有实现，不希望它动手。
+- You are not yet sure how to change things and want the AI to explore the code base and propose a plan first.
+- The change spans multiple files or an architectural decision, and you want to see the plan before committing.
+- You only want to ask questions and understand the existing implementation, without it touching anything.
 
-方案讨论清楚后切回 BUILD 再动手。
+Once the plan is settled, switch back to BUILD to execute.
 
-## AUTO（自动模式）
+## AUTO (auto mode)
 
-权限全放行。所有工具调用（写文件、执行命令、终端操作）自动批准，不弹任何授权窗。
+All permissions are granted. Every tool call (writing files, running commands, terminal operations) is auto-approved — no authorization dialogs at all.
 
-::: danger 这个模式权限极大
-只有灾难性删除（如 `rm` 根目录或系统目录）以及无法静态判定的疑似破坏性命令仍会被拦截，其余一律放行（可在「设置 → 工具授权」中开启「禁用安全拦截」取消这层兜底；AI 也可带 `elevate: true` 重试，届时会弹窗请你一次性授权）。适合你已清楚了解风险、希望 AI 全自动执行批量任务的场景。不熟悉的项目或不确定 AI 会执行什么操作时，不建议使用。
+::: danger This mode grants huge permissions
+Only catastrophic deletions (such as `rm` on the root or system directories) and destructive-looking commands that cannot be statically judged are still blocked — everything else goes through (you can remove this last-resort layer by enabling "Disable safety interception" under "Settings → Tool authorization"; the AI can also retry with `elevate: true`, which then pops a one-time authorization dialog). Use it when you clearly understand the risks and want the AI to run batch tasks fully unattended. Not recommended for unfamiliar projects or when you are unsure what the AI will execute.
 :::
 
-## AI 也可主动请求切换
+## The AI can also request a switch
 
-除了你手动点按钮，AI 也可以主动请求进入或退出 PLAN 模式，你在界面上一键批准即可。例如它在 PLAN 模式下完成方案后，会申请退出 PLAN 开始实施——退出后自动回到进入 PLAN 之前的模式。
+Besides tapping the button yourself, the AI can also request to enter or leave PLAN mode, and you approve with one tap in the UI. For example, after finishing a plan in PLAN mode it will ask to exit PLAN and start implementing — after exit it automatically returns to the mode it was in before entering PLAN.
 
-有一个方向上的限制：**AUTO 模式只能由你手动进入**，AI 无法通过工具切进 AUTO。但反过来，处于 AUTO 模式时 AI 可以主动切到 PLAN——这是 AI 退出 AUTO 的唯一路径。
+There is a one-way restriction: **AUTO mode can only be entered by you manually** — the AI cannot switch itself into AUTO. In the other direction, while in AUTO the AI may switch itself to PLAN — the only path by which the AI can leave AUTO.
 
-## 退出 PLAN 会回到进入前的模式
+## Exiting PLAN returns to the previous mode
 
-PLAN 是临时状态：进入 PLAN 时会记下当时的模式，退出时自动恢复。从 AUTO 进入 PLAN，计划做完退出后回到 AUTO；从 BUILD 进入 PLAN，退出后回到 BUILD。不会再一律落回 BUILD。
+PLAN is a temporary state: the mode at entry is remembered and automatically restored on exit. Entered from AUTO, after finishing the plan it returns to AUTO; entered from BUILD, it returns to BUILD. It no longer always falls back to BUILD.
 
-注意：退出 PLAN 仍需你在计划审查面板上批准（点「批准并实施」），批准后模式才真正恢复。
+Note: exiting PLAN still needs your approval on the plan review panel (tap "Approve & implement"); only after approval is the mode actually restored.
 
-## 运行中也能切换
+## Switching mid-run
 
-模式按钮在 AI 正在执行任务时同样可用。你在 AI 执行任务的过程中切换模式，它会**当轮立即生效**：AI 会收到一条模式切换通知，手头任务从那一刻起按新模式处理（例如你中途切到 AUTO，后续操作就不再逐次弹窗；切到 PLAN，后续写操作会被拦截），无需等待本轮结束。
+The mode button also works while the AI is executing a task. If you switch modes mid-task, it takes effect **immediately in the current turn**: the AI receives a mode-switch notification and the task in hand is handled under the new mode from that moment on (switch to AUTO midway and subsequent operations stop popping dialogs one by one; switch to PLAN and subsequent writes are blocked) — no need to wait for the turn to finish.

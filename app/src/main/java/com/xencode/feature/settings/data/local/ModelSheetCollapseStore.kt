@@ -3,9 +3,9 @@ package com.xencode.feature.settings.data.local
 import android.content.Context
 
 /**
- * 模型选择弹窗「按提供商折叠」的展开状态持久化：记住用户折叠了哪些提供商，重开弹窗与重启后保持。
+ * Persists the expand/collapse state of the model picker sheet's "collapse by provider" groups: remembers which providers the user collapsed, kept across sheet reopens and restarts.
  *
- * 存的是折叠集合（默认空 = 全部展开）；提供商删除后残留的 id 无副作用。搜索时的强制展开不写入此状态。
+ * Stores the collapsed set (empty by default = all expanded); ids left over after a provider is deleted have no side effects. Forced expansion during search is not written to this state.
  */
 class ModelSheetCollapseStore(context: Context) {
 
@@ -14,7 +14,7 @@ class ModelSheetCollapseStore(context: Context) {
     fun collapsedProviderIds(): Set<String> =
         prefs.getStringSet(KEY, null)?.toSet() ?: emptySet()
 
-    /** 传新集合副本写入：SharedPreferences 禁止复用已存实例。 */
+    /** Writes a copy of the new set: SharedPreferences forbids reusing an already-stored instance. */
     fun save(collapsedProviderIds: Set<String>) {
         prefs.edit().putStringSet(KEY, HashSet(collapsedProviderIds)).apply()
     }

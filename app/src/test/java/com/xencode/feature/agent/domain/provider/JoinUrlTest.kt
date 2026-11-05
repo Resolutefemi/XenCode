@@ -5,7 +5,7 @@ import org.junit.Test
 
 class JoinUrlTest {
 
-    /** base 末尾带斜杠：拼接前去掉，避免双斜杠。 */
+    /** Trailing slash on base: trimmed before joining to avoid a double slash. */
     @Test
     fun baseTrailingSlash_trimmed() {
         assertEquals(
@@ -14,7 +14,7 @@ class JoinUrlTest {
         )
     }
 
-    /** base 末尾与 path 开头是相同的版本段（v1）：去重只留一份。 */
+    /** base ends and path starts with the same version segment (v1): deduplicated to a single copy. */
     @Test
     fun duplicateVersionSegment_deduplicated() {
         assertEquals(
@@ -23,7 +23,7 @@ class JoinUrlTest {
         )
     }
 
-    /** base 末尾为 v1beta 且 path 也以 v1beta 开头：同样去重。 */
+    /** base ends with v1beta and path also starts with v1beta: deduplicated likewise. */
     @Test
     fun duplicateV1betaSegment_deduplicated() {
         assertEquals(
@@ -35,7 +35,7 @@ class JoinUrlTest {
         )
     }
 
-    /** base 末尾是版本段、path 也以版本段开头且不同：以 base 版本为准，丢弃 path 版本段。 */
+    /** base ends with a version segment and path starts with a different one: the base version wins and the path's version segment is dropped. */
     @Test
     fun baseVersionWins_pathVersionDropped() {
         assertEquals(
@@ -44,7 +44,7 @@ class JoinUrlTest {
         )
     }
 
-    /** base 为 v2、path 为 v1：仍以 base 版本为准。 */
+    /** base is v2, path is v1: the base version still wins. */
     @Test
     fun baseV2Wins_pathV1Dropped() {
         assertEquals(
@@ -53,7 +53,7 @@ class JoinUrlTest {
         )
     }
 
-    /** path 只有版本段、无后续路径：返回 base 本身。 */
+    /** path is only a version segment with nothing after: returns base itself. */
     @Test
     fun versionOnlyPath_returnsBase() {
         assertEquals(
@@ -62,7 +62,7 @@ class JoinUrlTest {
         )
     }
 
-    /** base 不带版本段：普通拼接。 */
+    /** base has no version segment: plain join. */
     @Test
     fun plainJoin_pathAppended() {
         assertEquals(
@@ -71,7 +71,7 @@ class JoinUrlTest {
         )
     }
 
-    /** host 根路径 base（无子路径）：直接拼接。 */
+    /** host-root base (no sub-path): direct join. */
     @Test
     fun hostOnlyBase_pathAppended() {
         assertEquals(
@@ -80,7 +80,7 @@ class JoinUrlTest {
         )
     }
 
-    /** path 前导斜杠：拼接前去掉，避免双斜杠。 */
+    /** Leading slash on path: trimmed before joining to avoid a double slash. */
     @Test
     fun pathLeadingSlash_trimmed() {
         assertEquals(
@@ -89,7 +89,7 @@ class JoinUrlTest {
         )
     }
 
-    /** base 首尾空白：拼接前剔除。 */
+    /** Whitespace around base: stripped before joining. */
     @Test
     fun baseWhitespace_trimmed() {
         assertEquals(
@@ -98,7 +98,7 @@ class JoinUrlTest {
         )
     }
 
-    /** 版本段去重忽略大小写，且保留 base 原有的写法。 */
+    /** Version-segment dedupe is case-insensitive and keeps base's original spelling. */
     @Test
     fun duplicateSegment_ignoreCaseKeepsBaseCase() {
         assertEquals(

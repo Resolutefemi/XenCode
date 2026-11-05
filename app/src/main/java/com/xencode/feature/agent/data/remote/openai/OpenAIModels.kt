@@ -3,14 +3,14 @@ package com.xencode.feature.agent.data.remote.openai
 data class ChatCompletionRequest(
     val model: String,
     val messages: List<OpenAIChatMessage>,
-    /** null 时 Gson 跳过该字段：服务端固定温度的模型（kimi-k3、gpt-5 系等）带上任何值都会 400。 */
+    /** When null, Gson skips the field: models with a fixed server-side temperature (kimi-k3, gpt-5 series, etc.) return 400 if any value is sent. */
     val temperature: Float? = null,
     val reasoning_effort: String? = null,
     val tools: List<OpenAIToolDefinition>? = null,
     val tool_choice: String? = null,
     val stream: Boolean = false,
     val stream_options: StreamOptions? = null,
-    /** 缓存 shard 路由键（同会话请求路由到同一缓存分片）。仅第三方兼容服务支持，OpenAI 官方不接受该字段。 */
+    /** Cache shard routing key (requests in the same session are routed to the same cache shard). Supported only by third-party compatible services; the official OpenAI API rejects this field. */
     val prompt_cache_key: String? = null
 )
 
@@ -20,15 +20,15 @@ data class OpenAIChatMessage(
     val name: String? = null,
     val tool_calls: List<OpenAIToolCall>? = null,
     val tool_call_id: String? = null,
-    /** DeepSeek 思考模式要求将上轮 assistant 消息的 reasoning_content 原样回传，否则 400。 */
+    /** DeepSeek thinking mode requires the previous assistant message's reasoning_content to be sent back verbatim, otherwise a 400. */
     val reasoning_content: String? = null,
-    /** 部分第三方兼容服务（如 mimo）用顶层 reasoning 而非 reasoning_content 传思考内容。 */
+    /** Some third-party compatible services (e.g. mimo) use the top-level reasoning field instead of reasoning_content for thinking content. */
     val reasoning: String? = null,
-    /** 生图模型的响应扩展：部分兼容服务在 assistant message 里返回 `images` 数组（本项目用户中转站即此格式）。 */
+    /** Image-generation response extension: some compatible services return an `images` array in the assistant message (this project's user relay station uses this format). */
     val images: List<OpenAIImagePart>? = null
 )
 
-/** Chat Completions 生图扩展里的单个图片项（流式 `delta.images` 与非流式 `message.images` 同形）。 */
+/** A single image item in the Chat Completions image-generation extension (streaming `delta.images` and non-streaming `message.images` share the same shape). */
 data class OpenAIImagePart(
     val type: String? = null,
     val image_url: OpenAIImageUrl? = null,
@@ -87,8 +87,8 @@ data class Usage(
 )
 
 /**
- * Chat Completions 的输入 token 明细：cached_tokens 为命中缓存的部分，
- * cache_write_tokens 为写入缓存的部分（GPT-5.6 起才有、按高于输入价计费）。
+ * Chat Completions input token details: cached_tokens is the portion that hit the cache,
+ * and cache_write_tokens is the portion written to the cache (only since GPT-5.6, billed above the input rate).
  */
 data class PromptTokensDetails(
     val cached_tokens: Int? = null,
@@ -96,12 +96,12 @@ data class PromptTokensDetails(
 )
 
 /**
- * Images API（POST /images/generations）请求体。Gson 按字段名直序列化，
- * 字段名必须保持 snake_case 与 OpenAI 接口一致。
+ * Images API (POST /images/generations) request body. Gson serializes field names as-is,
+ * so field names must stay snake_case to match the OpenAI API.
  *
- * 各参数按模型兼容性由调用方决定是否携带（GPT image 系不支持 [responseFormat]
- * 且总是返回 b64_json；[background]/[moderation]/[outputFormat] 仅 GPT image 系有效；
- * [style] 仅 dall-e-3 有效）；null 时 Gson 跳过该字段。
+ * Whether each parameter is sent is decided by the caller based on model compatibility (the GPT image series does not
+ * support [responseFormat] and always returns b64_json; [background]/[moderation]/[outputFormat] apply only to the
+ * GPT image series; [style] applies only to dall-e-3); when null, Gson skips the field.
  */
 data class ImageGenerationRequest(
     val model: String,
@@ -116,14 +116,14 @@ data class ImageGenerationRequest(
     val style: String? = null
 )
 
-/** Images API 单张生成结果。 */
+/** A single generated image from the Images API. */
 data class ImageGenerationResult(
     val b64_json: String? = null,
     val url: String? = null,
     val revised_prompt: String? = null
 )
 
-/** Images API token 用量（gpt-image 系返回，dall-e 系无此字段）。 */
+/** Images API token usage (returned by the gpt-image series; the dall-e series has no such field). */
 data class ImageGenerationUsage(
     val input_tokens: Int = 0,
     val output_tokens: Int = 0,
@@ -132,13 +132,13 @@ data class ImageGenerationUsage(
     val output_tokens_details: ImageTokenDetails? = null
 )
 
-/** Images API token 明细：图片 token 与文本 token 拆分。 */
+/** Images API token details: image tokens split from text tokens. */
 data class ImageTokenDetails(
     val image_tokens: Int = 0,
     val text_tokens: Int = 0
 )
 
-/** Images API 响应体（Gson 反序列化，仅取用所需字段）。 */
+/** Images API response body (deserialized by Gson; only the needed fields are taken). */
 data class ImageGenerationResponse(
     val created: Long = 0,
     val data: List<ImageGenerationResult> = emptyList(),

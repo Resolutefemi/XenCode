@@ -32,7 +32,7 @@ import compose.icons.feathericons.Trash2
 import androidx.compose.ui.res.stringResource
 import com.xencode.R
 
-/** HTTP 形态字段：URL + 请求头键值对（按照卡片排版规范）。 */
+/** HTTP mode fields: URL + request header key-value pairs (per the card layout spec). */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 internal fun McpHttpFields(

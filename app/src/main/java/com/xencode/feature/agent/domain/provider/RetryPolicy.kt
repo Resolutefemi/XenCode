@@ -31,18 +31,18 @@ import androidx.lifecycle.LifecycleOwner
 import androidx.lifecycle.ProcessLifecycleOwner
 
 /**
- * 参考 opencode 的网络请求重试策略：指数退避，仅针对瞬时故障。
+ * Network request retry policy modeled on opencode: exponential backoff, transient failures only.
  */
 private const val TAG = "RetryPolicy"
 
-// 对应 opencode 的 attempts = 3（最多 2 次重试）→ 提升至 6 次重试以应对不稳定网络
+// opencode uses attempts = 3 (at most 2 retries) → raised to 6 retries to cope with unstable networks
 const val MAX_NETWORK_RETRIES = 6
 
 /**
- * 每次流式尝试从发起请求到首个有效内容的等待上限，包含等待响应头。
+ * Per streaming attempt, the wait cap from request start to first meaningful content, including response headers.
  *
- * OkHttp 的 readTimeout 已设为无限制，首个内容之前由应用层取消请求兜底，
- * 故放宽到 5 分钟以容纳慢启动与长思考模型。
+ * OkHttp's readTimeout is already unlimited; before first content the app layer cancels as a fallback,
+ * so this is relaxed to 5 minutes to accommodate slow starts and long-reasoning models.
  */
 const val FIRST_BYTE_TIMEOUT_MS = 300_000L
 
@@ -96,7 +96,7 @@ suspend fun withFirstContentTimeout(
     try {
         coroutineScope {
             val attemptJob = coroutineContext[Job]!!
-            // 阻塞 readLine 无法靠协程取消唤醒，必须在进入 cancelling 时取消底层 Call。
+            // A blocking readLine cannot be woken by coroutine cancellation; the underlying Call must be cancelled when entering cancelling.
             val handle = attemptJob.invokeOnCompletion(onCancelling = true, invokeImmediately = true) {
                 if (it != null) guard.closeBody()
             }
@@ -125,11 +125,11 @@ suspend fun withFirstContentTimeout(
 }
 
 /**
- * 流式响应「数据块间隔」watchdog：相邻两个数据块之间超过 [timeoutMs] 未到达即调用 [close]，
- * 使阻塞中的读取抛出 IOException，交给重试机制处理。
+ * "Gap between chunks" watchdog for streaming responses: if no chunk arrives within [timeoutMs] of the previous one, call [close],
+ * making the blocked read throw an IOException for the retry machinery to handle.
  *
- * 每收到一个数据块调用一次 [touch] 重新计时；流结束（正常或异常）时调用 [cancel]。
- * [timeoutMs] <= 0 表示不限制，此时两个方法均为空操作。
+ * Call [touch] once per received chunk to restart the timer; call [cancel] when the stream ends (normally or not).
+ * [timeoutMs] <= 0 means unlimited; both methods are then no-ops.
  */
 class StreamIdleWatchdog(
     private val scope: CoroutineScope,
@@ -153,7 +153,7 @@ class StreamIdleWatchdog(
     }
 }
 
-/** 在当前协程下创建 [StreamIdleWatchdog]；[timeoutMs] <= 0 时创建的实例不做任何事。 */
+/** Creates a [StreamIdleWatchdog] under the current coroutine; with [timeoutMs] <= 0 the created instance does nothing. */
 suspend fun launchStreamIdleWatchdog(timeoutMs: Long, close: () -> Unit): StreamIdleWatchdog =
     StreamIdleWatchdog(CoroutineScope(coroutineContext[Job]!!), timeoutMs, close)
 
@@ -169,10 +169,10 @@ private val TRANSIENT_MESSAGES = listOf(
 )
 
 /**
- * 对应 opencode 的 delay=500, factor=2, maxDelay=10000。
+ * Matches opencode's delay=500, factor=2, maxDelay=10000.
  *
- * 已不再作为重试等待的默认值（改为固定 [NETWORK_RETRY_DELAY_MILLIS]），保留供需要
- * 长退避的场景（如多 Key 全部限流时的兜底）使用。
+ * No longer the default retry wait (replaced by the fixed [NETWORK_RETRY_DELAY_MILLIS]); kept for scenarios
+ * needing long backoff (e.g. as a fallback when all keys are rate-limited).
  */
 fun exponentialDelayMillis(retryIndex: Int): Long {
     val delay = 500L
@@ -183,19 +183,19 @@ fun exponentialDelayMillis(retryIndex: Int): Long {
 }
 
 /**
- * 网络类失败的重试间隔（毫秒）：**固定 3 秒**。
+ * Retry interval for network-class failures (milliseconds): **fixed 3 seconds**.
  *
- * 移动端网络抖动、中转站瞬时 5xx/重置通常 1~2 秒内即恢复，指数退避（0.5→1→2→4→8→10 秒）
- * 与服务端常见的 `Retry-After: 23` 都只是让用户干等。统一按 3 秒重试，配合默认 6 次重试上限，
- * 一次卡顿最多多花约 18 秒，而不是动辄半分钟以上。
+ * Mobile network jitter and transient 5xx/resets from relays usually recover within 1~2 seconds; exponential backoff (0.5→1→2→4→8→10 s)
+ * and typical `Retry-After: 23` headers just make the user wait. A uniform 3-second retry with the default 6-retry cap
+ * costs at most ~18 extra seconds per stall, instead of often half a minute or more.
  */
 const val NETWORK_RETRY_DELAY_MILLIS = 3_000L
 
 /**
- * SSE 流中收到的 error 事件，携带错误码用于重试判定。
+ * An error event received in the SSE stream, carrying a code for retry decisions.
  *
- * 对齐 Codex CLI 的错误分类：cyber_policy / invalid_request / context_window_exceeded /
- * quota_exceeded / usage_not_included 等为不可重试；server_error / server_is_overloaded 等默认可重试。
+ * Aligned with Codex CLI's error classification: cyber_policy / invalid_request / context_window_exceeded /
+ * quota_exceeded / usage_not_included etc. are non-retryable; server_error / server_is_overloaded etc. are retryable by default.
  */
 class StreamApiException(
     val code: String?,
@@ -203,9 +203,9 @@ class StreamApiException(
     val retryAfterMillis: Long? = null
 ) : Exception(message.ifBlank { code ?: "stream error" })
 
-// 对齐 Codex CLI is_retryable()：这些错误码明确不可重试。
-// 限流类（rate_limit_*）在此列，是让它们优先走多 Key 自动切换；单 Key 无候选时由调用方按限流退避重试。
-// 额度类（quota_exceeded / insufficient_quota / usage_* 等）不是瞬时限流，重试无益，保持不可重试。
+// Aligned with Codex CLI is_retryable(): these codes are explicitly non-retryable.
+// Rate-limit codes (rate_limit_*) are listed so they prefer multi-key auto-switching; with a single key and no candidate, callers retry with rate-limit backoff.
+// Quota codes (quota_exceeded / insufficient_quota / usage_* etc.) are not transient rate limits — retrying does not help, so they stay non-retryable.
 private val NON_RETRYABLE_STREAM_CODES = setOf(
     "cyber_policy",
     "invalid_request_error",
@@ -222,12 +222,12 @@ private val NON_RETRYABLE_STREAM_CODES = setOf(
 )
 
 /**
- * 对应 opencode 的 isTransientError，并兼容 Android 的网络异常类型。
+ * Matches opencode's isTransientError, plus Android-specific network exception types.
  *
- * 除传统的 IOException 判定外，还支持 HTTP 状态码感知：
- * - 408（请求超时）、5xx（500/502/503/504 等）→ 可重试（服务端瞬时故障）
- * - 429（限流）→ 不走这里，交给多 Key 自动切换；无 Key 可切时由调用方按限流退避重试（见 [isRateLimitError]）
- * - 其他 4xx → 不重试（客户端错误，重试无意义）
+ * Beyond the classic IOException check, it is HTTP status aware:
+ * - 408 (request timeout), 5xx (500/502/503/504 etc.) → retryable (transient server failure)
+ * - 429 (rate limit) → not handled here, left to multi-key auto-switching; when no key can be switched to, callers retry with rate-limit backoff (see [isRateLimitError])
+ * - other 4xx → no retry (client error, retrying is pointless)
  */
 fun isRetriableNetworkError(t: Throwable): Boolean {
     if (t is CancellationException) return false
@@ -236,14 +236,14 @@ fun isRetriableNetworkError(t: Throwable): Boolean {
         return !NON_RETRYABLE_STREAM_CODES.contains(t.code)
     }
 
-    // 兼容原生网络异常
+    // Native network exceptions
     if (t is SocketTimeoutException || t is InterruptedIOException ||
         t is java.net.UnknownHostException || t is java.net.ConnectException ||
         t is javax.net.ssl.SSLException || t is IOException) {
         return true
     }
 
-    // HTTP 状态码感知：408/5xx 视为瞬时故障可重试；429 归多 Key 切换
+    // HTTP status aware: 408/5xx count as transient and retryable; 429 belongs to multi-key switching
     if (t is HttpException) {
         val code = t.code()
         return code == 408 || code >= 500
@@ -253,28 +253,28 @@ fun isRetriableNetworkError(t: Throwable): Boolean {
     return TRANSIENT_MESSAGES.any { message.contains(it) }
 }
 
-/** 流内限流错误码（对齐各 provider 的 SSE error.code）。 */
+/** In-stream rate-limit error codes (aligned with each provider's SSE error.code). */
 private val RATE_LIMIT_STREAM_CODES = setOf(
     "rate_limit_exceeded",
     "rate_limit_error",
     "too_many_requests"
 )
 
-/** 限流错误文案兜底：HttpException 被 enrich 包成 IllegalStateException 后只能靠消息文本识别。 */
+/** Fallback rate-limit message texts: once an HttpException is wrapped into an IllegalStateException by enrich, only the message text can identify it. */
 private val RATE_LIMIT_MESSAGES = listOf(
     "rate limit",
     "too many requests",
     "http 429"
 )
 
-/** 沿 cause 链查找的最大深度，与 [isKeySwitchFailure] 保持一致。 */
+/** Max depth when walking the cause chain, kept consistent with [isKeySwitchFailure]. */
 private const val MAX_CAUSE_DEPTH = 5
 
 /**
- * 判断失败是否为限流类错误（HTTP 429 / 流内 rate_limit_* / 服务端限流文案）。
+ * Whether a failure is a rate-limit error (HTTP 429 / in-stream rate_limit_* / server rate-limit text).
  *
- * 429 归多 Key 自动切换处理，故 [isRetriableNetworkError] 对它返回 false；但当没有可切换的
- * Key（单 Key）且尚未吐字时，退避重试才是正确处理——429 是瞬时限流，常带 Retry-After。
+ * 429 is handled by multi-key auto-switching, so [isRetriableNetworkError] returns false for it; but with no key
+ * to switch to (single key) and nothing streamed yet, backoff retry is the right move — 429 is transient and often carries Retry-After.
  */
 fun isRateLimitError(t: Throwable): Boolean {
     var current: Throwable? = t
@@ -291,40 +291,40 @@ fun isRateLimitError(t: Throwable): Boolean {
     return RATE_LIMIT_MESSAGES.any { message.contains(it) }
 }
 
-/** 重试错误的用户可见类别，用于 UI 展示具体原因（而非笼统的「网络波动」）。 */
+/** User-visible categories of retry errors, so the UI can show the specific cause (not just a vague "network hiccup"). */
 enum class RetryErrorKind {
-    /** HTTP 429 / 服务端 rate limit 类错误。 */
+    /** HTTP 429 / server rate-limit errors. */
     RATE_LIMIT,
-    /** HTTP 503 服务过载（或流式错误码 server_is_overloaded / overloaded）。 */
+    /** HTTP 503 server overload (or streaming codes server_is_overloaded / overloaded). */
     SERVER_OVERLOADED,
-    /** HTTP 5xx（除 503）等服务端错误。 */
+    /** HTTP 5xx (other than 503) and other server errors. */
     SERVER_ERROR,
-    /** 连接/读取超时（含首字节 watchdog 触发的断流）。 */
+    /** Connection/read timeout (including drops triggered by the first-byte watchdog). */
     TIMEOUT,
-    /** 目标端口无服务，连接被拒绝。 */
+    /** No service on the target port; connection refused. */
     CONNECTION_REFUSED,
-    /** DNS 解析失败（域名不存在或网络不可达）。 */
+    /** DNS resolution failed (domain missing or network unreachable). */
     DNS_FAILED,
-    /** 连接建立后被对端/中间设备重置（流中断、unexpected end of stream 等）。 */
+    /** Connection reset by the peer/middlebox after being established (dropped stream, unexpected end of stream, etc.). */
     CONNECTION_RESET,
-    /** TLS/SSL 握手失败。 */
+    /** TLS/SSL handshake failure. */
     SSL_ERROR,
-    /** 其它网络层故障。 */
+    /** Other network-layer failures. */
     NETWORK,
-    /** 无法归类的其它错误。 */
+    /** Other errors that cannot be classified. */
     UNKNOWN
 }
 
 /**
- * 一次重试对应的错误摘要，随 Retrying 事件一路透传到 UI。
- * [statusCode] 为 HTTP 状态码（如 429/500），非 HTTP 错误为 null。
+ * Error summary for one retry, passed through to the UI along with Retrying events.
+ * [statusCode] is the HTTP status code (e.g. 429/500); null for non-HTTP errors.
  */
 data class RetryErrorInfo(
     val kind: RetryErrorKind,
     val statusCode: Int? = null
 )
 
-/** 把触发重试的异常归类为 UI 可展示的错误摘要。 */
+/** Classifies the exception that triggered a retry into a UI-displayable error summary. */
 fun Throwable.toRetryErrorInfo(): RetryErrorInfo = when {
     this is HttpException -> when {
         code() == 429 -> RetryErrorInfo(RetryErrorKind.RATE_LIMIT, code())
@@ -341,7 +341,7 @@ fun Throwable.toRetryErrorInfo(): RetryErrorInfo = when {
     this is SocketTimeoutException || this is InterruptedIOException -> RetryErrorInfo(RetryErrorKind.TIMEOUT)
     this is UnknownHostException -> RetryErrorInfo(RetryErrorKind.DNS_FAILED)
     this is ConnectException -> RetryErrorInfo(RetryErrorKind.CONNECTION_REFUSED)
-    // SSLException / ConnectException / UnknownHostException 都是 IOException 子类，必须先于 IOException 匹配
+    // SSLException / ConnectException / UnknownHostException are all IOException subclasses and must match before IOException
     this is SSLException -> RetryErrorInfo(RetryErrorKind.SSL_ERROR)
     this is IOException -> if (isConnectionReset(this)) {
         RetryErrorInfo(RetryErrorKind.CONNECTION_RESET)
@@ -351,7 +351,7 @@ fun Throwable.toRetryErrorInfo(): RetryErrorInfo = when {
     else -> RetryErrorInfo(RetryErrorKind.UNKNOWN)
 }
 
-/** 流被对端/中间设备中断的常见报错文案，命中则归类为 [RetryErrorKind.CONNECTION_RESET]。 */
+/** Common error messages for streams cut off by the peer/middlebox; a match maps to [RetryErrorKind.CONNECTION_RESET]. */
 private val RESET_MESSAGES = listOf(
     "connection reset",
     "reset by peer",
@@ -370,32 +370,32 @@ private fun isConnectionReset(e: IOException): Boolean {
 }
 
 /**
- * 从 [HttpException] 的响应头中解析 `Retry-After`，返回等待毫秒数。
+ * Parses `Retry-After` from the [HttpException] response headers, returning the wait in milliseconds.
  *
- * `Retry-After` 有两种格式：
- * 1. 秒数（如 `"30"`）→ 直接转为毫秒
- * 2. HTTP 日期（如 `"Fri, 29 Jun 2026 10:00:00 GMT"`）→ 计算距当前时间的差值
+ * `Retry-After` has two formats:
+ * 1. Seconds (e.g. `"30"`) → converted directly to milliseconds
+ * 2. HTTP date (e.g. `"Fri, 29 Jun 2026 10:00:00 GMT"`) → compute the delta from now
  *
- * 另：SSE 流内 error 事件（[StreamApiException]）可自带 [StreamApiException.retryAfterMillis]，
- * 优先于 HTTP 头判定。
+ * Note: an in-stream SSE error event ([StreamApiException]) can carry its own [StreamApiException.retryAfterMillis],
+ * which takes precedence over the HTTP header.
  *
- * 非上述类型或无 `Retry-After` 头部 → 返回 null。
- * 解析失败也返回 null（降级到固定 [NETWORK_RETRY_DELAY_MILLIS]）。
+ * Non-matching types or a missing `Retry-After` header → null.
+ * Parse failures also return null (falling back to the fixed [NETWORK_RETRY_DELAY_MILLIS]).
  */
 fun extractRetryAfterMillis(t: Throwable): Long? {
-    // 流内 error 事件自带的服务端要求等待时间（SSE 场景下没有 HTTP 头可读）
+    // Server-required wait carried by an in-stream error event (no HTTP header to read in the SSE case)
     if (t is StreamApiException) {
         t.retryAfterMillis?.takeIf { it > 0 }?.let { return it }
     }
     if (t !is HttpException) return null
     val header = t.response()?.headers()?.get("Retry-After") ?: return null
 
-    // 格式 1：纯秒数
+    // Format 1: plain seconds
     header.toLongOrNull()?.let { seconds ->
         return seconds * 1000L
     }
 
-    // 格式 2：HTTP 日期（RFC 1123）
+    // Format 2: HTTP date (RFC 1123)
     return runCatching {
         val sdf = SimpleDateFormat("EEE, dd MMM yyyy HH:mm:ss zzz", Locale.US).apply {
             timeZone = TimeZone.getTimeZone("GMT")
@@ -407,12 +407,12 @@ fun extractRetryAfterMillis(t: Throwable): Long? {
 }
 
 /**
- * 计算重试等待时间：**固定 [NETWORK_RETRY_DELAY_MILLIS]（3 秒）**。
+ * Computes the retry wait: **fixed [NETWORK_RETRY_DELAY_MILLIS] (3 seconds)**.
  *
- * 服务端 `Retry-After` 只在它比 3 秒更短时才采纳；中转站常见的 `retry in 23s` 之类长值
- * 一律按 3 秒重试——移动端等待 23 秒体验极差，而多数情况下服务端限制早已解除。
+ * A server `Retry-After` is only honored when shorter than 3 seconds; long values like the relays' common
+ * `retry in 23s` always retry at 3 seconds — waiting 23 seconds is a terrible mobile experience, and in most cases the server limit has long been lifted.
  *
- * @param retryIndex 保留参数，供未来需要区分首次/后续重试间隔时扩展。
+ * @param retryIndex Reserved for future use, e.g. distinguishing first vs. subsequent retry intervals.
  */
 fun retryDelayMillis(retryIndex: Int, error: Throwable): Long {
     val serverDelay = extractRetryAfterMillis(error)
@@ -423,15 +423,15 @@ fun retryDelayMillis(retryIndex: Int, error: Throwable): Long {
 }
 
 /**
- * 在指数退避下重试 [block]（保持原方法名），用于非流式请求。
+ * Retries [block] with exponential backoff (name kept for compatibility), for non-streaming requests.
  *
- * @param onKeyFailure 多 Key 切换回调：在判定为「不可重试」的失败时先调用，入参为
- *        (触发失败, 是否允许重发)。返回 true 表示调用方已切 Key、可重置重试计数并重发；
- *        返回 false 时，限流类失败（429 / rate_limit_*）会退避重试，其余抛出原异常。
- *        网络类失败（408/5xx/超时等）不会触发该回调。
- * @param onRetry 重试前回调，参数为 (当前重试次数, 最大重试次数)；用于通知上层"正在重试"。
- *                置于 [block] 之前以保证 `retryStaircase { ... }` 的 trailing lambda 仍绑定到 [block]。
- * @param maxRetries 最大重试次数（不含首次请求），由调用方按「偏好设置 → 网络」传入；0 表示不重试。
+ * @param onKeyFailure Multi-key switch callback: invoked first on failures deemed "non-retryable", with
+ *        (triggering failure, whether resending is allowed). Returning true means the caller switched keys and the retry count may be reset before resending;
+ *        returning false means rate-limit failures (429 / rate_limit_*) back off and retry, while others rethrow the original exception.
+ *        Network-class failures (408/5xx/timeout etc.) never trigger this callback.
+ * @param onRetry Pre-retry callback taking (current retry count, max retry count); used to notify upper layers that a retry is in progress.
+ *                Declared before [block] so the trailing lambda of `retryStaircase { ... }` still binds to [block].
+ * @param maxRetries Max retry count (excluding the first request), passed by the caller from "Settings → Network"; 0 means no retry.
  */
 suspend fun <T> retryStaircase(
     maxRetries: Int = MAX_NETWORK_RETRIES,
@@ -452,12 +452,12 @@ suspend fun <T> retryStaircase(
                     attempt = 0
                     continue
                 }
-                // 无 Key 可切（单 Key）时的限流退避重试：429 是瞬时限流，等待后重试优于直接失败
+                // Rate-limit backoff retry when no key can be switched to (single key): 429 is transient, retrying after a wait beats failing outright
                 if (!isRateLimitError(e)) throw e
             }
             if (attempt >= maxRetries) throw e
             val wait = retryDelayMillis(attempt, e)
-            FileLogger.w(TAG, "网络请求失败，第 ${attempt + 1}/$maxRetries 次重试（等待 ${wait}ms）: ${e.javaClass.simpleName} ${e.message}")
+            FileLogger.w(TAG, "Network request failed, retry ${attempt + 1}/$maxRetries (waiting ${wait}ms): ${e.javaClass.simpleName} ${e.message}")
             onRetry?.invoke(attempt + 1, maxRetries, e.toRetryErrorInfo())
             attempt++
             if (wait > 0) delay(wait)
@@ -466,17 +466,17 @@ suspend fun <T> retryStaircase(
 }
 
 /**
- * 流式请求的重试封装（保持原方法名）。
+ * Retry wrapper for streaming requests (name kept for compatibility).
  *
- * @param onKeyFailure 多 Key 切换回调：在判定为「不可重试」的失败时先调用，入参为
- *        (触发失败, 是否允许重发)。仅当本次尝试尚未收到任何内容时才会传入允许重发；
- *        已吐字时仍可能切换（供后续请求用新 Key）但不会重发，避免用户看到重复内容。
- *        返回 false 时，尚未吐字的限流类失败会退避重试，其余抛出原异常。
- * @param onRetry 重试前回调，参数为 (当前重试次数, 最大重试次数)；用于通知上层"正在重试"。
- *                回调在 delay 之前调用，确保 UI 能立即展示重试状态。声明为 suspend 以便
- *                调用方在其中通过 Flow 的 emit() 推送重试事件。
- * @param attemptOnce 单次流式请求；收到内容后调用 onContent，以判定 Key 切换时是否允许重发。
- * @param maxRetries 最大重试次数（不含首次请求），由调用方按「偏好设置 → 网络」传入；0 表示不重试。
+ * @param onKeyFailure Multi-key switch callback: invoked first on failures deemed "non-retryable", with
+ *        (triggering failure, whether resending is allowed). Resending is only allowed when this attempt has not received any content yet;
+ *        once content has streamed, a switch may still happen (so later requests use the new key) but nothing is resent, avoiding duplicated content for the user.
+ *        Returning false means rate-limit failures with no content yet back off and retry, while others rethrow the original exception.
+ * @param onRetry Pre-retry callback taking (current retry count, max retry count); used to notify upper layers that a retry is in progress.
+ *                Called before the delay so the UI can show the retry state immediately. Declared suspend so
+ *                callers can emit retry events through a Flow's emit().
+ * @param attemptOnce One streaming attempt; calls onContent once content arrives, to decide whether resending is allowed when switching keys.
+ * @param maxRetries Max retry count (excluding the first request), passed by the caller from "Settings → Network"; 0 means no retry.
  */
 suspend fun streamWithStaircaseRetry(
     maxRetries: Int = MAX_NETWORK_RETRIES,
@@ -499,12 +499,12 @@ suspend fun streamWithStaircaseRetry(
                     attempt = 0
                     continue
                 }
-                // 限流且尚未吐字、又无 Key 可切（单 Key）→ 退避重试；已吐字不重发，保持原行为
+                // Rate-limited with nothing streamed yet and no key to switch to (single key) → backoff retry; once content has streamed, never resend (existing behavior)
                 if (!(isRateLimitError(e) && !receivedContent)) throw e
             }
             if (attempt >= maxRetries) throw e
             val wait = retryDelayMillis(attempt, e)
-            FileLogger.w(TAG, "流式请求失败，第 ${attempt + 1}/$maxRetries 次重试（等待 ${wait}ms）: ${e.javaClass.simpleName} ${e.message}")
+            FileLogger.w(TAG, "Streaming request failed, retry ${attempt + 1}/$maxRetries (waiting ${wait}ms): ${e.javaClass.simpleName} ${e.message}")
             onRetry?.invoke(attempt + 1, maxRetries, e.toRetryErrorInfo())
             attempt++
             if (wait > 0) delay(wait)

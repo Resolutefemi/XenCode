@@ -37,38 +37,38 @@ class SkillParserTest {
     fun serialize_roundTripsThroughParse() {
         val skill = parseSerialized(
             name = "pdf-report",
-            description = "生成 PDF 报告时使用",
+            description = "Used when generating PDF reports",
             requiredTools = listOf("Bash", "writeFile"),
-            instructions = "## 步骤\n\n1. 读模板\n2. 渲染"
+            instructions = "## Steps\n\n1. Read the template\n2. Render"
         )
 
         assertEquals("pdf-report", skill.name)
-        assertEquals("生成 PDF 报告时使用", skill.description)
+        assertEquals("Used when generating PDF reports", skill.description)
         assertEquals(listOf("Bash", "writeFile"), skill.requiredTools)
-        assertEquals("## 步骤\n\n1. 读模板\n2. 渲染", skill.instructions)
+        assertEquals("## Steps\n\n1. Read the template\n2. Render", skill.instructions)
     }
 
     @Test
     fun serialize_keepsYamlValidWithSpecialChars() {
         val skill = parseSerialized(
             name = "tricky",
-            description = "用于: 处理 \"引号\" 与 # 井号 的场景",
-            instructions = "正文"
+            description = "used for: handling \"quotes\" and # hash scenarios",
+            instructions = "body"
         )
 
-        assertEquals("用于: 处理 \"引号\" 与 # 井号 的场景", skill.description)
-        assertEquals("正文", skill.instructions)
+        assertEquals("used for: handling \"quotes\" and # hash scenarios", skill.description)
+        assertEquals("body", skill.instructions)
     }
 
     @Test
     fun serialize_flattensMultilineDescription() {
         val skill = parseSerialized(
             name = "multi",
-            description = "第一行\n第二行",
-            instructions = "正文"
+            description = "line one\nline two",
+            instructions = "body"
         )
 
-        assertEquals("第一行 第二行", skill.description)
+        assertEquals("line one line two", skill.description)
     }
 
     @Test
@@ -77,7 +77,7 @@ class SkillParserTest {
             name = "plain",
             description = "d",
             requiredTools = emptyList(),
-            instructions = "正文"
+            instructions = "body"
         )
 
         assertTrue(!text.contains("required_tools"))

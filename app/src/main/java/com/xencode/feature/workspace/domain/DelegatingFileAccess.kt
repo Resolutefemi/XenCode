@@ -9,11 +9,11 @@ import javax.inject.Inject
 import javax.inject.Singleton
 
 /**
- * [FileAccessProvider] 的委托层：同时持有本地容器、远程 SFTP 与真机 ROOT 三套实现，
- * 每次方法调用时按 [ExecutionModeHolder.currentMode] 转发到对应实现。
+ * Delegating layer for [FileAccessProvider]: holds all three implementations — local container, remote SFTP, and device ROOT —
+ * and forwards each method call to the right one based on [ExecutionModeHolder.currentMode].
  *
- * 这样 Hilt 注入时机不再影响最终行为——无论 [FileAccessProvider] 在何时被首次注入，
- * 真正读写文件时才读取当前模式。
+ * This way Hilt injection timing no longer affects the final behavior — no matter when [FileAccessProvider] is first injected,
+ * the current mode is only read at actual file read/write time.
  */
 @Singleton
 class DelegatingFileAccess @Inject constructor(

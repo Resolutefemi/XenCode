@@ -13,11 +13,11 @@ import dagger.assisted.AssistedInject
 import java.util.concurrent.TimeUnit
 
 /**
- * 保活兜底 Worker：周期内检查常驻保活服务是否存活，被杀则重新拉起。
+ * Keepalive fallback worker: periodically checks whether the persistent keepalive service is alive, and restarts it if killed.
  *
- * START_STICKY 依赖系统在进程回收时重建，既不及时也不保证；WorkManager 由系统统一调度更可靠。
- * 仅在用户开启后台保活开关时被调度（见 [com.xencode.AIEditorApp]），关闭后任务取消，
- * 故这里仍复查一次开关，避免调度后用户又关闭导致的误拉起。
+ * START_STICKY relies on the system rebuilding the process after reclaim, which is neither timely nor guaranteed; WorkManager is scheduled by the system and more reliable.
+ * It is only scheduled when the user turns on the background keepalive toggle (see [com.xencode.AIEditorApp]) and the task is cancelled when turned off,
+ * so the toggle is re-checked here once more to avoid a mistaken restart after the user turned it off post-scheduling.
  */
 @HiltWorker
 class KeepaliveWorker @AssistedInject constructor(
@@ -36,10 +36,10 @@ class KeepaliveWorker @AssistedInject constructor(
 
     companion object {
         private const val UNIQUE_NAME = "keepalive-check"
-        /** WorkManager 允许的最小周期。 */
+        /** Minimum period allowed by WorkManager. */
         private const val PERIOD_MINUTES = 15L
 
-        /** 调度周期兜底任务（幂等）。保活开关开启时调用。 */
+        /** Schedule the periodic fallback task (idempotent). Called when the keepalive toggle is on. */
         fun schedule(context: Context) {
             val request =
                 PeriodicWorkRequestBuilder<KeepaliveWorker>(PERIOD_MINUTES, TimeUnit.MINUTES).build()
@@ -50,7 +50,7 @@ class KeepaliveWorker @AssistedInject constructor(
             )
         }
 
-        /** 取消周期兜底任务。保活开关关闭时调用。 */
+        /** Cancel the periodic fallback task. Called when the keepalive toggle is off. */
         fun cancel(context: Context) {
             WorkManager.getInstance(context).cancelUniqueWork(UNIQUE_NAME)
         }

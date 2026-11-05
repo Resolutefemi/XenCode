@@ -1,11 +1,11 @@
-// 「下载 APK」直链端点：302 到最新正式版 Release 的 universal APK。
-// 资产名格式 xencode-universal-<tag>.apk 由 .github/workflows/android-release.yml 的 Rename 步骤决定，改名时这里要同步。
-const REPO = 'jieapi/xencode'
+// "Download APK" direct-link endpoint: 302 to the latest stable release's universal APK.
+// The asset name format xencode-universal-<tag>.apk is decided by the Rename step in .github/workflows/android-release.yml; if it changes, update this in sync.
+const REPO = 'Resolutefemi/XenCode'
 const LATEST_PAGE = `https://github.com/${REPO}/releases/latest`
-// 国内直连 GitHub 下载资产常常龟速，默认套一层 gh-proxy 镜像；镜像探测不通（下线/故障）时退回 GitHub 原链。
+// Downloading GitHub assets directly from mainland China is often crawling-slow, so a gh-proxy mirror layer is applied by default; if the mirror probe fails (offline/broken), fall back to the original GitHub URL.
 const MIRROR_PREFIX = 'https://v6.gh-proxy.org/'
 const UA = 'xencode-docs-download'
-// 单次外部请求上限，避免跨境慢链路把函数拖到平台超时。
+// Per-request cap to keep cross-border slow links from dragging the function to the platform timeout.
 const TIMEOUT_MS = 5000
 
 function request(url, method = 'GET') {
@@ -26,8 +26,8 @@ async function reachable(url) {
 }
 
 async function resolveApkUrl() {
-  // 不走 GitHub API：未认证接口按 IP 限流 60 次/小时，而 Vercel 的出口 IP 是多项目共享的。
-  // /releases/latest 会 302 到 /releases/tag/<tag>，从 Location 取版本号即可，且 latest 天然跳过 pre-release。
+  // Skips the GitHub API: the unauthenticated endpoint is rate-limited to 60 requests/hour per IP, and Vercel's egress IPs are shared across projects.
+  // /releases/latest 302s to /releases/tag/<tag>; grab the version from Location, and latest naturally skips pre-releases.
   const page = await request(LATEST_PAGE)
   const tag = page.headers.get('location')?.match(/\/releases\/tag\/([^/?#]+)$/)?.[1]
   if (!tag) return null

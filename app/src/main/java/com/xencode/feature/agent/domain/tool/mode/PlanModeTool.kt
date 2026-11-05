@@ -17,13 +17,13 @@ import kotlinx.serialization.json.jsonPrimitive
 import javax.inject.Inject
 
 /**
- * 让 AI 进入或退出 PLAN（计划）模式。退出时恢复到进入 PLAN 之前的模式（见 [AgentContext.modeBeforePlan]）。
+ * Lets the AI enter or leave PLAN (planning) mode. On exit, restores the mode from before PLAN was entered (see [AgentContext.modeBeforePlan]).
  *
- * 退出（action="exit"）不是立即切换：workflow 会挂起并弹出「计划审查面板」，
- * 用户可选择：
- * - 批准并实施：按计划切回原模式执行；
- * - 继续反馈：回到 PLAN 模式，用户随后输入修改意见，AI 修订后再次 exit 重新提交，
- *   循环往复直到用户满意（对齐 Claude Code 的计划审批闭环）。
+ * Exiting (action="exit") is not an immediate switch: the workflow suspends and opens a "plan review panel",
+ * where the user can choose:
+ * - Approve and implement: switch back to the original mode and execute per the plan;
+ * - Continue feedback: return to PLAN mode, the user then enters revision comments, the AI revises and exits again to resubmit,
+ *   looping until the user is satisfied (aligned with Claude Code's plan-approval loop).
  */
 class PlanModeTool @Inject constructor(
     private val chatSessionDao: ChatSessionDao
@@ -79,8 +79,8 @@ class PlanModeTool @Inject constructor(
         val sessionEntity = chatSessionDao.getById(sessionId)
             ?: return ToolResult.Error("Session not found", "SESSION_NOT_FOUND")
 
-        // 进入 PLAN 时记下当时的模式，退出时恢复到它：从 ASK/BUILD 进入 PLAN 的规划往返结束后
-        // 应回到原模式，而不是一律落回 BUILD。该字段只在处于 PLAN 时被读取，每次进入 PLAN 都会覆写，因此无需在退出时清理。
+        // On entering PLAN, record the current mode and restore it on exit: after a planning round trip that entered PLAN from ASK/BUILD,
+        // it should return to the original mode rather than always falling back to BUILD. The field is only read while in PLAN and is overwritten on every entry, so no cleanup on exit is needed.
         val effectiveMode: AgentMode
         val modeBeforePlan: String?
         if (entering) {
@@ -93,7 +93,7 @@ class PlanModeTool @Inject constructor(
             modeBeforePlan = sessionEntity.modeBeforePlan
         }
 
-        // 保存到数据库。UI 层通过 flow 监听，会自动更新外观与后续流程的上下文。
+        // Save to the database. The UI layer observes via flow and updates the appearance and the context of subsequent turns automatically.
         chatSessionDao.upsert(sessionEntity.copy(mode = effectiveMode.name, modeBeforePlan = modeBeforePlan))
 
         return ToolResult.Success(

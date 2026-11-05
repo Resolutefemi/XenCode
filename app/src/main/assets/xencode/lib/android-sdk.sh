@@ -1,13 +1,13 @@
 #!/bin/sh
-# Android SDK 安装共享逻辑：供 scenarios/android.sh 与 scenarios/flutter.sh 共用。
-# 参考「进阶教程 · 在容器中编译 Android 应用」。
+# Shared Android SDK install logic: used by both scenarios/android.sh and scenarios/flutter.sh.
+# See "Advanced tutorial: Building Android apps in the container".
 
 ANDROID_CLT_URL="https://mirrors.cloud.tencent.com/AndroidSDK/commandlinetools-linux-13114758_latest.zip"
 ANDROID_MIRROR="https://mirrors.cloud.tencent.com/AndroidSDK/"
 ARM_TOOLS_URL="https://github.com/lzhiyong/android-sdk-tools/releases/download/35.0.2/android-sdk-tools-static-aarch64.zip"
 ARM_TOOLS_PROXY_URL="https://gh-proxy.com/$ARM_TOOLS_URL"
 
-# ── 探测 JDK 的 JAVA_HOME：优先 17（AGP / 教程基线），其次 21；发行版路径各异，逐个候选 + 从 java 反推 ──
+# -- Detect the JDK JAVA_HOME: prefer 17 (AGP / tutorial baseline), then 21; distro paths vary, so try each candidate + infer from java --
 java_home_dir() {
     for v in 17 21; do
         for d in /usr/lib/jvm/java-$v-openjdk-* /usr/lib/jvm/java-$v-* /usr/lib/jvm/openjdk-$v* /usr/lib/jvm/java-1.$v.0-*; do
@@ -21,7 +21,7 @@ java_home_dir() {
     return 1
 }
 
-# ── apt 下要安装的 JDK 包名：优先 17，源里没有则回退 21（Debian 13 / Ubuntu 26.04 只有 21）──
+# -- JDK package name to install via apt: prefer 17, fall back to 21 if absent from the repos (Debian 13 / Ubuntu 26.04 only have 21) --
 apt_jdk_pkg() {
     for p in openjdk-17-jdk-headless openjdk-21-jdk-headless; do
         if apt-cache policy "$p" 2>/dev/null | grep -q '^  Candidate: [0-9]'; then
@@ -31,9 +31,9 @@ apt_jdk_pkg() {
     echo "openjdk-17-jdk-headless"
 }
 
-# ── 安装 Android SDK：cmdline-tools + sdkmanager 组件。
-#    $1=平台版本（空格分隔，如 "36"）、$2=build-tools 版本（空格分隔，如 "33.0.1 35.0.0"）。
-#    组件走腾讯云镜像（SDK_TEST_BASE_URL 覆盖 sdkmanager 仓库根）。幂等：已装则跳过。──
+# -- Install the Android SDK: cmdline-tools + sdkmanager components.
+#    $1=platform versions (space-separated, e.g. "36"), $2=build-tools versions (space-separated, e.g. "33.0.1 35.0.0").
+#    Components come from the Tencent Cloud mirror (SDK_TEST_BASE_URL overrides the sdkmanager repo root). Idempotent: skips what is already installed. --
 install_android_sdk() {
     platforms="$1"
     buildtools="$2"
@@ -71,8 +71,8 @@ install_android_sdk() {
     return 0
 }
 
-# ── aarch64 替换 Android SDK 里的原生二进制（Google 的 aapt2/adb 等是 x86_64，ARM64 上跑不了）。
-#    x86_64 容器跳过（官方二进制可直用）。下载失败仅告警，不阻塞后续。──
+# -- On aarch64, replace the Android SDK native binaries (Google aapt2/adb etc. are x86_64 and cannot run on ARM64).
+#    x86_64 containers skip this (official binaries work as-is). A failed download only warns and does not block what follows. --
 install_android_tools_arm64() {
     [ "$(uname -m)" = "aarch64" ] || return 0
     sdk="$HOME/android/sdk"
@@ -100,7 +100,7 @@ install_android_tools_arm64() {
     return 0
 }
 
-# ── 写 Android 环境变量到容器登录 shell，并配置 Gradle 的 aapt2 覆盖（全局，不污染项目）──
+# -- Write Android environment variables to the container login shell, and configure the Gradle aapt2 override (global, does not pollute projects) --
 write_android_profile() {
     sdk="$HOME/android/sdk"
     jh=$(java_home_dir)
@@ -123,7 +123,7 @@ write_android_profile() {
         echo "android.aapt2FromMavenOverride=$sdk/build-tools/35.0.0/aapt2" >> "$gp.tmp"
         mv "$gp.tmp" "$gp"
     fi
-    # 当前会话立即可用
+    # Available immediately in the current session
     [ -n "$jh" ] && export JAVA_HOME="$jh"
     export ANDROID_HOME="$sdk" ANDROID_SDK_ROOT="$sdk"
     export PATH="$sdk/cmdline-tools/latest/bin:$sdk/platform-tools:$PATH"

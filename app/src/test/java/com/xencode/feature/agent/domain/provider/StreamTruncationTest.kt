@@ -8,13 +8,13 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 /**
- * 流式响应「没收到结束标记、连接就没了」时的降级交付（[StreamTruncation]）。
+ * Degraded delivery when a streaming response loses the connection before the end marker arrives ([StreamTruncation]).
  *
- * 覆盖点：
- * - 判活只看正文是否非空（只有思考/工具名时降级无意义，仍走重试）
- * - 半截 JSON 入参必须被识别出来并丢弃（带残缺参数执行工具比丢掉调用危险）
- * - 降级后 stopReason 落在 [AIResponse.TRUNCATION_STOP_REASONS] 内，Agent 循环才会自动续写
- * - 已正常终止的流不会被误标截断
+ * Coverage:
+ * - Salvageability depends only on non-blank body text (with only thinking/tool names, degrading is pointless; retry instead)
+ * - Half-written JSON arguments must be detected and dropped (running a tool with broken arguments is riskier than losing the call)
+ * - After degrading, stopReason must land within [AIResponse.TRUNCATION_STOP_REASONS] or the agent loop won't auto-continue
+ * - A stream that terminated normally is not mislabeled as truncated
  */
 class StreamTruncationTest {
 
@@ -25,14 +25,14 @@ class StreamTruncationTest {
     fun salvageableOnlyWhenTextIsNotBlank() {
         assertFalse("".isSalvageableAfterTruncation())
         assertFalse("   \n\t".isSalvageableAfterTruncation())
-        assertTrue("半句话".isSalvageableAfterTruncation())
+        assertTrue("half a sentence".isSalvageableAfterTruncation())
     }
 
     @Test
     fun completeJsonObjectIsDetected() {
         assertTrue(looksLikeCompleteJsonObject("{\"path\":\"a.txt\"}"))
         assertTrue(looksLikeCompleteJsonObject("{}"))
-        // 断流时参数几乎必然停在半截
+        // On a dropped stream the arguments almost always stop mid-way
         assertFalse(looksLikeCompleteJsonObject("{\"path\":\"a.tx"))
         assertFalse(looksLikeCompleteJsonObject("{\"path\":"))
         assertFalse(looksLikeCompleteJsonObject(""))
@@ -41,14 +41,14 @@ class StreamTruncationTest {
     @Test
     fun responsesTruncationMarksLengthAndSalvagesText() {
         val acc = ResponsesStreamAccumulator()
-        acc.accept(event("{'type':'response.output_text.delta','delta':'已经流出的一段'}"))
+        acc.accept(event("{'type':'response.output_text.delta','delta':'a segment already streamed out'}"))
         assertFalse(acc.terminated)
 
         acc.markNetworkTruncated()
 
         val response = acc.toResponse()
-        assertEquals("已经流出的一段", response.content)
-        // stopReason 必须命中 TRUNCATION_STOP_REASONS，否则 Agent 循环不会续写
+        assertEquals("a segment already streamed out", response.content)
+        // stopReason must hit TRUNCATION_STOP_REASONS, otherwise the agent loop will not continue
         assertEquals(STREAM_TRUNCATED_STOP_REASON, response.stopReason)
         assertTrue(response.isTruncated)
     }
@@ -56,7 +56,7 @@ class StreamTruncationTest {
     @Test
     fun responsesAlreadyTerminatedIsNotMarkedTruncated() {
         val acc = ResponsesStreamAccumulator()
-        acc.accept(event("{'type':'response.output_text.delta','delta':'完整回答'}"))
+        acc.accept(event("{'type':'response.output_text.delta','delta':'a complete answer'}"))
         acc.accept(
             JsonObject().apply {
                 addProperty("type", "response.completed")
@@ -65,7 +65,7 @@ class StreamTruncationTest {
         )
         assertTrue(acc.terminated)
 
-        // 到过终态后再置位应被忽略：正常结束不能被误标成截断
+        // Setting the flag after reaching a terminal state must be ignored: a normal end must not be mislabeled as truncation
         acc.markNetworkTruncated()
 
         val response = acc.toResponse()
@@ -75,7 +75,7 @@ class StreamTruncationTest {
     @Test
     fun responsesTruncationDropsHalfWrittenToolArguments() {
         val acc = ResponsesStreamAccumulator()
-        acc.accept(event("{'type':'response.output_text.delta','delta':'我先读个文件'}"))
+        acc.accept(event("{'type':'response.output_text.delta','delta':'let me read a file first'}"))
 
         val item = JsonObject().apply {
             addProperty("type", "function_call")
@@ -90,7 +90,7 @@ class StreamTruncationTest {
                 add("item", item)
             }
         )
-        // 参数只流到一半连接就断了
+        // The connection dropped while the arguments were only half streamed
         acc.accept(
             JsonObject().apply {
                 addProperty("type", "response.function_call_arguments.delta")
@@ -104,9 +104,9 @@ class StreamTruncationTest {
 
         val response = acc.toResponse()
         assertTrue(response.isTruncated)
-        // 残缺参数拿去写文件比丢掉这次调用危险得多
-        assertTrue("半截入参的调用必须丢弃", response.toolCalls.isEmpty())
-        assertEquals("我先读个文件", response.content)
+        // Writing a file with broken arguments is far riskier than losing this call
+        assertTrue("calls with half-written arguments must be dropped", response.toolCalls.isEmpty())
+        assertEquals("let me read a file first", response.content)
     }
 
     @Test
@@ -122,7 +122,7 @@ class StreamTruncationTest {
             )
         )
         acc.accept(
-            event("{'event_type':'step.delta','index':0,'delta':'已经流出的一段'}")
+            event("{'event_type':'step.delta','index':0,'delta':'a segment already streamed out'}")
         )
         assertFalse(acc.terminated)
 

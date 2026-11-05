@@ -45,11 +45,11 @@ import compose.icons.feathericons.ChevronRight
 import compose.icons.feathericons.Search
 
 /**
- * 设置页分组组件：浅灰背景 + 白色分组圆角卡片 + 组内缩进分隔线 + 黑色线条图标。
+ * Settings page group components: light gray background + white rounded group cards + inset dividers + black line icons.
  *
- * 用法：
+ * Usage:
  * ```
- * SettingsGroupHeader("分组标题")
+ * SettingsGroupHeader("Group title")
  * SettingsGroup {
  *     SettingsRow(icon, title, onClick = { ... })
  *     SettingsDivider()
@@ -58,12 +58,12 @@ import compose.icons.feathericons.Search
  * ```
  */
 
-/** 当前是否浅色模式（据此切换浅灰/主题深色配色）。 */
+/** Whether the current mode is light (switches between light gray and themed dark colors accordingly). */
 @Composable
 internal fun settingsLightMode(): Boolean =
     MaterialTheme.colorScheme.background.luminance() > 0.5f
 
-/** 可折叠分组标题：点击展开/收起，右侧 chevron 指示状态。与工具授权页的分组一致。 */
+/** Collapsible group header: tap to expand/collapse, chevron on the right indicates the state. Same grouping as the tool authorization page. */
 @Composable
 internal fun CollapsibleGroupHeader(
     text: String,
@@ -92,12 +92,12 @@ internal fun CollapsibleGroupHeader(
     }
 }
 
-/** 设置页背景：统一使用语义定义的 pageBackground。 */
+/** Settings page background: uniformly uses the semantically defined pageBackground. */
 @Composable
 internal fun settingsPageBackground(): Color =
     MaterialTheme.semanticColors.pageBackground
 
-/** 分组小标题：卡片上方灰色小字，左对齐。 */
+/** Group subtitle: small gray text above the card, left-aligned. */
 @Composable
 internal fun SettingsGroupHeader(text: String, modifier: Modifier = Modifier) {
     Text(
@@ -109,7 +109,7 @@ internal fun SettingsGroupHeader(text: String, modifier: Modifier = Modifier) {
     )
 }
 
-/** 白色/深色分组圆角卡片容器：内部按行排布，行间用 [SettingsDivider] 分隔。 */
+/** White/dark rounded group card container: rows stacked inside, separated by [SettingsDivider]. */
 @Composable
 internal fun SettingsGroup(
     modifier: Modifier = Modifier,
@@ -126,11 +126,11 @@ internal fun SettingsGroup(
 }
 
 /**
- * 分组内单行：左侧线条图标 + 标题，右侧可选尾随组件（右箭头/开关/值）。
+ * Single row inside a group: line icon + title on the left, optional trailing component on the right (chevron/switch/value).
  *
- * @param icon 左侧图标，null 则标题与无图标行对齐。
- * @param trailing 右侧尾随内容（如 [com.xencode.core.ui.AppSwitch]、chevron）。
- * @param onClick null 表示无点击行为（如开关行）；非 null 时行尾自动显示右箭头。
+ * @param icon Left icon; when null, the title aligns with icon-less rows.
+ * @param trailing Trailing content on the right (e.g. [com.xencode.core.ui.AppSwitch], chevron).
+ * @param onClick null means no tap behavior (e.g. switch rows); when non-null, a right chevron is shown automatically.
  */
 @Composable
 internal fun SettingsRow(
@@ -187,7 +187,7 @@ internal fun SettingsRow(
     }
 }
 
-/** 分组内行间分隔线：左右两端均缩进对齐行内容，末行不显示。 */
+/** Divider between rows in a group: inset on both ends to align with row content, not shown after the last row. */
 @Composable
 internal fun SettingsDivider() {
     HorizontalDivider(
@@ -197,8 +197,8 @@ internal fun SettingsDivider() {
     )
 }
 
-/** iOS 风格搜索框：浅灰胶囊背景、无边框，与设置页分组风格一致。
- *  [trailing] 为可选尾部控件（如清除按钮）。 */
+/** iOS-style search field: light gray pill background, borderless, consistent with the settings page group style.
+ *  [trailing] is an optional trailing control (e.g. a clear button). */
 @Composable
 internal fun ModelSearchField(
     query: String,

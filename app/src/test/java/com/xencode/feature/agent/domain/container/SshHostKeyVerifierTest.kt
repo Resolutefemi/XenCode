@@ -8,8 +8,8 @@ import org.junit.Test
 import java.security.KeyPairGenerator
 
 /**
- * SSH 主机密钥校验逻辑：首次连接需确认（不自动放行）、确认后匹配放行、指纹变化拒绝、删除后重新要求确认、端口隔离。
- * 存储用内存实现（[SshHostKeyStore] 接口），不依赖 Android。
+ * SSH host key verification logic: first connection requires confirmation (no auto-allow), a matching fingerprint after confirmation is allowed, a changed fingerprint is rejected, deletion requires confirmation again, and ports are isolated.
+ * Storage uses an in-memory implementation of the [SshHostKeyStore] interface, with no Android dependency.
  */
 class SshHostKeyVerifierTest {
 
@@ -35,7 +35,7 @@ class SshHostKeyVerifierTest {
         key: java.security.PublicKey
     ): SshHostKeyPendingException = try {
         verifier.verify(host, port, key)
-        fail("应抛出 SshHostKeyPendingException")
+        fail("expected SshHostKeyPendingException to be thrown")
         error("unreachable")
     } catch (e: SshHostKeyPendingException) {
         e
@@ -49,7 +49,7 @@ class SshHostKeyVerifierTest {
         assertTrue(!e.changed)
         assertEquals("example.com", e.host)
         assertEquals(22, e.port)
-        // 未确认前不保存指纹
+        // The fingerprint is not saved before confirmation
         assertTrue(store.get("example.com", 22) == null)
     }
 
@@ -59,7 +59,7 @@ class SshHostKeyVerifierTest {
         val key = rsaPublicKey()
         try {
             verifier.verify("example.com", 22, key)
-            fail("应抛出 SshHostKeyPendingException")
+            fail("expected SshHostKeyPendingException to be thrown")
         } catch (e: SshHostKeyPendingException) {
             // expected
         }
@@ -67,7 +67,7 @@ class SshHostKeyVerifierTest {
         assertEquals("example.com", pending?.host)
         assertEquals(22, pending?.port)
         assertTrue(pending?.fingerprint?.startsWith("SHA256:") == true)
-        // 已消费，第二次取不到
+        // Already consumed, so a second fetch returns null
         assertTrue(verifier.consumePending() == null)
     }
 

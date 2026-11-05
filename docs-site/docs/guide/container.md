@@ -1,118 +1,118 @@
-# 容器与镜像
+# Containers & Images
 
-XenCode 中 AI 执行命令的环境称为「容器」，入口在「设置 → 容器与镜像」。列表为单选，选中的容器即 AI 命令执行、文件读写与终端所在的环境。
+In XenCode, the environment where the AI executes commands is called a "container"; the entry point is under "Settings → Containers & Images". The list is single-select: the selected container is the environment for the AI's command execution, file read/write, and the terminal.
 
-后端分两类，二者必选其一：**本地容器**（在手机上运行 Linux 系统）与**远程 SSH**（在远程服务器上运行，见[远程 SSH 模式](/guide/remote-ssh)）。
+There are two kinds of backends, and one of the two must be chosen: **local containers** (a Linux system running on the phone) and **remote SSH** (running on a remote server; see [Remote SSH mode](/guide/remote-ssh)).
 
-## 容器列表
+## Container List
 
-每行是一个容器配置，名称后附来源标记：内置、自定义、SSH。
+Each row is a container configuration, with a source tag after the name: built-in, custom, or SSH.
 
-三种操作对各类容器均适用：
+Three actions apply to every kind of container:
 
-- **编辑**：行尾铅笔图标。
-- **重置**：编辑弹窗右上角刷新图标。此为破坏性操作，会删除容器内已安装的工具与配置，需二次确认；确认后正在运行的 AI 会话与所有终端标签都会关闭。内容较多的大型容器删除可能耗时数十秒，期间显示「正在清理容器数据」及已清理项数，完成后自动关闭，界面不阻塞。
-- **删除**：行上左滑露出红色删除按钮。删除本地镜像会一并清理其 rootfs 释放空间（同样显示清理进度）；删除远程 SSH 仅删除配置，不影响服务器数据。
+- **Edit**: the pencil icon at the end of the row.
+- **Reset**: the refresh icon in the top-right corner of the edit dialog. This is a destructive operation: it deletes the tools and configuration already installed inside the container and requires a second confirmation; once confirmed, running AI sessions and all terminal tabs are closed. Resetting a large container with a lot of content can take tens of seconds; "Cleaning container data" and a count of the cleaned items are shown during the process, and it closes automatically when done without blocking the UI.
+- **Delete**: swipe the row left to reveal the red delete button. Deleting a local image also cleans up its rootfs to free space (with the same progress display); deleting a remote SSH entry only removes the configuration and doesn't touch data on the server.
 
-内置 Alpine 也可删除。全部删除后列表显示空态，可一键恢复内置 Alpine，无需担心误删。
+The built-in Alpine can be deleted too. When everything is deleted, the list shows an empty state where the built-in Alpine can be restored with one tap—no need to worry about accidental deletion.
 
-容器运行后，App 会自动识别其系统类型，在列表左侧显示对应图标（支持 Alpine、Ubuntu、Debian、CentOS），无法识别则显示默认图标。
+Once a container has run, the app automatically identifies its system type and shows the matching icon on the left of the list row (Alpine, Ubuntu, Debian, and CentOS are recognized); a default icon is shown when it can't be identified.
 
-## 内置 Alpine 容器
+## Built-in Alpine Container
 
-App 自带 Alpine 镜像，首次启动时自动加入列表并选中，shell 路径已自动配置，无需额外设置。
+The app ships with an Alpine image that is automatically added to the list and selected on first launch, with the shell path already configured—no extra setup needed.
 
-::: tip 首次使用需进入终端完成初始化
-本地容器的环境准备（解压 rootfs 及安装基础工具）在首次进入**终端页面**时触发。首次使用请先进入终端完成初始化，之后 AI 命令执行、Git 管理与本地 MCP 才能正常使用。
+::: tip Enter the terminal once to finish initialization
+For local containers, first-time environment preparation (extracting the rootfs and installing basic tools) is triggered when you enter the **terminal page** for the first time. On first use, enter the terminal to complete initialization; after that, AI command execution, Git management, and local MCP work normally.
 :::
 
-## 首次进终端的初始化菜单
+## The Initialization Menu on First Terminal Entry
 
-无论内置 Alpine 还是自行导入的镜像，rootfs 解压完成后首次进入终端都会弹出初始化菜单，含四个选项：
+Whether it's the built-in Alpine or a self-imported image, the first time you enter the terminal after the rootfs has been extracted, an initialization menu with four options appears:
 
-**1. 自动安装依赖（推荐）**
+**1. Automatically install dependencies (recommended)**
 
-列出待装项（bash、curl、ripgrep、git 等基础工具，以及 Node.js 和 Python 3），输入 `y` 确认后选择软件源并开始安装。
+Lists what will be installed (basic tools such as bash, curl, ripgrep, and git, plus Node.js and Python 3); enter `y` to confirm, then choose a mirror and installation begins.
 
-**2. 环境安装**
+**2. Environment install**
 
-打开「环境安装」菜单，按场景选择开发环境（见下节）。场景是一组运行时的组合，选定后确认清单即可安装；菜单中也提供「自定义安装」，可逐项勾选并指定主版本。
+Opens the "Environment install" menu, where you pick a development environment by scenario (see the next section). A scenario is a bundle of runtimes; confirm the list after choosing and installation begins. The menu also offers "Custom install", where you can check items one by one and specify major versions.
 
-**3. 手动安装（不再提示）**
+**3. Manual install (don't ask again)**
 
-跳过安装，此后进入终端不再弹出该菜单，工具自行安装。如需恢复菜单，重置容器即可。
+Skips installation; the menu won't pop up again when entering the terminal, and you install tools yourself. To bring the menu back, reset the container.
 
-**4. 退出**
+**4. Exit**
 
-本次不安装，下次进入终端仍会提示。
+Installs nothing this time; you'll be prompted again the next time you enter the terminal.
 
-安装失败不影响进入 shell，重新进入终端可再次尝试。
+A failed installation doesn't block entry to the shell; re-enter the terminal to try again.
 
-### 软件源选择
+### Choosing a Mirror
 
-换源时可选择：
+When switching mirrors, you can choose:
 
-- `1) 自动探测（推荐）`：实测各镜像源在当前包管理器下的可达性，自动跳过失效或被墙的源。
-- `2~6)` 指定镜像源：华为云、清华 tuna、中科大 ustc、腾讯云、阿里云。
-- `0)` 不换源，保持默认。
+- `1) Auto-detect (recommended)`: probes each mirror's reachability under the current package manager and automatically skips dead or blocked ones.
+- `2~6)` specify a mirror: Huawei Cloud, Tsinghua TUNA, USTC, Tencent Cloud, Aliyun.
+- `0)` don't switch; keep the default.
 
-换源前会备份原配置，失败自动恢复，不影响后续安装。内置 Alpine 的 rootfs 保持官方源，需要国内源时在此菜单切换。
+The original configuration is backed up before switching and restored automatically on failure, so later installs are unaffected. The built-in Alpine rootfs keeps the official mirrors; switch in this menu if you need mirrors hosted in China.
 
-## 随时安装开发依赖（xencode）
+## Installing Development Dependencies Anytime (xencode)
 
-初始化菜单仅在首次进入终端时弹出一次。之后如需安装其他运行时（例如 Java 或 Go），在终端执行命令 `xencode` 即可打开「环境安装」菜单。
+The initialization menu appears only once, on first entry to the terminal. To install other runtimes later (Java or Go, for example), run the command `xencode` in the terminal to open the "Environment install" menu.
 
-`xencode` 按场景安装，选定场景并确认清单即可：
+`xencode` installs by scenario: pick one and confirm the list, that's all:
 
-| 场景 | 安装内容 |
+| Scenario | What gets installed |
 | --- | --- |
-| 通用开发 | 基础工具 + Node.js + Python 3 |
-| Python 开发 | 基础工具 + Python 3 + pip |
-| Node.js / 前端开发 | 基础工具 + Node.js + npm |
-| Kotlin / Android 开发 | 基础工具 + JDK 17 + Android SDK |
-| Flutter 开发 | 基础工具 + JDK + Android SDK + Flutter SDK |
-| Java 开发 | 基础工具 + JDK |
-| Go 开发 | 基础工具 + Go |
-| Rust 开发 | 基础工具 + rustc + cargo |
-| PHP 开发 | 基础工具 + PHP + Composer |
-| 仅基础工具 | bash、curl、ripgrep、git |
+| General development | Basic tools + Node.js + Python 3 |
+| Python development | Basic tools + Python 3 + pip |
+| Node.js / frontend development | Basic tools + Node.js + npm |
+| Kotlin / Android development | Basic tools + JDK 17 + Android SDK |
+| Flutter development | Basic tools + JDK + Android SDK + Flutter SDK |
+| Java development | Basic tools + JDK |
+| Go development | Basic tools + Go |
+| Rust development | Basic tools + rustc + cargo |
+| PHP development | Basic tools + PHP + Composer |
+| Basic tools only | bash, curl, ripgrep, git |
 
-基础工具（bash、curl、ripgrep、git）在任何场景下都会安装。场景默认安装软件仓库的最新主版本；如需指定版本，使用菜单中的「自定义安装」逐项勾选。菜单中还支持单独换软件源、查看已安装的运行时。
+The basic tools (bash, curl, ripgrep, git) are installed in every scenario. Scenarios install the latest major version from the software repositories by default; to pin a version, use "Custom install" in the menu and check items one by one. The menu also supports switching mirrors separately and viewing installed runtimes.
 
-「Kotlin / Android 开发」与「Flutter 开发」属重场景：会从国内镜像下载 JDK、Android SDK（含 build-tools、platform-tools）及 Flutter SDK，耗时较长、占用存储较多。建议在 Debian / Ubuntu 镜像中安装（内置 Alpine 因使用 musl libc 需额外处理）；ARM64 设备会自动替换为可执行的 aapt2 等原生二进制。注意 ARM64 容器仅能构建 Flutter debug APK，release 包需通过远程构建。安装完成后，新开终端会自动带上 `JAVA_HOME`、`ANDROID_HOME` 等环境变量，具体编译步骤见「进阶教程」中的《在容器中编译 Android 应用》《在容器中编译 Flutter 应用》。
+"Kotlin / Android development" and "Flutter development" are heavy scenarios: the JDK, the Android SDK (including build-tools and platform-tools), and the Flutter SDK are downloaded from mirrors hosted in China, which takes a while and uses a fair amount of storage. Installing in a Debian / Ubuntu image is recommended (the built-in Alpine needs extra handling because of musl libc); on ARM64 devices, native binaries such as aapt2 are automatically replaced with executable ones. Note that ARM64 containers can only build Flutter debug APKs; release builds must be done via remote builds. After installation, newly opened terminals automatically carry environment variables such as `JAVA_HOME` and `ANDROID_HOME`. For the detailed build steps, see "Building Android apps in the container" and "Building Flutter apps in the container" in the Advanced Tutorials.
 
-终端右上角的设置图标打开终端设置面板，可调整配色主题、字号、字体与光标样式。
+The settings icon in the top-right corner of the terminal opens the terminal settings panel, where you can adjust the color theme, font size, font, and cursor style.
 
-## 自定义镜像
+## Custom Images
 
-内置 Alpine 可满足多数场景。如需 Debian / Ubuntu，或预装特定工具链的环境，可自行添加镜像，有两种方式。
+The built-in Alpine covers most scenarios. If you need Debian / Ubuntu, or an environment with a specific toolchain preinstalled, you can add your own image in two ways.
 
-### 方式一：内置镜像下载（推荐）
+### Option 1: built-in image download (recommended)
 
-1. 打开「设置 → 容器与镜像」，点击右上角下载图标。
-2. 页面列出可下载的镜像（Alpine、Ubuntu、Debian 等），点击一行查看详情并下载。
-3. 右上角可切换下载源（官方源 / 华为云 / 阿里云 / 腾讯云），国内网络建议选国内源。
-4. 下载完成后点击「导入」，镜像加入容器列表，选中即可使用。
+1. Open "Settings → Containers & Images" and tap the download icon in the top-right corner.
+2. The page lists downloadable images (Alpine, Ubuntu, Debian, etc.); tap a row to see details and download.
+3. The top-right corner switches the download source (official / Huawei Cloud / Aliyun / Tencent Cloud); on networks in China, a China-based source is recommended.
+4. When the download finishes, tap "Import"; the image joins the container list—select it to use it.
 
-已下载的镜像可重复导入；左滑可删除已下载的镜像文件。
+Downloaded images can be imported repeatedly; swipe left to delete a downloaded image file.
 
-### 方式二：手动导入镜像文件
+### Option 2: manually import an image file
 
-需要特定版本或发行版时，可自行准备 rootfs 镜像导入。
+When you need a specific version or distribution, prepare a rootfs image yourself and import it.
 
-**镜像要求**：
+**Image requirements**:
 
-- 压缩格式：`.tar.gz`、`.tgz`、`.tar.xz`、`.txz`
-- 内容须为完整的 Linux rootfs（文件系统根目录，包含 `/bin/sh` 或其它 shell）
-- 架构须与设备匹配：ARM64 设备用 aarch64 镜像，x86 设备用 x86_64 镜像
+- Compression format: `.tar.gz`, `.tgz`, `.tar.xz`, `.txz`
+- The contents must be a complete Linux rootfs (a filesystem root, including `/bin/sh` or another shell)
+- The architecture must match the device: ARM64 devices use aarch64 images, x86 devices use x86_64 images
 
-**镜像来源**：
+**Where to get images**:
 
-- Alpine（体积小、启动快）：`https://alpine.linuxhub.cn/alpine/edge/releases/`，在 aarch64 目录下选 `alpine-minirootfs-*-aarch64.tar.gz`
-- Ubuntu：`https://cdimage.ubuntu.com/ubuntu-base/releases/`，选 `ubuntu-base-*-base-arm64.tar.gz`
-- Debian：可从 Docker Hub 官方镜像（如 `arm64v8/debian`）导出
+- Alpine (small, fast to start): `https://alpine.linuxhub.cn/alpine/edge/releases/`, pick `alpine-minirootfs-*-aarch64.tar.gz` in the aarch64 directory
+- Ubuntu: `https://cdimage.ubuntu.com/ubuntu-base/releases/`, pick `ubuntu-base-*-base-arm64.tar.gz`
+- Debian: export from the official Docker Hub image (e.g. `arm64v8/debian`)
 
-具备 Docker 环境时，可从任意镜像导出 rootfs：
+With Docker available, you can export a rootfs from any image:
 
 ```bash
 docker pull debian:bookworm
@@ -121,45 +121,45 @@ docker export temp-rootfs | gzip > debian-rootfs.tar.gz
 docker rm temp-rootfs
 ```
 
-也可在已有 Linux 环境中用 `debootstrap`（Debian / Ubuntu）或 `alpine-make-rootfs`（Alpine）自行制作。
+You can also build one yourself in an existing Linux environment with `debootstrap` (Debian / Ubuntu) or `alpine-make-rootfs` (Alpine).
 
-**导入步骤**：
+**Import steps**:
 
-1. 打开「设置 → 容器与镜像」，点击右上角 +，选「本地镜像」。
-2. 填写配置：
-   - **名称**：镜像配置的别名。
-   - **shell 路径**：容器内 shell，如 `/bin/sh` 或 `/bin/bash`。
-   - **镜像文件**：选择准备好的 rootfs 文件。保存时会复制一份到 App 私有目录，此后重置容器均从该副本重新解压，不依赖原始文件；删除镜像时副本一并清理。
-   - **挂载**（可选）：将手机目录挂进容器，见下文「把手机目录挂给 AI 用」。
-   - **proot 参数**（可选）：逐项添加，原样追加到 PRoot 启动参数。
-   - **环境变量**（可选）：注入容器内进程的键值对。
-3. 保存后在列表中选中该配置，即切换为自定义容器。
+1. Open "Settings → Containers & Images", tap + in the top-right corner, and choose "Local image".
+2. Fill in the configuration:
+   - **Name**: an alias for this image configuration.
+   - **Shell path**: the shell inside the container, e.g. `/bin/sh` or `/bin/bash`.
+   - **Image file**: pick the prepared rootfs file. On save, a copy is placed in the app's private directory; subsequent container resets always re-extract from that copy, so the original file isn't needed. The copy is cleaned up when the image is deleted.
+   - **Mounts** (optional): mount phone directories into the container; see "Mounting phone directories for the AI" below.
+   - **proot arguments** (optional): add items one by one; they are appended verbatim to the PRoot launch arguments.
+   - **Environment variables** (optional): key-value pairs injected into processes inside the container.
+3. After saving, select the configuration in the list to switch to the custom container.
 
-首次使用自定义镜像时 App 会解压 rootfs 到私有目录，耗时取决于镜像大小。自定义镜像默认不配置国内软件源，可在首次进入终端的初始化菜单中切换。
+The first time you use a custom image, the app extracts the rootfs into its private directory; how long that takes depends on the image size. Custom images don't configure China-based software mirrors by default; switch them in the initialization menu on first entry to the terminal.
 
-### 常见问题排查
+### Troubleshooting
 
-**安装软件报错**：由容器内硬链接不可用导致。编辑镜像 → proot 参数 → 添加 `--link2symlink` → 保存，重新进入终端。使用内置下载功能导入的镜像已默认带有该参数。
+**Errors installing packages**: caused by hard links being unavailable inside the container. Edit the image → proot arguments → add `--link2symlink` → save, then re-enter the terminal. Images imported through the built-in download already carry this argument by default.
 
-**方向键显示为 `^[[A`**：当前 shell 为 `sh`，不支持行编辑。编辑容器，将 Shell 改为 `/bin/bash`，即可获得方向键、历史记录与补全。
+**Arrow keys show `^[[A`**: the current shell is `sh`, which doesn't support line editing. Edit the container and set the shell to `/bin/bash` to get arrow keys, history, and completion.
 
-## 把手机目录挂给 AI 用
+## Mounting Phone Directories for the AI
 
-AI 运行在容器内，默认只能看到工作区，无法访问手机公共存储。如需访问，需将手机目录挂进容器：
+The AI runs inside the container and by default can only see the workspace, not the phone's shared storage. To grant access, mount a phone directory into the container:
 
-1. 确认存储权限已授权。首次使用时会弹出权限请求；若此前拒绝过，前往系统设置 → 应用 → XenCode → 权限 → 存储 开启。
-2. 打开「设置 → 容器与镜像」，编辑当前使用的容器。
-3. 在「挂载」中添加一条：**本地目录**填手机上的路径（如 `/sdcard/Download`），**容器目录**填容器内路径（如 `/mnt/Download`）。
-4. 保存后重启终端会话，AI 即可通过容器内路径访问。
+1. Make sure the storage permission has been granted. The permission request appears on first use; if you declined it before, go to system Settings → Apps → XenCode → Permissions → Storage and enable it.
+2. Open "Settings → Containers & Images" and edit the container currently in use.
+3. Add an entry under "Mounts": **Local directory** is the path on the phone (e.g. `/sdcard/Download`); **Container directory** is the path inside the container (e.g. `/mnt/Download`).
+4. Save and restart the terminal session; the AI can then access it via the in-container path.
 
-::: warning 按需挂载
-仅挂载需要的子目录，不要直接挂载整个 `/sdcard`——那会将手机中所有文件暴露给 AI，存在隐私泄露风险。
+::: warning Mount only what you need
+Mount only the subdirectories you need—do not mount all of `/sdcard` directly. That would expose every file on the phone to the AI, risking privacy leaks.
 :::
 
-例：如需让 AI 查看 App 日志，将本地目录 `/storage/emulated/0/Android/data/com.xencode/` 挂到容器 `/mnt/xencode`，即可读取 `/mnt/xencode/files/logs/` 下的日志。注意 `Android/data/` 下只能访问 XenCode 自身的目录，其他应用的目录受分区存储限制无法访问。
+Example: to let the AI look at the app logs, mount the local directory `/storage/emulated/0/Android/data/com.xencode/` to the container path `/mnt/xencode`; the logs under `/mnt/xencode/files/logs/` then become readable. Note that under `Android/data/` only XenCode's own directory is accessible—other apps' directories are off-limits due to scoped-storage restrictions.
 
-如需处理的仅为单个文件，更简便的方式是将其复制进工作区，AI 默认即可访问。
+If it's just a single file you need to work with, the simpler way is to copy it into the workspace, which the AI can access by default.
 
-## 全部删除后的行为
+## Behavior After Deleting Everything
 
-即使删除所有容器（包括内置 Alpine），App 仍可正常使用——AI 执行命令时会回退到内置 Alpine 作为默认执行环境。重新打开「容器与镜像」页，可在空状态页面一键恢复内置 Alpine 或添加新镜像。
+Even if you delete every container (including the built-in Alpine), the app keeps working—when the AI runs commands, it falls back to the built-in Alpine as the default execution environment. Reopen the "Containers & Images" page and the empty state lets you restore the built-in Alpine with one tap or add a new image.

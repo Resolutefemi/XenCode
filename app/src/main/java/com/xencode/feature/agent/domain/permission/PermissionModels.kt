@@ -3,33 +3,33 @@ package com.xencode.feature.agent.domain.permission
 import kotlinx.serialization.Serializable
 
 /**
- * 工具授权规则的作用域。scope 不存在规则对象里，而是由「存在哪个文件」隐含：
- * 项目文件（`.xencode/permissions.json`）或全局文件。管理界面「提升为全局」= 从项目文件删、往全局文件加。
+ * Scope of a tool authorization rule. The scope is not stored on the rule object; it is implied by "which file it lives in":
+ * the project file (`.xencode/permissions.json`) or the global file. "Promote to global" in the management UI = delete from the project file, add to the global file.
  */
 enum class PermissionScope { PROJECT, GLOBAL }
 
 /**
- * 规则的判定方向。弹窗的「始终允许」只会产生 [ALLOW]；[DENY] 仅由权限配置文件（deny 列表）提供，
- * 评估时 DENY 跨 scope 优先于 ALLOW（安全优先：全局禁可挡项目允许）。
+ * The rule's verdict. The dialog's "Always allow" only ever produces [ALLOW]; [DENY] comes only from the permission config file (the deny list),
+ * and during evaluation DENY beats ALLOW across scopes (safety first: a global deny can block a project allow).
  */
 enum class PermissionDecision { ALLOW, DENY }
 
 /**
- * 授权弹窗的用户选择。
- * - [REJECT]：拒绝本次调用，不记忆。
- * - [ONCE]：仅放行本次，不记忆。
- * - [ALWAYS]：放行并记忆为规则（弹窗路径固定写入当前项目 scope）。
+ * The user's choice in the authorization dialog.
+ * - [REJECT]: reject this call, not remembered.
+ * - [ONCE]: allow this once, not remembered.
+ * - [ALWAYS]: allow and remember as a rule (the dialog path always writes to the current project scope).
  */
 enum class PermissionChoice { REJECT, ONCE, ALWAYS }
 
 /**
- * 一条工具授权规则。
+ * One tool authorization rule.
  *
- * @param toolName 适用的工具名，如 `Bash`、`writeFile`。
- * @param pattern 匹配模式。对 shell 命令是「命令前缀」，按 token 前缀匹配：子命令分发器记
- *   `git pull`（仅命中 `git pull ...`，不命中 `git clone`），普通程序记 `cat`/`ls`（命中其所有调用）；
- *   对非 shell 工具是通配 `*`（整工具匹配）。
- * @param decision 判定方向，默认 [PermissionDecision.ALLOW]。
+ * @param toolName The tool it applies to, e.g. `Bash`, `writeFile`.
+ * @param pattern Match pattern. For shell commands it is a "command prefix", matched by token prefix: subcommand dispatchers record
+ *   `git pull` (matches only `git pull ...`, not `git clone`), plain programs record `cat`/`ls` (matching all their invocations);
+ *   for non-shell tools it is the wildcard `*` (whole-tool match).
+ * @param decision Verdict, defaulting to [PermissionDecision.ALLOW].
  */
 @Serializable
 data class PermissionRule(
@@ -38,11 +38,11 @@ data class PermissionRule(
     val decision: PermissionDecision = PermissionDecision.ALLOW
 ) {
     companion object {
-        /** 非 shell 工具的整工具匹配模式。 */
+        /** Whole-tool match pattern for non-shell tools. */
         const val WHOLE_TOOL = "*"
 
-        /** 从紧凑格式字符串解析为 PermissionRule。
-         *  格式示例：
+        /** Parse a compact-format string into a PermissionRule.
+         *  Format examples:
          *  - `"Bash"` → toolName=Bash, pattern=*, ALLOW
          *  - `"Bash(git pull)"` → toolName=Bash, pattern="git pull", ALLOW
          */
@@ -58,8 +58,8 @@ data class PermissionRule(
         }
     }
 
-    /** 转为紧凑格式字符串。
-     *  示例：
+    /** Convert to a compact-format string.
+     *  Examples:
      *  - toolName=Bash, pattern=* → `"Bash"`
      *  - toolName=Bash, pattern="git pull" → `"Bash(git pull)"`
      */
@@ -67,12 +67,12 @@ data class PermissionRule(
         if (pattern == WHOLE_TOOL) toolName else "$toolName($pattern)"
 }
 
-// ── 权限文件顶层结构 ──────────────────────────────────────────────
+// ── Permission file top-level structure ──────────────────────────────────────────────
 
 /**
- * 权限规则 JSON 文件的顶层结构。
+ * Top-level structure of the permission rules JSON file.
  *
- * 示例：
+ * Example:
  * ```json
  * {
  *   "permissions": {
@@ -97,14 +97,14 @@ data class PermissionFile(
     }
 }
 
-// PermissionFile 和 List<PermissionRule> 转换
+// Conversions between PermissionFile and List<PermissionRule>
 
-/** 从 [PermissionFile] 解析为规则列表。 */
+/** Parse a [PermissionFile] into a rule list. */
 fun PermissionFile.toRuleList(): List<PermissionRule> =
     permissions.allow.map { PermissionRule.fromCompact(it, PermissionDecision.ALLOW) } +
             permissions.deny.map { PermissionRule.fromCompact(it, PermissionDecision.DENY) }
 
-/** 从规则列表构建 [PermissionFile]。 */
+/** Build a [PermissionFile] from a rule list. */
 fun List<PermissionRule>.toPermissionFile(): PermissionFile {
     val (allow, deny) = partition { it.decision == PermissionDecision.ALLOW }
     return PermissionFile(

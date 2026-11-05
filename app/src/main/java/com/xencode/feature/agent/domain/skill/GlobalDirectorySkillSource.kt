@@ -5,9 +5,9 @@ import javax.inject.Inject
 import javax.inject.Singleton
 
 /**
- * 全局技能来源：`~/.xencode/skills`，跨项目共享。以容器路径经 [FileAccessProvider] 访问，
- * 跟随当前执行环境——本地模式落 App 私有 `filesDir/xencode/skills`（容器内 `/root/.xencode/skills`），
- * 远程模式经 SSH 落服务器用户 home 下的 `.xencode/skills`。远程是独立执行环境，读写均以远端为准。
+ * Global skill source: `~/.xencode/skills`, shared across projects. Accessed via [FileAccessProvider] with container paths,
+ * following the current execution environment — in local mode it lands in the app-private `filesDir/xencode/skills` (`/root/.xencode/skills` inside the container),
+ * in remote mode it lands under the server user's home via SSH at `.xencode/skills`. Remote is a separate execution environment; reads and writes follow the remote side.
  */
 @Singleton
 class GlobalDirectorySkillSource @Inject constructor(

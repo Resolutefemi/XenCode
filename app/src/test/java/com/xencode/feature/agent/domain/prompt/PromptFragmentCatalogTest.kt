@@ -16,10 +16,10 @@ import java.io.File
 import java.nio.file.Files
 
 /**
- * 四级来源片段的解析/保存/删除/重排：编号身份、优先级、落盘层。
+ * Resolve/save/delete/reorder of four-tier source fragments: numeric identity, precedence, and the layer written to disk.
  *
- * 注意：本地层（`prompts/`）只在**内置存在对应编号**时才会被解析（见 [PromptFragmentCatalog.resolve]），
- * 故这里让 assets 暴露一个内置文件名 `10-builtin.md`，本地同名文件才会生效。
+ * Note: the local layer (`prompts/`) is only resolved when **a builtin with the same number exists** (see [PromptFragmentCatalog.resolve]),
+ * so here assets exposes a builtin filename `10-builtin.md` to make the same-named local file take effect.
  */
 class PromptFragmentCatalogTest {
 
@@ -63,7 +63,7 @@ class PromptFragmentCatalogTest {
     }
 
     @Test
-    fun list_同编号_取优先级最高的项目层() {
+    fun list_sameNumber_prefersHighestPriorityProjectLayer() {
         write(globalDir, "10-g.md", "G")
         write(localDir, BUILTIN_NAME, "L")
         write(projectDir, "10-p.md", "P")
@@ -75,7 +75,7 @@ class PromptFragmentCatalogTest {
     }
 
     @Test
-    fun list_无项目层_回退全局再回退本地() {
+    fun list_noProjectLayer_fallsBackToGlobalThenLocal() {
         write(localDir, BUILTIN_NAME, "L")
         write(globalDir, "10-g.md", "G")
         assertEquals(PromptFragmentSource.GLOBAL, catalog.list(workspaceDir.path).first { it.number == 10 }.source)
@@ -85,7 +85,7 @@ class PromptFragmentCatalogTest {
     }
 
     @Test
-    fun renderStatic_按编号升序拼接正文() {
+    fun renderStatic_joinsBodiesInAscendingNumberOrder() {
         write(globalDir, "30-b.md", "BBB")
         write(globalDir, "10-a.md", "AAA")
 
@@ -93,7 +93,7 @@ class PromptFragmentCatalogTest {
     }
 
     @Test
-    fun saveOverride_写到指定层并清掉旧编号() {
+    fun saveOverride_writesToTargetLayerAndClearsOldNumber() {
         catalog.saveOverride(12, "x", "X", workspaceDir.path, target = PromptFragmentSource.GLOBAL)
         assertTrue(File(globalDir, "12-x.md").isFile)
 
@@ -101,19 +101,19 @@ class PromptFragmentCatalogTest {
             20, "x", "X", workspaceDir.path,
             target = PromptFragmentSource.GLOBAL, previousNumber = 12
         )
-        assertFalse("旧编号应被清掉", File(globalDir, "12-x.md").exists())
+        assertFalse("the old number should be cleaned up", File(globalDir, "12-x.md").exists())
         assertTrue(File(globalDir, "20-x.md").isFile)
     }
 
     @Test
-    fun deleteOverride_删除可写覆盖() {
+    fun deleteOverride_deletesWritableOverride() {
         write(globalDir, "12-x.md", "X")
         assertTrue(catalog.deleteOverride(12, workspaceDir.path))
         assertFalse(File(globalDir, "12-x.md").exists())
     }
 
     @Test
-    fun reorder_按新顺序重新编号并写入可写层() {
+    fun reorder_renumbersInNewOrderAndWritesWritableLayer() {
         write(globalDir, "10-a.md", "A")
         write(globalDir, "30-b.md", "B")
 
@@ -127,7 +127,7 @@ class PromptFragmentCatalogTest {
     }
 
     private companion object {
-        /** 让本地层可解析的内置文件名（编号 10）。 */
+        /** The builtin filename (number 10) that makes the local layer resolvable. */
         const val BUILTIN_NAME = "10-builtin.md"
     }
 }

@@ -45,12 +45,12 @@ import compose.icons.feathericons.Terminal
 import compose.icons.feathericons.Zap
 
 /**
- * 「软件权限」二级页：集中展示并管理系统级权限。
- * - 安装未知应用：展示授权状态，未授权点击跳转系统设置开启。
- * - 访问存储空间：展示授权状态，未授权点击申请运行时权限；已被永久拒绝时同样引导去系统设置。
- * - 忽略电池优化 / 自启动管理：跳转系统设置。
- * - Shizuku：展示 adb shell 授权状态，未就绪时点击安装/启动/申请授权。
- * 页面恢复（含从系统设置页或 Shizuku 应用返回）时刷新各权限状态。
+ * "App permissions" sub-page: central place to view and manage system-level permissions.
+ * - Install unknown apps: show grant status; if not granted, tap to jump to system settings to enable it.
+ * - Storage access: show grant status; if not granted, tap to request the runtime permission; if permanently denied, also guide to system settings.
+ * - Ignore battery optimizations / autostart management: jump to system settings.
+ * - Shizuku: show adb shell grant status; if not ready, tap to install/start/request permission.
+ * Refreshes permission states when the page resumes (including returning from system settings or the Shizuku app).
  */
 @Composable
 internal fun AppPermissionsSection(
@@ -67,7 +67,7 @@ internal fun AppPermissionsSection(
 
     var showStorageDeniedDialog by remember { mutableStateOf(false) }
 
-    // 从系统权限设置页返回时刷新状态。
+    // Refresh states when returning from the system permission settings page.
     LifecycleResumeEffect(Unit) {
         apkInstallAllowed = context.packageManager.canRequestPackageInstalls()
         storageGranted = checkStorageGranted(context)
@@ -80,7 +80,7 @@ internal fun AppPermissionsSection(
         ActivityResultContracts.RequestMultiplePermissions()
     ) { result ->
         storageGranted = checkStorageGranted(context)
-        // 被拒且系统不再弹授权框（永久拒绝）→ 引导去系统设置手动开启。
+        // Denied and the system no longer shows the dialog (permanently denied) -> guide to system settings to enable it manually.
         val permanentlyDenied = result.filterValues { !it }.keys.any {
             !shouldShowRationale(context, it)
         }
@@ -191,9 +191,9 @@ internal fun AppPermissionsSection(
 }
 
 /**
- * 「后台运行」二级页：保活、屏幕常亮、Agent 完成通知三个开关。
- * 两个需要通知权限的开关（保活、提示音）开启前先检测并申请通知权限（Android 13+），
- * 系统不再弹授权框时弹窗引导去系统设置手动开启。
+ * "Background running" sub-page: three toggles for keepalive, keep screen on, and agent-completion notifications.
+ * The two toggles that need notification permission (keepalive, sound) check and request it before enabling (Android 13+);
+ * if the system no longer shows the permission dialog, show a dialog guiding the user to system settings.
  */
 @Composable
 internal fun BackgroundRunSection(
@@ -206,11 +206,11 @@ internal fun BackgroundRunSection(
 ) {
     val context = LocalContext.current
     var showNotificationDeniedDialog by remember { mutableStateOf(false) }
-    // 通知权限申请成功后要打开的目标开关回调。
+    // Callback of the target toggle to turn on once notification permission is granted.
     var pendingNotificationToggle by remember { mutableStateOf<((Boolean) -> Unit)?>(null) }
 
-    // targetSdk 28 在 Android 13+ 上申请通知权限系统不弹框、直接回调 denied，
-    // 此时只能引导用户去系统设置手动开启。
+    // With targetSdk 28 on Android 13+, requesting notification permission shows no system dialog
+    // and immediately calls back denied; the only option is to guide the user to system settings.
     val notificationLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.RequestPermission()
     ) { granted ->
@@ -293,7 +293,7 @@ internal fun BackgroundRunSection(
     }
 }
 
-/** Shizuku 状态对应的右侧状态文字。 */
+/** Right-side status text for each Shizuku state. */
 @StringRes
 private fun ShizukuState.statusRes(): Int = when (this) {
     ShizukuState.NOT_INSTALLED -> R.string.settings_shizuku_status_not_installed
@@ -302,7 +302,7 @@ private fun ShizukuState.statusRes(): Int = when (this) {
     ShizukuState.READY -> R.string.settings_shizuku_status_ready
 }
 
-/** Shizuku 状态对应的副标题（点击提示）。 */
+/** Subtitle (tap hint) for each Shizuku state. */
 @StringRes
 private fun ShizukuState.hintRes(): Int = when (this) {
     ShizukuState.NOT_INSTALLED -> R.string.settings_shizuku_hint_not_installed
@@ -311,7 +311,7 @@ private fun ShizukuState.hintRes(): Int = when (this) {
     ShizukuState.READY -> R.string.settings_shizuku_hint_ready
 }
 
-/** 权限无法通过系统弹框授予时，提醒用户去系统设置手动开启。 */
+/** When a permission cannot be granted via the system dialog, remind the user to enable it manually in system settings. */
 @Composable
 private fun PermissionDeniedDialog(
     title: String,
@@ -341,17 +341,17 @@ private fun PermissionDeniedDialog(
     )
 }
 
-/** Android 13+ 需通知权限；更低版本无需。 */
+/** Android 13+ requires notification permission; lower versions do not. */
 private fun notificationsGranted(context: android.content.Context): Boolean =
     Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU ||
         ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) ==
         PackageManager.PERMISSION_GRANTED
 
-/** 系统是否还会为权限弹授权框（false 且未授予即永久拒绝）。 */
+/** Whether the system would still show the permission dialog (false and not granted means permanently denied). */
 private fun shouldShowRationale(context: android.content.Context, permission: String): Boolean =
     (context as? android.app.Activity)?.shouldShowRequestPermissionRationale(permission) ?: false
 
-/** 权限行右侧状态文字：已允许 / 未允许。 */
+/** Status text on the right of permission rows: allowed / not allowed. */
 @Composable
 private fun PermissionStatusText(allowed: Boolean) {
     Text(

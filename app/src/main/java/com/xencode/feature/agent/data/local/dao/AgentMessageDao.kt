@@ -22,7 +22,7 @@ interface AgentMessageDao {
     @Query("SELECT * FROM (SELECT * FROM agent_messages WHERE sessionId = :sessionId ORDER BY timestamp DESC LIMIT :limit) ORDER BY timestamp ASC")
     fun getMessagesBySessionPaged(sessionId: String, limit: Int): Flow<List<AgentMessageEntity>>
 
-    /** 一次性读取（非 Flow），用于跨请求重建上下文历史。 */
+    /** One-shot read (not a Flow), used to rebuild context history across requests. */
     @Query("SELECT * FROM agent_messages WHERE sessionId = :sessionId ORDER BY timestamp ASC")
     suspend fun getMessagesBySessionOnce(sessionId: String): List<AgentMessageEntity>
 
@@ -32,7 +32,7 @@ interface AgentMessageDao {
     @Query("DELETE FROM agent_messages WHERE sessionId = :sessionId AND timestamp < :cutoffTimestamp")
     suspend fun deleteMessagesBeforeTimestamp(sessionId: String, cutoffTimestamp: Long)
 
-    /** 将指定会话中 cutoff 时间戳之前的所有消息标记为已压缩（isCompacted=1），不再参与上下文回放和 UI 展示。 */
+    /** Marks all messages before the cutoff timestamp in the given session as compacted (isCompacted=1); they no longer take part in context replay or UI display. */
     @Query("UPDATE agent_messages SET isCompacted = 1 WHERE sessionId = :sessionId AND timestamp < :cutoffTimestamp")
     suspend fun markMessagesCompactedBeforeTimestamp(sessionId: String, cutoffTimestamp: Long)
 
@@ -76,7 +76,7 @@ interface AgentMessageDao {
     @Query("SELECT * FROM agent_messages WHERE id = :id LIMIT 1")
     suspend fun getMessageById(id: String): AgentMessageEntity?
 
-    /** 会话是否已有任何消息（LIMIT 1 快速判断，避免全量读取）。 */
+    /** Whether the session has any messages (fast check with LIMIT 1, avoiding a full read). */
     @Query("SELECT EXISTS(SELECT 1 FROM agent_messages WHERE sessionId = :sessionId LIMIT 1)")
     suspend fun hasMessages(sessionId: String): Boolean
 
@@ -93,9 +93,9 @@ interface AgentMessageDao {
     suspend fun deleteMessagesAfterTimestamp(sessionId: String, cutoffTimestamp: Long)
 
     /**
-     * 把残留的「执行中」工具行（content 以占位标记开头）批量收尾为「已中断」。
-     * 用于冷启动：上次进程被杀时正在执行的工具不可能仍在跑，否则其占位行会永久显示转圈。
-     * 返回受影响的行数。
+     * Batch-finalizes leftover "running" tool rows (content starting with the placeholder marker) as "interrupted".
+     * Used on cold start: tools that were executing when the previous process was killed cannot still be running, and their placeholder rows would spin forever.
+     * Returns the number of affected rows.
      */
     @Query("UPDATE agent_messages SET content = :interruptedContent, isError = 1 WHERE role = :toolRole AND content LIKE :pendingPrefix")
     suspend fun markPendingToolsInterrupted(
@@ -108,8 +108,8 @@ interface AgentMessageDao {
     suspend fun searchMessages(query: String): List<AgentMessageEntity>
 
     /**
-     * 跨会话搜索某工作区下的聊天记录：命中用户 / 助手正文，排除已压缩与内部摘要行。
-     * [escapedQuery] 已由调用方转义 LIKE 通配符（`!` `%` `_`），配合 SQL 里的 ESCAPE '!'。
+     * Searches chat history across sessions in a workspace: matches USER / ASSISTANT body text, excluding compacted and internal summary rows.
+     * [escapedQuery] has already had LIKE wildcards escaped by the caller (`!` `%` `_`), paired with ESCAPE '!' in the SQL.
      */
     @Query(
         """
@@ -133,26 +133,26 @@ interface AgentMessageDao {
     )
     suspend fun searchInWorkspace(workspacePath: String, escapedQuery: String, limit: Int): List<ChatSearchMatch>
 
-    /** 指定会话中时间戳不早于 [timestamp] 的消息条数（含并列时间戳），供定位时确定所需分页上限。 */
+    /** Number of messages in the given session with a timestamp no earlier than [timestamp] (ties included), used to determine the paging limit when locating a message. */
     @Query("SELECT COUNT(*) FROM agent_messages WHERE sessionId = :sessionId AND timestamp >= :timestamp")
     suspend fun countMessagesFromTimestamp(sessionId: String, timestamp: Long): Int
 
     @Query("SELECT * FROM agent_messages ORDER BY timestamp ASC")
     suspend fun getAllOnce(): List<AgentMessageEntity>
 
-    /** 分页读取（keyset：按 timestamp,id 字典序取 [limit] 条），供备份流式导出。 */
+    /** Paged read (keyset: takes [limit] rows ordered by timestamp,id lexicographically), for streaming backup export. */
     @Query("SELECT * FROM agent_messages WHERE timestamp > :lastTimestamp OR (timestamp = :lastTimestamp AND id > :lastId) ORDER BY timestamp ASC, id ASC LIMIT :limit")
     suspend fun getPageAfter(lastTimestamp: Long, lastId: String, limit: Int): List<AgentMessageEntity>
 
-    /** 按会话分页读取（keyset），供单会话备份流式导出。 */
+    /** Paged read per session (keyset), for streaming single-session backup export. */
     @Query("SELECT * FROM agent_messages WHERE sessionId = :sessionId AND (timestamp > :lastTimestamp OR (timestamp = :lastTimestamp AND id > :lastId)) ORDER BY timestamp ASC, id ASC LIMIT :limit")
     suspend fun getPageBySessionAfter(sessionId: String, lastTimestamp: Long, lastId: String, limit: Int): List<AgentMessageEntity>
 
     /**
-     * 各会话消息正文占用的字节数（降序取前 [limit] 个），供存储空间页拆解「聊天记录」构成。
+     * Bytes occupied by message bodies per session (top [limit] in descending order), used to break down the "chat history" portion on the storage page.
      *
-     * `LENGTH(CAST(x AS BLOB))` 取的是 UTF-8 字节数——直接 `LENGTH(x)` 对文本返回字符数，中文会少算三分之二。
-     * 只统计几个大字段，因此是估算值：不含索引、页对齐与 WAL 开销，必然小于数据库文件本身。
+     * `LENGTH(CAST(x AS BLOB))` returns the UTF-8 byte count — a plain `LENGTH(x)` returns character counts for text, undercounting Chinese by two thirds.
+     * Only a few large fields are counted, so this is an estimate: it excludes indexes, page alignment, and WAL overhead, and is necessarily smaller than the database file itself.
      */
     @Query(
         """
@@ -177,7 +177,7 @@ interface AgentMessageDao {
     suspend fun sessionStorageUsage(limit: Int): List<SessionStorageUsage>
 }
 
-/** 跨会话聊天记录搜索的命中投影（[AgentMessageDao.searchInWorkspace] 的投影）。 */
+/** Hit projection for cross-session chat history search (the projection of [AgentMessageDao.searchInWorkspace]). */
 data class ChatSearchMatch(
     val messageId: String,
     val sessionId: String,
@@ -187,7 +187,7 @@ data class ChatSearchMatch(
     val timestamp: Long
 )
 
-/** 单个会话的消息占用估算（[AgentMessageDao.sessionStorageUsage] 的投影）。 */
+/** Estimated message usage for a single session (the projection of [AgentMessageDao.sessionStorageUsage]). */
 data class SessionStorageUsage(
     val sessionId: String,
     val title: String?,

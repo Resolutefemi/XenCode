@@ -17,7 +17,7 @@ class BrowseInvalidationPlanTest {
         FileChange(ChangeRoot.WORKSPACE, "/host$path", path, kind)
 
     @Test
-    fun `新建文件_失效父目录`() {
+    fun createFile_invalidatesParentDirectory() {
         val plan = planBrowseInvalidation(
             FileChangeBatch(listOf(change("/workspace/src/main.kt", ChangeKind.CREATED))), root
         )
@@ -27,7 +27,7 @@ class BrowseInvalidationPlanTest {
     }
 
     @Test
-    fun `修改文件_同时失效自身与父目录`() {
+    fun modifyFile_invalidatesSelfAndParentDirectory() {
         val plan = planBrowseInvalidation(
             FileChangeBatch(listOf(change("/workspace/src/main.kt", ChangeKind.MODIFIED))), root
         )
@@ -37,7 +37,7 @@ class BrowseInvalidationPlanTest {
     }
 
     @Test
-    fun `删除目录_整棵树丢弃`() {
+    fun deleteDirectory_dropsEntireTree() {
         val plan = planBrowseInvalidation(
             FileChangeBatch(listOf(change("/workspace/build", ChangeKind.DELETED))), root
         )
@@ -46,7 +46,7 @@ class BrowseInvalidationPlanTest {
     }
 
     @Test
-    fun `截断批次_只能全量刷新`() {
+    fun truncatedBatch_requiresFullRefresh() {
         val plan = planBrowseInvalidation(
             FileChangeBatch(emptyList(), truncated = true), root
         )
@@ -54,7 +54,7 @@ class BrowseInvalidationPlanTest {
     }
 
     @Test
-    fun `根gitignore被改_提醒重读规则`() {
+    fun rootGitignoreChanged_suggestsRuleReload() {
         val plan = planBrowseInvalidation(
             FileChangeBatch(listOf(change("/workspace/.gitignore", ChangeKind.MODIFIED))), root
         )
@@ -62,7 +62,7 @@ class BrowseInvalidationPlanTest {
     }
 
     @Test
-    fun `嵌套目录的gitignore不算根级`() {
+    fun nestedGitignoreDoesNotCountAsRoot() {
         val plan = planBrowseInvalidation(
             FileChangeBatch(listOf(change("/workspace/sub/.gitignore", ChangeKind.MODIFIED))), root
         )
@@ -70,13 +70,13 @@ class BrowseInvalidationPlanTest {
     }
 
     @Test
-    fun `空批次_计划为空`() {
+    fun emptyBatch_emptyPlan() {
         val plan = planBrowseInvalidation(FileChangeBatch(emptyList()), root)
         assertTrue(plan.isEmpty)
     }
 
     @Test
-    fun `根路径自身的变更只失效根`() {
+    fun changeOnRootPathOnlyInvalidatesRoot() {
         val plan = planBrowseInvalidation(
             FileChangeBatch(listOf(change("/workspace", ChangeKind.MODIFIED))), root
         )

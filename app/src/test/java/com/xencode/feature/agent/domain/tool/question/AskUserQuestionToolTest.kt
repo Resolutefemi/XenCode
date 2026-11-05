@@ -32,19 +32,19 @@ class AskUserQuestionToolTest {
             "questions" to buildJsonArray {
                 add(
                     buildJsonObject {
-                        put("question", "请选择需要包含的依赖？")
-                        put("header", "依赖")
+                        put("question", "Which dependencies should be included?")
+                        put("header", "Dependencies")
                         put("multiSelect", true)
                         put(
                             "options",
                             buildJsonArray {
                                 add(buildJsonObject {
                                     put("label", "Ktor")
-                                    put("description", "HTTP 客户端")
+                                    put("description", "HTTP client")
                                 })
                                 add(buildJsonObject {
                                     put("label", "Coroutines")
-                                    put("description", "协程支持")
+                                    put("description", "coroutines support")
                                 })
                             }
                         )
@@ -63,7 +63,7 @@ class AskUserQuestionToolTest {
             UserQuestionAnswer(
                 listOf(
                     SingleAnswer(
-                        question = "请选择需要包含的依赖？",
+                        question = "Which dependencies should be included?",
                         selected = listOf("Ktor", "Coroutines"),
                         customText = "Serialization"
                     )
@@ -74,7 +74,7 @@ class AskUserQuestionToolTest {
         val result = deferredResult.await()
         assertTrue(result is ToolResult.Success)
         val text = (result as ToolResult.Success).data.jsonPrimitive.content
-        assertEquals("\"请选择需要包含的依赖？\" = Ktor, Coroutines, Other: Serialization", text)
+        assertEquals("\"Which dependencies should be included?\" = Ktor, Coroutines, Other: Serialization", text)
     }
 
     @Test
@@ -83,18 +83,18 @@ class AskUserQuestionToolTest {
             "questions" to buildJsonArray {
                 add(
                     buildJsonObject {
-                        put("question", "选择方案？")
-                        put("header", "方案")
+                        put("question", "Choose a plan?")
+                        put("header", "Plan")
                         put(
                             "options",
                             buildJsonArray {
                                 add(buildJsonObject {
-                                    put("label", "方案A")
-                                    put("description", "选项A")
+                                    put("label", "Plan A")
+                                    put("description", "option A")
                                 })
                                 add(buildJsonObject {
-                                    put("label", "方案B")
-                                    put("description", "选项B")
+                                    put("label", "Plan B")
+                                    put("description", "option B")
                                 })
                             }
                         )
@@ -111,8 +111,8 @@ class AskUserQuestionToolTest {
             UserQuestionAnswer(
                 listOf(
                     SingleAnswer(
-                        question = "选择方案？",
-                        selected = listOf("方案A"),
+                        question = "Choose a plan?",
+                        selected = listOf("Plan A"),
                         customText = null
                     )
                 )
@@ -122,7 +122,7 @@ class AskUserQuestionToolTest {
         val result = deferredResult.await()
         assertTrue(result is ToolResult.Success)
         val text = (result as ToolResult.Success).data.jsonPrimitive.content
-        assertEquals("\"选择方案？\" = 方案A", text)
+        assertEquals("\"Choose a plan?\" = Plan A", text)
     }
 
     @Test
@@ -131,18 +131,18 @@ class AskUserQuestionToolTest {
             "questions" to buildJsonArray {
                 add(
                     buildJsonObject {
-                        put("question", "选择方案？")
-                        put("header", "方案")
+                        put("question", "Choose a plan?")
+                        put("header", "Plan")
                         put(
                             "options",
                             buildJsonArray {
                                 add(buildJsonObject {
-                                    put("label", "方案A")
-                                    put("description", "选项A")
+                                    put("label", "Plan A")
+                                    put("description", "option A")
                                 })
                                 add(buildJsonObject {
-                                    put("label", "方案B")
-                                    put("description", "选项B")
+                                    put("label", "Plan B")
+                                    put("description", "option B")
                                 })
                             }
                         )
@@ -159,9 +159,9 @@ class AskUserQuestionToolTest {
             UserQuestionAnswer(
                 listOf(
                     SingleAnswer(
-                        question = "选择方案？",
+                        question = "Choose a plan?",
                         selected = emptyList(),
-                        customText = "自定义方案C"
+                        customText = "custom plan C"
                     )
                 )
             )
@@ -170,7 +170,7 @@ class AskUserQuestionToolTest {
         val result = deferredResult.await()
         assertTrue(result is ToolResult.Success)
         val text = (result as ToolResult.Success).data.jsonPrimitive.content
-        assertEquals("\"选择方案？\" = Other: 自定义方案C", text)
+        assertEquals("\"Choose a plan?\" = Other: custom plan C", text)
     }
 
     @Test
@@ -179,18 +179,18 @@ class AskUserQuestionToolTest {
             "questions" to buildJsonArray {
                 add(
                     buildJsonObject {
-                        put("question", "选择方案？")
-                        put("header", "方案")
+                        put("question", "Choose a plan?")
+                        put("header", "Plan")
                         put(
                             "options",
                             buildJsonArray {
                                 add(buildJsonObject {
-                                    put("label", "方案A")
-                                    put("description", "选项A")
+                                    put("label", "Plan A")
+                                    put("description", "option A")
                                 })
                                 add(buildJsonObject {
-                                    put("label", "方案B")
-                                    put("description", "选项B")
+                                    put("label", "Plan B")
+                                    put("description", "option B")
                                 })
                             }
                         )

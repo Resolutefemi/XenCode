@@ -55,10 +55,10 @@ class ProviderDashboardRunnerTest {
                   "type": "Column",
                   "width": "stretch",
                   "items": [
-                    { "type": "TextBlock", "text": "5h 周期", "size": "Small", "isSubtle": true },
+                    { "type": "TextBlock", "text": "5h window", "size": "Small", "isSubtle": true },
                     { "type": "TextBlock", "text": "80%", "size": "Medium", "weight": "Bolder", "color": "Good" },
                     { "type": "ProgressBar", "value": 80, "color": "Good" },
-                    { "type": "TextBlock", "text": "4.0 / 5.0 小时", "size": "Small", "isSubtle": true }
+                    { "type": "TextBlock", "text": "4.0 / 5.0 hours", "size": "Small", "isSubtle": true }
                   ]
                 },
                 {
@@ -66,10 +66,10 @@ class ProviderDashboardRunnerTest {
                   "width": "stretch",
                   "separator": true,
                   "items": [
-                    { "type": "TextBlock", "text": "7d 周期", "size": "Small", "isSubtle": true },
+                    { "type": "TextBlock", "text": "7d window", "size": "Small", "isSubtle": true },
                     { "type": "TextBlock", "text": "65%", "size": "Medium", "weight": "Bolder", "color": "Accent" },
                     { "type": "ProgressBar", "value": 65, "color": "Accent" },
-                    { "type": "TextBlock", "text": "4.6 / 7.0 天", "size": "Small", "isSubtle": true }
+                    { "type": "TextBlock", "text": "4.6 / 7.0 days", "size": "Small", "isSubtle": true }
                   ]
                 }
               ]
@@ -85,12 +85,12 @@ class ProviderDashboardRunnerTest {
 
         assertEquals("1.5", card.version)
 
-        // 验证 compact
+        // Verify compact
         assertNotNull(card.compact)
         val compactCols = card.compact as ColumnSetElement
         assertEquals(2, compactCols.columns.size)
 
-        // 验证 body ColumnSet
+        // Verify the body ColumnSet
         assertEquals(1, card.body.size)
         val columnSet = card.body[0] as ColumnSetElement
         assertEquals(2, columnSet.columns.size)
@@ -98,7 +98,7 @@ class ProviderDashboardRunnerTest {
         val col1 = columnSet.columns[0]
         assertEquals(4, col1.items.size)
         val text1 = col1.items[0] as TextBlockElement
-        assertEquals("5h 周期", text1.text)
+        assertEquals("5h window", text1.text)
         assertEquals(TextSize.SMALL, text1.size)
         assertTrue(text1.isSubtle)
 
@@ -123,13 +123,13 @@ class ProviderDashboardRunnerTest {
                   "type": "Container",
                   "style": "Attention",
                   "items": [
-                    { "type": "Badge", "text": "配额已用尽", "style": "Attention" },
-                    { "type": "TextBlock", "text": "请及时充值", "weight": "Bolder", "color": "Attention" }
+                    { "type": "Badge", "text": "Quota exhausted", "style": "Attention" },
+                    { "type": "TextBlock", "text": "Please top up promptly", "weight": "Bolder", "color": "Attention" }
                   ]
                 },
                 {
                   "type": "Metric",
-                  "label": "当前余额",
+                  "label": "Current balance",
                   "value": "$0.00",
                   "color": "Attention"
                 }
@@ -146,11 +146,11 @@ class ProviderDashboardRunnerTest {
         assertEquals(2, container.items.size)
 
         val badge = container.items[0] as BadgeElement
-        assertEquals("配额已用尽", badge.text)
+        assertEquals("Quota exhausted", badge.text)
         assertEquals(ContainerStyle.ATTENTION, badge.style)
 
         val metric = card.body[1] as MetricElement
-        assertEquals("当前余额", metric.label)
+        assertEquals("Current balance", metric.label)
         assertEquals("$0.00", metric.value)
         assertEquals(CardColor.Attention, metric.color)
     }
@@ -189,7 +189,7 @@ class ProviderDashboardRunnerTest {
                           "value": 80,
                           "cornerRadius": 3,
                           "showPercent": true,
-                          "text": "已用 80%"
+                          "text": "80% used"
                         }
                       ]
                     }
@@ -203,7 +203,7 @@ class ProviderDashboardRunnerTest {
                   "items": [
                     {
                       "type": "TextBlock",
-                      "text": "自定义内边距与行高说明",
+                      "text": "Custom padding and line-height note",
                       "fontSize": 13.5,
                       "lineHeight": 18
                     }
@@ -217,7 +217,7 @@ class ProviderDashboardRunnerTest {
         val card = result.card
         assertEquals(2, card.body.size)
 
-        // 验证 ColumnSet
+        // Verify the ColumnSet
         val columnSet = card.body[0] as ColumnSetElement
         assertEquals(10, columnSet.gapDp)
         assertEquals(8, columnSet.padding?.top)
@@ -242,9 +242,9 @@ class ProviderDashboardRunnerTest {
         assertEquals(80f, progress.value, 0.01f)
         assertEquals(3, progress.cornerRadiusDp)
         assertTrue(progress.showPercent)
-        assertEquals("已用 80%", progress.text)
+        assertEquals("80% used", progress.text)
 
-        // 验证 Container
+        // Verify the Container
         val container = card.body[1] as ContainerElement
         assertEquals(8, container.cornerRadiusDp)
         assertEquals(6, container.gapDp)

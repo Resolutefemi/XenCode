@@ -64,7 +64,7 @@ class UriPathResolverTest {
 
     @Test
     fun unknownShape_returnsNull() {
-        // 非 externalstorage docId 形态（如多用户 home:）不在白名单
+        // docIds that are not externalstorage-shaped (e.g. the multi-user home:) are not on the allowlist
         assertNull(UriPathResolver.resolveDocId("home:Download"))
     }
 

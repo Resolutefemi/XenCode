@@ -1,31 +1,31 @@
-# 安装 Playwright 浏览器自动化
+# Installing Playwright Browser Automation
 
-在容器内安装 Chromium 并注册 Playwright MCP 服务器后，AI 即可打开网页、点击元素、填写表单、抓取页面内容与截图。
+Once Chromium is installed in the container and the Playwright MCP server is registered, the AI can open pages, click elements, fill in forms, scrape page content, and take screenshots.
 
-::: tip 需要 Debian / Ubuntu 容器
-Chrome for Testing 的二进制依赖 glibc，内置 Alpine 镜像使用 musl libc，无法运行。请先参照 [容器与镜像](/guide/container) 导入自定义 Debian 或 Ubuntu 镜像。
+::: tip A Debian / Ubuntu container is required
+Chrome for Testing binaries depend on glibc; the built-in Alpine image uses musl libc and cannot run them. First import a custom Debian or Ubuntu image as described in [Containers and images](/guide/container).
 :::
 
-## 环境基线
+## Environment baseline
 
-| 项 | 值 |
+| Item | Value |
 | --- | --- |
-| 系统 | Debian / Ubuntu，容器内默认 root |
-| 架构 | aarch64（arm64）或 x86_64 |
-| 浏览器 | Chrome for Testing 153.0.8010.12，安装至 `/opt/chrome` |
-| MCP 服务 | `@playwright/mcp`，由 `npx` 按需拉取 |
+| OS | Debian / Ubuntu, root by default inside the container |
+| Architecture | aarch64 (arm64) or x86_64 |
+| Browser | Chrome for Testing 153.0.8010.12, installed at `/opt/chrome` |
+| MCP server | `@playwright/mcp`, fetched on demand by `npx` |
 
-## 1. 安装依赖
+## 1. Install dependencies
 
 ```bash
 apt-get update -qq && apt-get install -y -qq unzip fonts-noto-cjk
 ```
 
-缺少中文字体时，截图中的中文会显示为方块。
+Without Chinese fonts, Chinese text in screenshots shows up as boxes.
 
-## 2. 下载并解压 Chromium
+## 2. Download and unpack Chromium
 
-以 arm64 为例；x86_64 需将 URL 中的 `linux-arm64` 替换为 `linux64`，解压目录名替换为 `chrome-linux64`。
+The example uses arm64; for x86_64 replace `linux-arm64` in the URL with `linux64` and the unpacked directory name with `chrome-linux64`.
 
 ```bash
 mkdir -p /opt/chrome
@@ -35,27 +35,27 @@ unzip -q /tmp/chrome.zip -d /opt/chrome
 rm /tmp/chrome.zip
 
 /opt/chrome/chrome-linux-arm64/chrome --version
-# 输出 Google Chrome for Testing 153.0.8010.12
+# prints Google Chrome for Testing 153.0.8010.12
 ```
 
-上面用的是 npmmirror 镜像，也可改用官方源；该版本下架时替换 URL 中的版本号即可：
+The commands above use the npmmirror mirror; the official source works too. If this version is taken down, just replace the version number in the URL:
 
 ```
 https://storage.googleapis.com/chrome-for-testing-public/153.0.8010.12/linux-arm64/chrome-linux-arm64.zip
 ```
 
-## 3. 注册 MCP 服务器
+## 3. Register the MCP server
 
-进入「设置 → MCP 服务器 → +」，传输类型选择本地 stdio，按下表填写后保存，App 会自动连接。
+Open "Settings → MCP Servers → +", choose local stdio as the transport, fill in the fields below, and save; the app connects automatically.
 
-| 字段 | 值 |
+| Field | Value |
 | --- | --- |
-| 名称 | `playwright` |
-| 启动命令 | `npx` |
-| 命令参数 | `-y`、`@playwright/mcp@latest`、`--headless`、`--no-sandbox`、`--executable-path`、`/opt/chrome/chrome-linux-arm64/chrome`（逐项添加） |
-| 作用域 | 全局（所有项目共用）或项目（仅当前工作区） |
+| Name | `playwright` |
+| Launch command | `npx` |
+| Command arguments | `-y`, `@playwright/mcp@latest`, `--headless`, `--no-sandbox`, `--executable-path`, `/opt/chrome/chrome-linux-arm64/chrome` (add them one by one) |
+| Scope | Global (shared by all projects) or Project (current workspace only) |
 
-也可直接编辑配置文件，全局为 `~/.xencode/mcp.json`，项目级为 `<工作区>/.xencode/mcp.json`，保存后数秒内自动生效：
+You can also edit the config file directly: the global one is `~/.xencode/mcp.json`, the project-level one is `<workspace>/.xencode/mcp.json`; changes take effect automatically within seconds of saving:
 
 ```json
 {
@@ -76,45 +76,45 @@ https://storage.googleapis.com/chrome-for-testing-public/153.0.8010.12/linux-arm
 }
 ```
 
-其中 `--no-sandbox` 在容器内必须指定，否则浏览器启动即崩溃；`--executable-path` 指向已安装的 Chromium，避免 Playwright 重复下载。
+Of these, `--no-sandbox` is mandatory inside the container — without it the browser crashes at startup; `--executable-path` points at the installed Chromium so Playwright does not download it again.
 
-默认 headless 的 User-Agent 带有 `HeadlessChrome` 标识，部分站点会据此拦截，可追加 `--user-agent` 覆盖（界面中作为两个参数项依次添加）：
+By default the headless User-Agent carries the `HeadlessChrome` marker, which some sites block; append `--user-agent` to override it (add it as two separate parameter entries in the UI):
 
 ```
 --user-agent
 Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/153.0.0.0 Safari/537.36
 ```
 
-截图等输出文件默认写入运行目录下的 `.playwright-mcp/`，也就是当前工作区根目录，会在仓库里留下未跟踪文件。追加 `--output-dir` 可移出工作区：
+Screenshots and other output files default to `.playwright-mcp/` under the working directory — that is, the current workspace root — leaving untracked files in the repository. Append `--output-dir` to move it out of the workspace:
 
 ```
 --output-dir
 /root/playwright-output
 ```
 
-截图时指定了文件名则例外：相对路径按工作区解析，会绕过 `--output-dir`，需写绝对路径。
+An exception is when a filename is specified for the screenshot: relative paths are resolved against the workspace, bypassing `--output-dir`, so use an absolute path.
 
-## 4. 验证
+## 4. Verify
 
-进入「设置 → MCP 服务器」，`playwright` 一行应显示为已连接并标注工具数量；连接失败时点击右上角的日志按钮排查。
+Open "Settings → MCP Servers"; the `playwright` row should show as connected with its tool count. If the connection fails, use the log button in the top-right corner to investigate.
 
-随后新建会话（工具列表在会话开始时确定），令 AI 打开网页并截图，返回图片即表示链路正常。首次连接需等待 `npx` 下载 `@playwright/mcp`，实测 3 至 4 分钟。
+Then start a new session (the tool list is fixed when the session starts) and have the AI open a page and take a screenshot; getting the image back means the whole chain works. The first connection waits for `npx` to download `@playwright/mcp` — measured at 3 to 4 minutes.
 
-## 常见问题
+## Troubleshooting
 
-| 现象 | 原因 | 解决 |
+| Symptom | Cause | Fix |
 | --- | --- | --- |
-| 启动即 `Target closed` 或崩溃退出 | 缺少 `--no-sandbox` | 补充该参数后重新连接 |
-| 终端直接运行 chrome 报 `/dev/shm` FATAL | 容器无 `/dev/shm`，且 `/dev` 不可写 | 附加 `--disable-dev-shm-usage`；由 Playwright 启动的不受影响 |
-| `chrome: not found` 或二进制无法执行 | 容器为 Alpine（musl），或包与架构不符 | 更换 Debian / Ubuntu 镜像，核对 arm64 与 x64 包 |
-| 截图中文显示为方块 | 缺少中文字体 | 执行 `apt-get install -y fonts-noto-cjk` |
-| 截图为空白页或整张透明 | 无 GPU 环境下渲染偶发失败 | 重试一次，仍为空白时改用 JPEG 格式 |
-| 首次调用需等待数分钟 | `npx` 正在下载 `@playwright/mcp` | 等待完成，此后使用本地缓存；也可将 npm registry 换为 `https://registry.npmmirror.com` |
-| MCP 列表中没有 `playwright` | 配置未生效或 JSON 存在语法错误 | 确认 `mcp.json` 可正常解析，再点击右上角「重新连接」 |
+| `Target closed` or a crash right at startup | Missing `--no-sandbox` | Add the argument and reconnect |
+| Running chrome directly in a terminal reports a `/dev/shm` FATAL | The container has no `/dev/shm` and `/dev` is not writable | Add `--disable-dev-shm-usage`; launches by Playwright are unaffected |
+| `chrome: not found` or the binary will not execute | The container is Alpine (musl), or the package does not match the architecture | Switch to a Debian / Ubuntu image and check the arm64 vs x64 packages |
+| Chinese text in screenshots shows as boxes | Missing Chinese fonts | Run `apt-get install -y fonts-noto-cjk` |
+| Screenshot is a blank page or fully transparent | Rendering occasionally fails without a GPU | Retry once; if still blank, switch to JPEG |
+| The first call waits several minutes | `npx` is downloading `@playwright/mcp` | Wait it out; afterwards the local cache is used. You can also point the npm registry at `https://registry.npmmirror.com` |
+| `playwright` missing from the MCP list | Config not applied, or the JSON has a syntax error | Confirm `mcp.json` parses, then click "Reconnect" in the top-right corner |
 
-## 附：一键安装脚本
+## Appendix: one-click install script
 
-以下脚本完成第 1 至 3 步，另含下载源自动切换、压缩包校验、已安装时跳过下载、写入前备份 `mcp.json`。保存为 `/tmp/install-playwright.sh` 后执行 `bash /tmp/install-playwright.sh`：
+The script below performs steps 1 through 3, with automatic download-source failover, zip verification, skipping the download when already installed, and backing up `mcp.json` before writing. Save it as `/tmp/install-playwright.sh` and run `bash /tmp/install-playwright.sh`:
 
 ```bash
 #!/usr/bin/env bash
@@ -127,34 +127,34 @@ ZIP=/tmp/chrome-$VERSION.zip
 case "$(uname -m)" in
   aarch64|arm64) SUB=linux-arm64; NAME=chrome-linux-arm64 ;;
   x86_64)        SUB=linux64;     NAME=chrome-linux64 ;;
-  *) echo "不支持的架构: $(uname -m)"; exit 1 ;;
+  *) echo "Unsupported architecture: $(uname -m)"; exit 1 ;;
 esac
 BIN="$DIR/$NAME/chrome"
 
-[ "$(id -u)" = 0 ] || { echo "请以 root 运行"; exit 1; }
-command -v python3 >/dev/null || { echo "缺少 python3"; exit 1; }
-command -v npx >/dev/null || echo "[警告] 未找到 npx，MCP 服务无法启动"
+[ "$(id -u)" = 0 ] || { echo "Please run as root"; exit 1; }
+command -v python3 >/dev/null || { echo "python3 is missing"; exit 1; }
+command -v npx >/dev/null || echo "[Warning] npx not found; the MCP server cannot start"
 
 need=()
 command -v unzip >/dev/null || need+=(unzip)
 fc-list :lang=zh 2>/dev/null | grep -q . || need+=(fonts-noto-cjk)
 if [ ${#need[@]} -gt 0 ]; then
-  echo "安装依赖：${need[*]}"
+  echo "Installing dependencies: ${need[*]}"
   apt-get update -qq && apt-get install -y -qq "${need[@]}"
 fi
 
 if [ -x "$BIN" ]; then
-  echo "已安装，跳过下载：$BIN"
+  echo "Already installed, skipping download: $BIN"
 else
   for url in \
     "https://cdn.npmmirror.com/binaries/chrome-for-testing/$VERSION/$SUB/$NAME.zip" \
     "https://storage.googleapis.com/chrome-for-testing-public/$VERSION/$SUB/$NAME.zip"
   do
-    echo "下载：$url"
+    echo "Downloading: $url"
     curl -fL --retry 3 --retry-delay 2 -o "$ZIP" "$url" && break
-    echo "[警告] 该源不可用，切换下一个"
+    echo "[Warning] this source is unavailable, trying the next"
   done
-  [ -s "$ZIP" ] || { echo "全部下载源均失败"; exit 1; }
+  [ -s "$ZIP" ] || { echo "All download sources failed"; exit 1; }
 
   mkdir -p "$DIR"
   unzip -tq "$ZIP" && unzip -q "$ZIP" -d "$DIR"
@@ -171,7 +171,7 @@ data = {}
 if os.path.exists(p):
     shutil.copy(p, p + ".bak")
     with open(p, encoding="utf-8") as f:
-        data = json.load(f)   # 存在语法错误时报错退出，不覆盖
+        data = json.load(f)   # fail loudly on syntax errors; do not overwrite
 data.setdefault("mcpServers", {})["playwright"] = {
     "command": "npx",
     "args": ["-y", "@playwright/mcp@latest", "--headless", "--no-sandbox",
@@ -180,10 +180,10 @@ data.setdefault("mcpServers", {})["playwright"] = {
 }
 with open(p, "w", encoding="utf-8") as f:
     json.dump(data, f, indent=4, ensure_ascii=False)
-print("已写入 playwright 配置")
+print("playwright config written")
 PY
 
-echo "安装完成：$BIN"
+echo "Install complete: $BIN"
 ```
 
-`CHROME_VERSION` 可指定其它版本。安装完成后返回第 4 步验证。
+`CHROME_VERSION` can select another version. After installation, return to step 4 to verify.

@@ -8,7 +8,7 @@ import com.xencode.feature.onboarding.domain.OnboardingCoordinator
 import com.xencode.feature.onboarding.domain.OnboardingStateHolder
 
 /**
- * 新手聚焦引导总覆层（悬浮在页面最顶层）。
+ * Master overlay of the spotlight onboarding (floats above every page).
  */
 @Composable
 fun OnboardingOverlay(

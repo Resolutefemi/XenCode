@@ -59,13 +59,13 @@ class ProviderDashboardRunner @Inject constructor(
 ) {
     companion object {
         private const val TAG = "ProviderDashboardRunner"
-        /** 自定义脚本参数写入环境变量的固定前缀，如 AICODE_KEY_ACCOUNT_ID。 */
+        /** Fixed prefix for custom script parameters written as environment variables, e.g. AICODE_KEY_ACCOUNT_ID. */
         private const val PREFIX_SCRIPT_PARAM = "AICODE_KEY_"
         private const val SCRIPT_TIMEOUT_MS = 15_000L
         private val json = Json { ignoreUnknownKeys = true; isLenient = true }
 
         /**
-         * 解析标准 Adaptive Card JSON 输出为 [ProviderDashboardResult]。
+         * Parses standard Adaptive Card JSON output into a [ProviderDashboardResult].
          */
         fun parseDashboardJson(rawOutput: String): ProviderDashboardResult {
             if (rawOutput.isBlank()) {
@@ -95,7 +95,7 @@ class ProviderDashboardRunner @Inject constructor(
                         parseElement(item)?.let { bodyList.add(it) }
                     }
                 } else if (element["type"]?.primitiveStringOrNull() != "AdaptiveCard") {
-                    // 如果单对象不是 AdaptiveCard 根，直接解析为单个 element 放入 body
+                    // If the single object is not an AdaptiveCard root, parse it as a single element into body
                     parseElement(element)?.let { bodyList.add(it) }
                 }
 
@@ -118,7 +118,7 @@ class ProviderDashboardRunner @Inject constructor(
             val obj = element as? JsonObject ?: return null
             val type = obj["type"]?.primitiveStringOrNull()?.trim()?.lowercase() ?: "textblock"
 
-            // visible 字段过滤：false 时直接跳过不渲染
+            // visible field filter: skip entirely (no rendering) when false
             val visible = obj["visible"]?.primitiveBooleanOrNull()
             if (visible == false) return null
 
@@ -643,8 +643,8 @@ class ProviderDashboardRunner @Inject constructor(
     }
 
     /**
-     * 获取脚本目录 `~/.xencode/scripts` 下的所有可用脚本文件名列表。经 [FileAccessProvider] 访问，
-     * 跟随当前执行环境（本地落 App 私有目录，远程落服务器 home 下的 `.xencode/scripts`）。
+     * Lists all available script file names under the scripts directory `~/.xencode/scripts`. Accessed via [FileAccessProvider],
+     * following the current execution environment (locally under the app-private directory, remotely under `.xencode/scripts` in the server home).
      */
     fun listAvailableScripts(): List<String> {
         val scriptsDir = "${pathHomeResolver.xencodeRoot()}/scripts"
@@ -656,7 +656,7 @@ class ProviderDashboardRunner @Inject constructor(
     }
 
     /**
-     * 执行提供商的自定义面板脚本并解析返回结果。
+     * Runs the provider's custom dashboard script and parses the returned result.
      */
     suspend fun runScript(
         provider: AIProviderConfig,
@@ -668,17 +668,17 @@ class ProviderDashboardRunner @Inject constructor(
             return@runCatching ProviderDashboardResult()
         }
 
-        // 解析容器内路径
+        // Resolve the in-container path
         val targetPath = resolveContainerScriptPath(rawPath)
 
-        // 构造环境变量与执行命令
+        // Build environment variables and the execution command
         val envPrefix = buildEnvPrefix(provider, context)
         val execCmd = buildExecCommand(targetPath)
         val fullCommand = "$envPrefix $execCmd"
 
-        FileLogger.i(TAG, "执行面板脚本 provider=${provider.name} targetPath=$targetPath model=${context?.model}")
-        // 必须传工作区路径：proot 靠它把当前工作区 bind 到容器内 /root/workspace，
-        // 否则脚本里访问工作区文件（如 .xencode/progress.json）会落到 rootfs 的空目录。
+        FileLogger.i(TAG, "Running dashboard script provider=${provider.name} targetPath=$targetPath model=${context?.model}")
+        // The workspace path must be passed: proot relies on it to bind the current workspace to /root/workspace in the container;
+        // otherwise workspace file access from the script (e.g. .xencode/progress.json) lands on an empty directory in the rootfs.
         val result = commandEngine.runCommandSyncUnbounded(
             fullCommand,
             projectPath = workspaceRepository.currentPath(),
@@ -687,14 +687,14 @@ class ProviderDashboardRunner @Inject constructor(
         val output = result.output.trim()
 
         if (result.exitCode != null && result.exitCode != 0) {
-            FileLogger.w(TAG, "自定义面板脚本执行非零退出 code=${result.exitCode} output=$output")
+            FileLogger.w(TAG, "Custom dashboard script exited non-zero code=${result.exitCode} output=$output")
             throw IllegalStateException("Script exit code: ${result.exitCode}\n$output")
         }
 
         parseDashboardJson(output)
     }
 
-    /** 把用户/列表给的脚本路径解析为当前执行环境下的绝对路径（home 随本地/远程而变，不写死 /root）。 */
+    /** Resolves a user-/list-provided script path to an absolute path in the current execution environment (home varies between local and remote, so /root is not hardcoded). */
     private fun resolveContainerScriptPath(path: String): String {
         val root = pathHomeResolver.xencodeRoot()
         return when {
@@ -712,7 +712,7 @@ class ProviderDashboardRunner @Inject constructor(
         }
         val effectiveModel = context?.model?.ifBlank { null }
             ?: provider.selectedModel.ifBlank { provider.defaultModel }
-        // 多 Key 模式下查当前活动的 Key，否则面板会报一个已被切走的 Key 的余额。
+        // In multi-key mode, look up the currently active key; otherwise the dashboard would report the balance of a key already switched away.
         val effectiveApiKey = keyRotator.currentKey(provider) ?: provider.apiKey
 
         val envs = mutableListOf(
@@ -726,8 +726,8 @@ class ProviderDashboardRunner @Inject constructor(
             "AICODE_MODEL=${escape(effectiveModel)}"
         )
 
-        // 自定义脚本参数：按提供商配置注入为 AICODE_KEY_<KEY> 环境变量，
-        // 值支持 {{PROVIDER_API_KEY}} / {{BASE_URL}} 等占位符引用，避免敏感信息重复填写。
+        // Custom script parameters: injected per provider config as AICODE_KEY_<KEY> environment variables;
+        // values support placeholder references like {{PROVIDER_API_KEY}} / {{BASE_URL}}, avoiding re-entering sensitive info.
         provider.scriptParams.forEach { (key, rawValue) ->
             if (key.isBlank()) return@forEach
             val envKey = "AICODE_KEY_" + sanitizeEnvKey(key)
@@ -764,11 +764,11 @@ class ProviderDashboardRunner @Inject constructor(
         return envs.joinToString(" ")
     }
 
-    /** 把用户填写的参数 Key 规整为合法的环境变量名段（大写，仅保留字母/数字/下划线）。 */
+    /** Normalizes a user-entered parameter key into a legal environment variable name segment (uppercase, keeping only letters/digits/underscores). */
     private fun sanitizeEnvKey(key: String): String =
         key.trim().uppercase().filter { it in 'A'..'Z' || it in '0'..'9' || it == '_' }
 
-    /** 解析脚本参数值中的 {{...}} 占位符，引用当前提供商配置，避免敏感信息重复填写。 */
+    /** Resolves {{...}} placeholders in script parameter values, referencing the current provider config to avoid re-entering sensitive info. */
     private fun resolveScriptParamPlaceholders(
         raw: String,
         provider: AIProviderConfig,

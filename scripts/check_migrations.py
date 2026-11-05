@@ -1,17 +1,17 @@
 #!/usr/bin/env python3
-"""迁移版本号对账脚本。
+"""Migration version reconciliation script.
 
-在 CI 构建与本地合并含数据库迁移的 PR/分支时运行，校验三类不变量：
+Runs during CI builds and when locally merging PRs/branches that contain database migrations, verifying three invariants:
 
-1. 连续性：assets/migrations 里的版本号严格递增、连续、无重复
-   （防止增删迁移文件后出现缺档，导致某档用户升级被 fallback 清库）；
-2. 一致性：AgentDatabase.kt 的 SCHEMA_VERSION 必须等于最大迁移版本；
-3. 已发布冻结：版本号小于等于任一 v* tag 上 SCHEMA_VERSION 的迁移文件，
-   内容必须与该 tag 上的一字不差——已打 tag 发布的迁移不可修改、不可复用。
-   违反时说明 main 未在 hotfix 合流时把未发布迁移后移，或有人篡改了已发布迁移。
+1. Continuity: version numbers in assets/migrations strictly increase, are contiguous, and have no duplicates
+   (prevents gaps when migration files are added or removed, which would wipe some users' databases via fallback on upgrade);
+2. Consistency: SCHEMA_VERSION in AgentDatabase.kt must equal the largest migration version;
+3. Published freeze: a migration file whose version is <= the SCHEMA_VERSION on any v* tag
+   must match that tag's copy byte for byte — tagged, published migrations must never be modified or reused.
+   A violation means main failed to shift unpublished migrations after a hotfix merge, or someone tampered with a published migration.
 
-依赖本地 git refs：CI 用 actions/checkout fetch-depth: 0（含 tags）即可，本地请先 git fetch --tags。
-用法：python3 scripts/check_migrations.py   （退出码 0 = 通过，1 = 有冲突）
+Requires local git refs: CI just needs actions/checkout with fetch-depth: 0 (including tags); locally, run git fetch --tags first.
+Usage: python3 scripts/check_migrations.py   (exit code 0 = pass, 1 = conflicts found)
 """
 
 import os
@@ -30,7 +30,7 @@ notes = []
 
 
 def git(args):
-    """返回 (returncode, stdout_text)，stdout 统一按 UTF-8 解码，避免 locale 影响。"""
+    """Returns (returncode, stdout_text); stdout is always decoded as UTF-8 to avoid locale effects."""
     proc = subprocess.run(["git", "-C", ROOT] + args, capture_output=True)
     return proc.returncode, proc.stdout.decode("utf-8", errors="replace")
 
@@ -39,7 +39,7 @@ def norm(text):
     return text.replace("\r\n", "\n").rstrip("\n")
 
 
-# ---------- 1. 读取本地迁移文件 ----------
+# ---------- 1. Read local migration files ----------
 versions = {}  # version -> file name
 for name in sorted(os.listdir(MIGRATIONS_DIR)):
     m = re.match(r"(\d+)_", name)
@@ -47,7 +47,7 @@ for name in sorted(os.listdir(MIGRATIONS_DIR)):
         continue
     ver = int(m.group(1))
     if ver in versions:
-        errors.append("版本号 %d 出现多次：%s 与 %s" % (ver, versions[ver], name))
+        errors.append("Version number %d appears more than once: %s and %s" % (ver, versions[ver], name))
     versions[ver] = name
 
 if versions:
@@ -55,8 +55,8 @@ if versions:
     expected = list(range(all_vers[0], all_vers[-1] + 1))
     if all_vers != expected:
         missing = [v for v in expected if v not in set(all_vers)]
-        errors.append("迁移版本不连续：缺失 %s，现有 %s" % (missing, all_vers))
-    notes.append("本地迁移版本 %d..%d，共 %d 个" % (all_vers[0], all_vers[-1], len(all_vers)))
+        errors.append("Migration versions are not contiguous: missing %s, have %s" % (missing, all_vers))
+    notes.append("Local migration versions %d..%d, %d in total" % (all_vers[0], all_vers[-1], len(all_vers)))
 
 # ---------- 2. SCHEMA_VERSION ----------
 with open(DB_FILE, encoding="utf-8") as f:
@@ -64,11 +64,11 @@ with open(DB_FILE, encoding="utf-8") as f:
 m = re.search(r"const val SCHEMA_VERSION = (\d+)", db_src)
 schema_ver = int(m.group(1)) if m else None
 if schema_ver is None:
-    errors.append("在 %s 中找不到 SCHEMA_VERSION" % DB_REL)
+    errors.append("SCHEMA_VERSION not found in %s" % DB_REL)
 elif versions and schema_ver != max(versions):
-    errors.append("SCHEMA_VERSION=%d 与最大迁移版本 %d 不一致" % (schema_ver, max(versions)))
+    errors.append("SCHEMA_VERSION=%d does not match the largest migration version %d" % (schema_ver, max(versions)))
 
-# ---------- 3. AutoMigration 与文件式迁移的衔接 ----------
+# ---------- 3. Bridging AutoMigration and file-based migrations ----------
 auto_migs = [
     (int(a), int(b))
     for a, b in re.findall(r"@AutoMigration\s*\(\s*from\s*=\s*(\d+)\s*,\s*to\s*=\s*(\d+)", db_src)
@@ -76,17 +76,17 @@ auto_migs = [
 auto_migs.sort()
 for frm, to in auto_migs:
     if to != schema_ver:
-        errors.append("@AutoMigration(from=%d, to=%d) 的 to 与 SCHEMA_VERSION=%d 不一致" % (frm, to, schema_ver))
+        errors.append("@AutoMigration(from=%d, to=%d): to does not match SCHEMA_VERSION=%d" % (frm, to, schema_ver))
     if to != frm + 1:
-        errors.append("@AutoMigration(from=%d, to=%d) 必须满足 to = from + 1" % (frm, to))
+        errors.append("@AutoMigration(from=%d, to=%d) must satisfy to = from + 1" % (frm, to))
 max_file = max(versions) if versions else None
 if auto_migs and max_file is not None and auto_migs[0][0] != max_file:
     errors.append(
-        "@AutoMigration 起始版本 %d 必须衔接文件式迁移最大版本 %d（一个版本只能二选一）"
+        "@AutoMigration start version %d must line up with the largest file-based migration version %d (a version can only use one of the two)"
         % (auto_migs[0][0], max_file)
     )
 
-# ---------- 4. 已发布冻结校验 ----------
+# ---------- 4. Published freeze check ----------
 _, tags_out = git(["for-each-ref", "--sort=-creatordate", "--format=%(refname:short)", "refs/tags/v*"])
 tags = [t.strip() for t in tags_out.splitlines() if t.strip()]
 published_max = 0
@@ -101,10 +101,10 @@ for tag in tags:
         published_max = max(published_max, int(m.group(1)))
 
 if tags and not tag_schema:
-    notes.append("找到 v* tag 但未能解析其中的 SCHEMA_VERSION，跳过已发布冻结校验")
+    notes.append("Found v* tags but could not parse SCHEMA_VERSION from them; skipping the published freeze check")
 elif versions and published_max > 0:
     published_content = {}  # version -> (tag, file_name, content)
-    for tag in tags:  # 已按创建时间倒序，先写入的即含该版本的最新 tag
+    for tag in tags:  # Already sorted by creation date descending, so the first one written is the newest tag containing that version
         rc, listing = git(["ls-tree", "--name-only", tag, MIGRATIONS_REL + "/"])
         if rc != 0:
             continue
@@ -115,7 +115,7 @@ elif versions and published_max > 0:
                 continue
             ver = int(m.group(1))
             if ver > published_max or ver in published_content:
-                continue  # 只看已发布号段，且仅取最新 tag 的内容
+                continue  # Only look at published version ranges, and only take content from the newest tag
             rc2, content = git(["show", "%s:%s/%s" % (tag, MIGRATIONS_REL, name)])
             if rc2 == 0:
                 published_content[ver] = (tag, name, norm(content))
@@ -126,18 +126,18 @@ elif versions and published_max > 0:
                 local_content = norm(f.read())
             if local_content != tag_content:
                 errors.append(
-                    "版本 %d（%s）已发布（最早出现于 tag %s，当时文件 %s），但本地内容与之不同："
-                    "已发布迁移不可修改或复用。若是 hotfix 合流后 main 未后移，"
-                    "请把该迁移重编号为 %d+1 及之后的连续号再提交。" % (ver, name, tag, tag_name, published_max)
+                    "Version %d (%s) is already published (first seen in tag %s as file %s), but the local content differs: "
+                    "published migrations cannot be modified or reused. If main was not shifted after the hotfix merge, "
+                    "renumber this migration to %d+1 and the consecutive numbers after it, then commit." % (ver, name, tag, tag_name, published_max)
                 )
-    notes.append("已发布版本号上限（全部 tag 最大 SCHEMA_VERSION）= %d" % published_max)
+    notes.append("Published version upper bound (max SCHEMA_VERSION across all tags) = %d" % published_max)
 
-# ---------- 输出 ----------
+# ---------- Output ----------
 if errors:
-    print("[FAIL] 迁移版本号对账未通过：")
+    print("[FAIL] Migration version reconciliation failed:")
     for e in errors:
         print("  - %s" % e)
     sys.exit(1)
-print("[OK] 迁移版本号对账通过")
+print("[OK] Migration version reconciliation passed")
 for n in notes:
     print("  - %s" % n)

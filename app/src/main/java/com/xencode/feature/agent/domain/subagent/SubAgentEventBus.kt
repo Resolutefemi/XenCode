@@ -10,26 +10,26 @@ import javax.inject.Inject
 import javax.inject.Singleton
 
 /**
- * 子代理事件类型。前四种为生命周期事件；后两种为收发消息事件，只投递内容，不影响活跃集合。
+ * Sub-agent event types. The first four are lifecycle events; the last two are message events that only carry content and never touch the active set.
  */
 enum class SubAgentEventType {
     SPAWNED, COMPLETED, FAILED, STOPPED,
 
-    /** 主会话向子代理发来一条消息（发送方是父会话）。 */
+    /** A message from the main session to a sub-agent (sender is the parent session). */
     MESSAGE_FROM_PARENT,
 
-    /** 子代理向主会话发来一条消息（发送方是子会话）。 */
+    /** A message from a sub-agent to the main session (sender is the sub session). */
     MESSAGE_FROM_SUB
 }
 
 /**
- * 子代理生命周期事件。
+ * Sub-agent lifecycle event.
  *
- * @property subSessionId 子代理会话 id。
- * @property parentSessionId 父会话 id（子会话记录里 parentId）。
- * @property type 事件类型。
- * @property detail 附加说明：SPAWNED 为任务指令；COMPLETED/FAILED 为子代理最终输出/错误信息；
- *   MESSAGE_FROM_PARENT / MESSAGE_FROM_SUB 为消息正文。
+ * @property subSessionId Sub-agent session id.
+ * @property parentSessionId Parent session id (parentId in the sub-session record).
+ * @property type Event type.
+ * @property detail Extra detail: the task instruction for SPAWNED; the sub-agent's final output/error for COMPLETED/FAILED;
+ *   the message body for MESSAGE_FROM_PARENT / MESSAGE_FROM_SUB.
  */
 data class SubAgentEvent(
     val subSessionId: String,
@@ -39,34 +39,34 @@ data class SubAgentEvent(
 )
 
 /**
- * 子代理事件总线：TaskTool 发出 SPAWNED（子代理已创建），ViewModel 收集后自动
- * 在子会话上启动 AI 工作流；子会话工作流结束时 ViewModel 再发 COMPLETED/FAILED，
- * 父会话据此注入后台通知（类比 terminal 的 notify=true 异步回调）。
+ * Sub-agent event bus: TaskTool emits SPAWNED (sub-agent created), the ViewModel collects it and automatically
+ * starts the AI workflow on the sub-session; when that workflow ends, the ViewModel emits COMPLETED/FAILED,
+ * and the parent session injects a background notification accordingly (analogous to the terminal's notify=true async callback).
  *
- * 同时维护活跃子代理会话 id 集合，供 TaskTool 查询并发上限（最多 5 个运行中）。
+ * Also maintains the set of active sub-agent session ids, for TaskTool's concurrency checks (at most 5 running).
  */
 @Singleton
 class SubAgentEventBus @Inject constructor() {
     private val _events = MutableSharedFlow<SubAgentEvent>(extraBufferCapacity = 64)
     val events: SharedFlow<SubAgentEvent> = _events.asSharedFlow()
 
-    /** 当前活跃（运行中）的子代理会话 id 集合。 */
+    /** The set of currently active (running) sub-agent session ids. */
     private val _activeSubSessionIds = MutableStateFlow<Set<String>>(emptySet())
     val activeSubSessionIds: StateFlow<Set<String>> = _activeSubSessionIds.asStateFlow()
 
-    /** 运行中的子代理数量。 */
+    /** Number of running sub-agents. */
     val activeCount: Int get() = _activeSubSessionIds.value.size
 
-    /** 是否已达并发上限。 */
+    /** Whether the concurrency limit has been reached. */
     val isFull: Boolean get() = activeCount >= MAX_RUNNING
 
     /**
-     * 直接把某个子代理移出活跃集合，不广播事件；返回它此前是否处于活跃状态。
+     * Directly removes a sub-agent from the active set without broadcasting an event; returns whether it was active before.
      *
-     * 用户在界面上手动停止或删除运行中的子会话时走这条路径：不能改用 [emit]，
-     * 因为 ViewModel 收到 STOPPED 事件后又会回调 stopAgentSession，形成无限循环。
-     * 返回值同时用于区分「用户手动终止」与「TaskTool 已处理过」（后者返回 false），
-     * 避免向父代理重复投递通知。
+     * This path is taken when the user manually stops or deletes a running sub-session from the UI: [emit] cannot be used instead,
+     * because the ViewModel would call stopAgentSession again upon the STOPPED event, forming an infinite loop.
+     * The return value also distinguishes "user terminated manually" from "already handled by TaskTool" (the latter returns false),
+     * avoiding duplicate notification to the parent agent.
      */
     fun release(subSessionId: String): Boolean {
         val current = _activeSubSessionIds.value
@@ -76,7 +76,7 @@ class SubAgentEventBus @Inject constructor() {
     }
 
     fun emit(event: SubAgentEvent) {
-        // 同步维护活跃集合
+        // Maintain the active set synchronously
         when (event.type) {
             SubAgentEventType.SPAWNED -> {
                 _activeSubSessionIds.value = _activeSubSessionIds.value + event.subSessionId
@@ -85,14 +85,14 @@ class SubAgentEventBus @Inject constructor() {
                 _activeSubSessionIds.value = _activeSubSessionIds.value - event.subSessionId
             }
             SubAgentEventType.MESSAGE_FROM_PARENT, SubAgentEventType.MESSAGE_FROM_SUB -> {
-                // 收发消息不改变运行状态，活跃集合保持不变。
+                // Sending/receiving messages does not change run state; the active set stays unchanged.
             }
         }
         _events.tryEmit(event)
     }
 
     companion object {
-        /** 同时运行的子代理上限。判定以此为准，工具层只引用不自己再写一份。 */
+        /** Cap on simultaneously running sub-agents. This is the source of truth; the tool layer only references it instead of keeping its own copy. */
         const val MAX_RUNNING = 5
     }
 }

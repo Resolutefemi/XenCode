@@ -40,7 +40,7 @@ class ModelMetadataMergeTest {
     @Test
     fun nullCustomPrices_fallBackToAuto() {
         val auto = meta(inputCost = 5.0, outputCost = 25.0, cacheReadCost = 0.5)
-        val custom = meta() // 价格全 null
+        val custom = meta() // all prices null
 
         val merged = mergeModelMetadata("gpt-test", auto, custom)
 
@@ -52,7 +52,7 @@ class ModelMetadataMergeTest {
     @Test
     fun partialCustomPrices_mergePerField() {
         val auto = meta(inputCost = 5.0, outputCost = 25.0, cacheReadCost = 0.5)
-        // 只自定义输入价，输出/缓存回退自动
+        // Only the input price is customized; output/cache fall back to auto
         val custom = meta(inputCost = 2.0)
 
         val merged = mergeModelMetadata("gpt-test", auto, custom)
@@ -64,7 +64,7 @@ class ModelMetadataMergeTest {
 
     @Test
     fun customOnlyPrices_usedWhenAutoHasNone() {
-        val auto = meta() // 价格全 null
+        val auto = meta() // all prices null
         val custom = meta(inputCost = 3.0, outputCost = 15.0, cacheReadCost = 0.3)
 
         val merged = mergeModelMetadata("gpt-test", auto, custom)
@@ -76,7 +76,7 @@ class ModelMetadataMergeTest {
 
     @Test
     fun zeroCustomPrice_isKeptNotTreatedAsNull() {
-        // 免费模型：价格为 0 是合法值，不能被 null 合并逻辑吞掉
+        // Free model: a price of 0 is a legal value and must not be swallowed by the null-merge logic
         val auto = meta(inputCost = 5.0, outputCost = 25.0)
         val custom = meta(inputCost = 0.0, outputCost = 0.0)
 
@@ -163,7 +163,7 @@ class ModelMetadataMergeTest {
         assertNull(merged.cacheReadCostUsdPerM)
         assertEquals(1.0, merged.inputCostUsdPerM!!, 0.0)
         assertEquals(2.0, merged.outputCostUsdPerM!!, 0.0)
-        // 能力/窗口合并不受影响
+        // Capability/window merging is unaffected
         assertEquals(128_000, merged.contextTokens)
     }
 }

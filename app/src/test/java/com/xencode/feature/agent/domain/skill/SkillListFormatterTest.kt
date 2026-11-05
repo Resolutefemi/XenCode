@@ -22,10 +22,10 @@ class SkillListFormatterTest {
 
     @Test
     fun smallList_keepsFullEntries() {
-        val skills = listOf(skill("a", "甲"), skill("b", "乙"))
+        val skills = listOf(skill("a", "alpha"), skill("b", "beta"))
         val out = SkillListFormatter.format(skills, charBudget = 1000)
-        assertTrue(out.contains("- a: 甲"))
-        assertTrue(out.contains("- b: 乙"))
+        assertTrue(out.contains("- a: alpha"))
+        assertTrue(out.contains("- b: beta"))
         assertFalse(out.contains("omitted due to prompt budget"))
         assertEquals(2, out.lines().size)
     }
@@ -39,7 +39,7 @@ class SkillListFormatterTest {
     @Test
     fun budgetExhausted_degradesToNameOnly_thenOmitsWithNotice() {
         // 40 equal-length skills, budget 600: full entries fill first, then names-only, then omit + notice.
-        val skills = (1..40).map { skill("skill-%02d".format(it), "描".repeat(30)) }
+        val skills = (1..40).map { skill("skill-%02d".format(it), "d".repeat(30)) }
         val budget = 600
         val out = SkillListFormatter.format(skills, charBudget = budget)
 
@@ -62,7 +62,7 @@ class SkillListFormatterTest {
 
     @Test
     fun tinyBudget_onlyNoticeAndStaysBounded() {
-        val skills = (1..10).map { skill("skill-$it", "描述") }
+        val skills = (1..10).map { skill("skill-$it", "desc") }
         val out = SkillListFormatter.format(skills, charBudget = 200)
         assertTrue(out.contains("omitted due to prompt budget"))
         assertTrue(out.contains("${skills.size} more skill"))
@@ -72,7 +72,7 @@ class SkillListFormatterTest {
     @Test
     fun defaultBudget_fitsRealWorldScale() {
         // Device-scale: 118 skills, ~131 chars per description; raw list was 15441 chars before this.
-        val skills = (1..118).map { skill("builtin-skill-$it", "描".repeat(131)) }
+        val skills = (1..118).map { skill("builtin-skill-$it", "d".repeat(131)) }
         val out = SkillListFormatter.format(skills)
         assertTrue(out.length <= SkillListFormatter.DEFAULT_CHAR_BUDGET)
         assertTrue(out.contains("omitted due to prompt budget"))
@@ -80,7 +80,7 @@ class SkillListFormatterTest {
 
     @Test
     fun allEntriesFit_nothingOmitted() {
-        val skills = (1..50).map { skill("s$it", "短描述") }
+        val skills = (1..50).map { skill("s$it", "short desc") }
         val out = SkillListFormatter.format(skills)
         assertFalse(out.contains("omitted due to prompt budget"))
         assertEquals(50, out.lines().size)

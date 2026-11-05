@@ -1,21 +1,21 @@
-## 安装软件报错？
+## Getting errors when installing software?
 
-容器内硬链接不可用所致，添加 proot 参数解决：
+This is caused by hard links being unavailable inside the container; fix it by adding this proot parameter:
 
 ```
 --link2symlink
 ```
 
-编辑镜像 → proot 参数 → 添加 → 保存，重进终端。
+Edit the image -> proot parameters -> add -> save, then re-enter the terminal.
 
-> 下载镜像导入已默认带此参数。
+> Images imported via download already include this parameter by default.
 
-## 终端按键异常（方向键显示 ^[[A 等）？
+## Terminal keys misbehaving (arrow keys showing ^[[A etc.)?
 
-当前 shell 是 sh，无行编辑能力。编辑容器，Shell 改为：
+The current shell is sh, which has no line editing. Edit the container and change the shell to:
 
 ```
 /bin/bash
 ```
 
-bash 自带方向键、历史、补全。
+bash has arrow keys, history, and completion built in.

@@ -39,7 +39,7 @@ class SkillImporterTest {
         try {
             val report = SkillImporter.importMarkdown(
                 provider, root.absolutePath, emptySet(),
-                text = "---\nname: pdf-report\ndescription: 生成报告\n---\n正文步骤",
+                text = "---\nname: pdf-report\ndescription: generate a report\n---\nbody steps",
                 fallbackName = "ignored"
             )
 
@@ -48,8 +48,8 @@ class SkillImporterTest {
             assertTrue(file.exists())
             val parsed = SkillParser.parse(provider, File(root, "pdf-report").absolutePath)!!
             assertEquals("pdf-report", parsed.name)
-            assertEquals("生成报告", parsed.description)
-            assertEquals("正文步骤", parsed.instructions)
+            assertEquals("generate a report", parsed.description)
+            assertEquals("body steps", parsed.instructions)
         } finally {
             root.deleteRecursively()
         }
@@ -59,7 +59,7 @@ class SkillImporterTest {
     fun importMarkdown_usesFallbackNameWhenFrontmatterMissing() {
         val root = tempRoot()
         try {
-            val report = SkillImporter.importMarkdown(provider, root.absolutePath, emptySet(), "只有正文", "from-file")
+            val report = SkillImporter.importMarkdown(provider, root.absolutePath, emptySet(), "body only", "from-file")
             assertEquals(listOf("from-file"), report.imported)
             assertTrue(File(root, "from-file/SKILL.md").exists())
         } finally {
@@ -73,13 +73,13 @@ class SkillImporterTest {
         try {
             val invalid = SkillImporter.importMarkdown(
                 provider, root.absolutePath, emptySet(),
-                "---\nname: a/b\n---\n正文", "x"
+                "---\nname: a/b\n---\nbody", "x"
             )
             assertEquals(SkillImportError.INVALID_NAME, invalid.fatal)
 
             val conflict = SkillImporter.importMarkdown(
                 provider, root.absolutePath, setOf("taken"),
-                "---\nname: taken\n---\n正文", "x"
+                "---\nname: taken\n---\nbody", "x"
             )
             assertEquals(SkillImportError.NAME_CONFLICT, conflict.fatal)
 
@@ -95,7 +95,7 @@ class SkillImporterTest {
         val root = tempRoot()
         try {
             val bytes = zipOf(
-                "wrapper/my-skill/SKILL.md" to "---\nname: my-skill\ndescription: d\n---\n正文",
+                "wrapper/my-skill/SKILL.md" to "---\nname: my-skill\ndescription: d\n---\nbody",
                 "wrapper/my-skill/run.py" to "print(1)"
             )
             val report = importZip(root, bytes)
@@ -142,7 +142,7 @@ class SkillImporterTest {
 
             assertEquals(listOf("inner", "outer"), report.imported.sorted())
             assertTrue(File(root, "outer/helper.txt").exists())
-            // inner 的额外文件只落在 inner，不出现在 outer 里
+            // inner's extra files land only in inner, never in outer
             assertTrue(File(root, "inner/extra.txt").exists())
             assertFalse(File(root, "outer/inner/extra.txt").exists())
         } finally {

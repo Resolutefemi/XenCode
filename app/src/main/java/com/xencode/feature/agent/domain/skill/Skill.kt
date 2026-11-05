@@ -1,13 +1,13 @@
 package com.xencode.feature.agent.domain.skill
 
 /**
- * 解析后的单个 Skill 模型。
+ * Parsed model of a single Skill.
  *
- * @param name 技能名称（供大模型调用的唯一标识）
- * @param description 技能描述（何时使用该技能）
- * @param requiredTools 该技能所需的专属工具列表（可选）
- * @param dirPath 技能所在目录的容器路径（本地/远程统一视角，如 `~/workspace/.xencode/skills/foo`）
- * @param instructions 技能指令正文（剥离 Frontmatter 后的内容）
+ * @param name Skill name (the unique identifier the LLM invokes)
+ * @param description Skill description (when to use it)
+ * @param requiredTools Optional list of tools this skill requires
+ * @param dirPath Container path of the skill directory (unified local/remote view, e.g. `~/workspace/.xencode/skills/foo`)
+ * @param instructions Skill instruction body (content with the frontmatter stripped)
  */
 data class Skill(
     val name: String,
@@ -17,26 +17,26 @@ data class Skill(
     val instructions: String
 )
 
-/** 设置页新建/编辑技能时提交的表单快照。 */
+/** Form snapshot submitted when creating/editing a skill on the settings page. */
 data class SkillForm(
     val name: String,
     val description: String,
     val instructions: String,
-    /** 手写技能里的 `required_tools`，编辑页不暴露但原样写回，避免保存后丢字段。 */
+    /** Hand-written `required_tools` from the skill; not exposed in the editor but written back verbatim so the field survives saving. */
     val requiredTools: List<String> = emptyList()
 )
 
-/** 保存技能失败的原因。 */
+/** Reasons a skill save can fail. */
 enum class SkillSaveError {
-    /** 名称为空、过长或含不能做目录名的字符。 */
+    /** Name is empty, too long, or contains characters unusable in a directory name. */
     INVALID_NAME,
 
-    /** 指令正文为空：这种技能加载出来对 AI 没有任何指导价值。 */
+    /** Instruction body is empty: such a skill offers the AI no guidance once loaded. */
     EMPTY_INSTRUCTIONS,
 
-    /** 同作用域已有同名技能。 */
+    /** A skill with the same name already exists in this scope. */
     NAME_CONFLICT,
 
-    /** 写盘失败。 */
+    /** Disk write failed. */
     IO_FAILED
 }

@@ -6,10 +6,10 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 /**
- * search/list 工具的 shell 参数解析与 `| head` 白名单校验。
+ * Shell argument parsing and the `| head` allowlist check for the search/list tools.
  *
- * 安全焦点：只放行 `head [-n N]` 行数截断，其余管道命令（grep/sort/wc/rm/…）与
- * shell 元字符（`;` 等）一律拒绝，防止借管道语法在容器里执行任意命令。
+ * Security focus: only `head [-n N]` line truncation is allowed; any other pipe command (grep/sort/wc/rm/…)
+ * and shell metacharacters (`;` etc.) are rejected outright, preventing arbitrary command execution in the container via pipe syntax.
  */
 class ShellArgsTest {
 
@@ -18,10 +18,10 @@ class ShellArgsTest {
     @Test
     fun parseShellWords_handlesQuotesAndEscapedPipe() {
         val tokens = parseShellWords(
-            "-n \"挂载\\|mount\" ~/workspace/app/src/main/res/values/strings.xml | head -30"
+            "-n \"flash\\|mount\" ~/workspace/app/src/main/res/values/strings.xml | head -30"
         )
         assertEquals(
-            listOf("-n", "挂载|mount", "~/workspace/app/src/main/res/values/strings.xml", "|", "head", "-30"),
+            listOf("-n", "flash|mount", "~/workspace/app/src/main/res/values/strings.xml", "|", "head", "-30"),
             tokens
         )
     }
@@ -99,7 +99,7 @@ class ShellArgsTest {
 
     @Test
     fun headLinesOf_rejectsInvalidHeadArgs() {
-        // head 只允许行数参数：其它 flag、非数字、负数、多余参数、空段一律拒绝。
+        // head only accepts a line-count argument: other flags, non-numeric values, negatives, extra args, and empty segments are all rejected.
         assertNull(headLinesOf(listOf("head", "-c", "100")))
         assertNull(headLinesOf(listOf("head", "-n", "abc")))
         assertNull(headLinesOf(listOf("head", "-n", "-5")))
@@ -110,7 +110,7 @@ class ShellArgsTest {
 
     @Test
     fun headLinesOf_rejectsShellMetacharactersAfterHead() {
-        // `;`/`&&`/重定向等不是 head 的合法参数 → 整段拒绝，不拼进命令。
+        // `;`/`&&`/redirection are not valid head arguments → reject the whole segment, never splice it into the command.
         assertNull(headLinesOf(listOf("head", "-30", ";", "rm", "-rf", "/")))
         assertNull(headLinesOf(listOf("head", "-30", ">", "/tmp/x")))
     }
@@ -130,7 +130,7 @@ class ShellArgsTest {
 
     @Test
     fun buildSearchCommand_customHome_expandsTilde() {
-        // 传入执行环境（本地容器 / 远程服务器）的真实 home，~/ 按该 home 展开而非硬编码 /root
+        // Pass the real home of the execution environment (local container / remote server) so ~/ expands against it rather than a hardcoded /root
         val command = buildSearchCommand(
             parseShellWords("-n \"fun main\" ~/workspace/app")!!,
             home = "/home/alice"
@@ -139,7 +139,7 @@ class ShellArgsTest {
             "rg --line-number --no-heading --with-filename --color never '-n' 'fun main' '/home/alice/workspace/app'",
             command
         )
-        // 裸 ~ 也展开为 home
+        // A bare ~ also expands to home
         assertEquals(
             "rg --line-number --no-heading --with-filename --color never '-n' 'x' '/home/alice'",
             buildSearchCommand(parseShellWords("-n x ~")!!, home = "/home/alice")
@@ -149,10 +149,10 @@ class ShellArgsTest {
     @Test
     fun buildSearchCommand_escapedPipeWithHead_appendsWhitelistedPipe() {
         val command = buildSearchCommand(
-            parseShellWords("-n \"挂载\\|mount\" ~/workspace/app/src/main/res/values/strings.xml | head -30")!!
+            parseShellWords("-n \"flash\\|mount\" ~/workspace/app/src/main/res/values/strings.xml | head -30")!!
         )!!
         assertTrue(command.endsWith(" | head -30"))
-        assertTrue(command.contains("'挂载|mount'"))
+        assertTrue(command.contains("'flash|mount'"))
     }
 
     @Test
@@ -176,7 +176,7 @@ class ShellArgsTest {
     fun buildSearchCommand_pipeInsideQuotes_isNotAPipe() {
         val command = buildSearchCommand(parseShellWords("-n \"a|b\" src/")!!)!!
         assertTrue(command.contains("'a|b'"))
-        assertTrue("命令不应包含管道段", " | " !in command)
+        assertTrue("command must not contain a pipe segment", " | " !in command)
     }
 
     @Test

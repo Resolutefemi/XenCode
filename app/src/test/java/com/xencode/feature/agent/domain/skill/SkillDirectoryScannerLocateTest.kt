@@ -10,9 +10,9 @@ import org.junit.Test
 import org.junit.rules.TemporaryFolder
 
 /**
- * 模拟真机 ROOT 通道语义的 [TestFileAccessProvider]：头部读按 maxBytes 截断返回
- * （对应 ROOT 的 `head -c`），并分别计数「头部读 / 全文读 / 全文批量读」的调用，
- * 用来断言 loadSkill 精准路径的开销量级。
+ * A [TestFileAccessProvider] mimicking the real-device ROOT channel semantics: head reads are returned truncated to maxBytes
+ * (matching ROOT's `head -c`), and it separately counts "head read / full read / batch full read" calls,
+ * used to assert the cost magnitude of loadSkill's targeted path.
  */
 private class CountingFileAccessProvider(
     private val delegate: TestFileAccessProvider = TestFileAccessProvider()
@@ -43,11 +43,11 @@ private class CountingFileAccessProvider(
 }
 
 /**
- * [SkillDirectoryScanner.locateAndRead]（loadSkill 精准加载路径）的行为与开销测试。
+ * Behavior and cost tests for [SkillDirectoryScanner.locateAndRead] (loadSkill's targeted load path).
  *
- * 背景：旧实现 loadInstructions = listSkills() 全量扫描——ROOT 通道下每个技能一次全文读，
- * 118 个技能时单次 loadSkill 就是十几次 su fork + 全部正文过管道，主线程上直接 ANR/闪退。
- * 新实现只读文件头匹配 frontmatter name，命中后仅读该文件全文。
+ * Background: the old implementation's loadInstructions = listSkills() full scan — under the ROOT channel that meant one full read per skill,
+ * so with 118 skills a single loadSkill caused a dozen-plus su forks plus every body crossing the pipe — instant ANR/crash on the main thread.
+ * The new implementation reads only file heads to match the frontmatter name, then reads just that one file in full on a hit.
  */
 class SkillDirectoryScannerLocateTest {
 
@@ -65,82 +65,82 @@ class SkillDirectoryScannerLocateTest {
 
     @Test
     fun locate_matchesFrontmatterNameAndReadsOnlyOneFullFile() {
-        // 5 个技能，正文都足够大（8K 头部装不下），确保头部读≠全文读
+        // 5 skills, each body large enough (it will not fit the 8K head), ensuring head read != full read
         repeat(5) { i ->
-            writeSkill("skill-$i", "---\nname: skill-$i\ndescription: d$i\n---\n" + "正".repeat(20_000))
+            writeSkill("skill-$i", "---\nname: skill-$i\ndescription: d$i\n---\n" + "x".repeat(20_000))
         }
 
         val instructions = SkillDirectoryScanner.locateAndRead(provider, root, "skill-3")
 
-        assertTrue(instructions != null && instructions.contains("正"))
-        assertEquals("正文应只读命中文件一次全文", 1, provider.fullReadCalls + provider.batchReadCalls)
-        assertEquals("头部应一批读完", 1, provider.headReadCalls)
+        assertTrue(instructions != null && instructions.contains("x"))
+        assertEquals("the body should be full-read exactly once for the matched file", 1, provider.fullReadCalls + provider.batchReadCalls)
+        assertEquals("heads should be read in one batch", 1, provider.headReadCalls)
     }
 
     @Test
     fun locate_matchesByDirNameWhenFrontmatterNameMissing() {
-        writeSkill("dir-only-skill", "---\ndescription: 无 name 字段\n---\n正文")
+        writeSkill("dir-only-skill", "---\ndescription: no name field\n---\nbody")
 
         val instructions = SkillDirectoryScanner.locateAndRead(provider, root, "dir-only-skill")
 
-        assertEquals("正文", instructions)
+        assertEquals("body", instructions)
         assertEquals(1, provider.headReadCalls)
     }
 
     @Test
     fun locate_nameInFrontmatterWinsOverDirectoryName() {
-        // 目录名与 frontmatter 名不一致：必须按 frontmatter 名命中（与 scan 语义一致）
-        writeSkill("dir-a", "---\nname: real-name\n---\n正文A")
+        // Directory name differs from the frontmatter name: must match by the frontmatter name (consistent with scan semantics)
+        writeSkill("dir-a", "---\nname: real-name\n---\nBody A")
 
         assertNull(SkillDirectoryScanner.locateAndRead(provider, root, "dir-a"))
-        assertEquals("正文A", SkillDirectoryScanner.locateAndRead(provider, root, "real-name"))
+        assertEquals("Body A", SkillDirectoryScanner.locateAndRead(provider, root, "real-name"))
     }
 
     @Test
     fun locate_caseInsensitive() {
-        writeSkill("mixed-case", "---\nname: Mixed-Case\n---\n正文")
+        writeSkill("mixed-case", "---\nname: Mixed-Case\n---\nbody")
 
-        assertEquals("正文", SkillDirectoryScanner.locateAndRead(provider, root, "mixed-CASE"))
+        assertEquals("body", SkillDirectoryScanner.locateAndRead(provider, root, "mixed-CASE"))
     }
 
     @Test
     fun locate_prefersSkillMdOverClaudeMd() {
         val dir = File(tempFolder.root, "dual").apply { mkdirs() }
-        File(dir, "SKILL.md").writeText("---\nname: dual\n---\nSKILL 正文")
-        File(dir, "CLAUDE.md").writeText("---\nname: dual\n---\nCLAUDE 正文")
+        File(dir, "SKILL.md").writeText("---\nname: dual\n---\nSKILL body")
+        File(dir, "CLAUDE.md").writeText("---\nname: dual\n---\nCLAUDE body")
 
-        assertEquals("SKILL 正文", SkillDirectoryScanner.locateAndRead(provider, root, "dual"))
+        assertEquals("SKILL body", SkillDirectoryScanner.locateAndRead(provider, root, "dual"))
     }
 
     @Test
     fun locate_nestedDirectories() {
         val nested = File(tempFolder.root, "repo/skills/nested-skill").apply { mkdirs() }
-        File(nested, "SKILL.md").writeText("---\nname: nested-skill\n---\n嵌套正文")
+        File(nested, "SKILL.md").writeText("---\nname: nested-skill\n---\nnested body")
 
-        assertEquals("嵌套正文", SkillDirectoryScanner.locateAndRead(provider, root, "nested-skill"))
+        assertEquals("nested body", SkillDirectoryScanner.locateAndRead(provider, root, "nested-skill"))
     }
 
     @Test
     fun locate_missingSkillReturnsNull() {
-        writeSkill("exists", "---\nname: exists\n---\n正文")
+        writeSkill("exists", "---\nname: exists\n---\nbody")
 
         assertNull(SkillDirectoryScanner.locateAndRead(provider, root, "not-exists"))
     }
 
     @Test
     fun locate_truncatedFrontmatterFallsBackToDirNameThenFullParse() {
-        // frontmatter 的结束标记超出 8K 头部窗口：头部解析拿不到 name（回退目录名），
-        // 全文解析才能拿到真正的 frontmatter name——两条加载路径都必须返回正文
-        val longDesc = "描".repeat(9_000)
+        // The frontmatter end marker sits beyond the 8K head window: head parsing cannot get the name (falls back to the directory name),
+        // and only the full-text parse sees the real frontmatter name — both load paths must return the body
+        val longDesc = "d".repeat(9_000)
         writeSkill(
             "deep-dir",
-            "---\ndescription: \"$longDesc\"\nname: deep-name\n---\n真正的正文"
+            "---\ndescription: \"$longDesc\"\nname: deep-name\n---\nthe real body"
         )
 
-        // 按 frontmatter 名加载：头部匹配不到 → 回退全量扫描仍能命中（与旧行为等价）
-        assertEquals("真正的正文", SkillDirectoryScanner.locateAndRead(provider, root, "deep-name"))
-        // 按目录名加载：头部命中 → 读全文返回正文
-        assertEquals("真正的正文", SkillDirectoryScanner.locateAndRead(provider, root, "deep-dir"))
+        // Load by frontmatter name: no head match -> the full-scan fallback still finds it (equivalent to the old behavior)
+        assertEquals("the real body", SkillDirectoryScanner.locateAndRead(provider, root, "deep-name"))
+        // Load by directory name: head hit -> read the full file and return the body
+        assertEquals("the real body", SkillDirectoryScanner.locateAndRead(provider, root, "deep-dir"))
     }
 
     @Test
@@ -150,9 +150,9 @@ class SkillDirectoryScannerLocateTest {
 
     @Test
     fun locate_readFailureOnOneFileDoesNotBreakOthers() {
-        writeSkill("broken", "---\nname: broken\n---\n") // 空正文，仍可解析
-        writeSkill("good", "---\nname: good\n---\n好正文")
+        writeSkill("broken", "---\nname: broken\n---\n") // empty body, still parseable
+        writeSkill("good", "---\nname: good\n---\ngood body")
 
-        assertEquals("好正文", SkillDirectoryScanner.locateAndRead(provider, root, "good"))
+        assertEquals("good body", SkillDirectoryScanner.locateAndRead(provider, root, "good"))
     }
 }

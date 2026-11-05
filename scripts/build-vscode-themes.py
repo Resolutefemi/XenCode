@@ -1,13 +1,13 @@
 #!/usr/bin/env python3
-"""合并 VSCode 默认主题（Dark+/Light+）为 tm4e 可直接加载的单文件 JSON。
+"""Merge the VSCode default themes (Dark+/Light+) into a single JSON file tm4e can load directly.
 
-VSCode 主题是 JSONC（含注释与尾逗号）且用 "include" 继承基础主题，
-tm4e 的 IThemeSource 不解析 include、也不容忍注释。这里在构建期离线合并：
-基础主题(dark_vs/light_vs)的 colors + tokenColors 打底，父主题(dark_plus/light_plus)
-的 tokenColors 追加在后（同 scope 后者覆盖），semanticTokenColors 合并覆盖，
-产出纯 JSON 放到 app/src/main/assets/textmate/{dark_plus,light_plus}.json。
+VSCode themes are JSONC (with comments and trailing commas) and inherit their base theme via "include",
+while tm4e's IThemeSource neither resolves include nor tolerates comments. This script merges them offline at build time:
+The base theme (dark_vs/light_vs) colors + tokenColors form the base layer, and the parent theme (dark_plus/light_plus)
+tokenColors are appended after (same scope, later wins); semanticTokenColors are merged with override,
+producing pure JSON written to app/src/main/assets/textmate/{dark_plus,light_plus}.json.
 
-发版/依赖升级时如需刷新配色，重跑本脚本即可。
+Re-run this script whenever a release or dependency upgrade needs refreshed colors.
 """
 import json
 import re
@@ -24,8 +24,8 @@ PAIRS = [
 
 
 def strip_jsonc(text: str) -> str:
-    # 逐字符扫描，仅剥离字符串外的 // 行注释与 /* */ 块注释，避免误伤
-    # 形如 "vscode://schemas/..." 这类字符串内的 //。最后去掉尾逗号。
+    # Scan character by character, stripping only // line comments and /* */ block comments outside strings,
+    # to avoid damaging // inside strings like "vscode://schemas/...". Trailing commas are removed last.
     out = []
     i, n = 0, len(text)
     in_str = False
@@ -60,7 +60,7 @@ def strip_jsonc(text: str) -> str:
         out.append(c)
         i += 1
     cleaned = "".join(out)
-    # 去掉对象/数组里的尾逗号
+    # Remove trailing commas inside objects/arrays
     cleaned = re.sub(r",(\s*[}\]])", r"\1", cleaned)
     return cleaned
 
@@ -86,8 +86,8 @@ def merge(base_name: str, plus_name: str, out_name: str, kind: str) -> None:
         },
     }
 
-    # sora 的 TextMateColorScheme 读旧键 editorIndentGuide.background(/activeBackground) 映射
-    # 缩进参考线颜色；VSCode 1.85 改用带 1 后缀的新键，补上旧键以便取色。
+    # sora's TextMateColorScheme reads the legacy keys editorIndentGuide.background(/activeBackground) to map
+    # indent guide colors; VSCode 1.85 switched to new keys with a 1 suffix, so re-add the legacy keys for color lookup.
     colors = merged["colors"]
     if "editorIndentGuide.background1" in colors:
         colors.setdefault("editorIndentGuide.background", colors["editorIndentGuide.background1"])

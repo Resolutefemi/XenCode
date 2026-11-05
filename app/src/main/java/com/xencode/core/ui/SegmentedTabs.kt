@@ -34,10 +34,13 @@ import com.xencode.core.theme.Radius
 import com.xencode.core.theme.semanticColors
 
 /**
- * iOS 风分段控件：中性灰轨道 + 白色（深色下为抬起灰）滑块，选中时滑块弹性滑到对应一段。
+ * iOS-style segmented control: neutral gray track + white thumb (raised gray in dark mode);
+ * on selection the thumb springs over to the corresponding segment.
  *
- * 不用主题色填充，让它与下方的扫描式列表协调，只靠中性色与轻阴影表现层次。
- * 侧边栏顶部与 MCP 编辑弹窗共用同一份，切换手感保持一致。
+ * No theme-color fill — it stays in harmony with the scan-style list below, expressing depth
+ * with neutral colors and a light shadow alone.
+ * The sidebar top and the MCP editing dialog share this one component, keeping the switching
+ * feel consistent.
  */
 @Composable
 fun SegmentedTabs(
@@ -61,7 +64,8 @@ fun SegmentedTabs(
             .padding(2.dp)
     ) {
         val thumbWidth = maxWidth / labels.size
-        // 选中滑块位移：临界阻尼弹簧（不过冲），切换时滑块顺滑到位，不是硬切。
+        // Selected thumb offset: critically damped spring (no overshoot); the thumb glides
+        // into place on switching rather than hard-cutting.
         val thumbOffset by animateDpAsState(
             targetValue = thumbWidth * selected,
             animationSpec = spring(dampingRatio = 1f, stiffness = Spring.StiffnessMediumLow),

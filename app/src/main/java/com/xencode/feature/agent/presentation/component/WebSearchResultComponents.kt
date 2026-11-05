@@ -131,7 +131,7 @@ internal fun WebSearchResultCard(result: ParsedWebSearchResult) {
         verticalArrangement = Arrangement.spacedBy(Spacing.sm)
     ) {
         WebSearchSummary(result)
-        // 搜索工具返回的警告信息（如部分源超时/被限流），不展示会被静默吞掉
+        // Warnings returned by the search tool (e.g. some sources timed out / got rate-limited); not showing them would swallow them silently
         result.warnings?.let { warning ->
             Text(
                 text = stringResource(R.string.web_search_warning, warning),

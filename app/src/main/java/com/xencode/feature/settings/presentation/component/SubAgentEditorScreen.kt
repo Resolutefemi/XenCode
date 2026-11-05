@@ -61,13 +61,13 @@ import compose.icons.feathericons.ArrowLeft
 import compose.icons.feathericons.Check
 
 /**
- * 子代理新建/编辑页：自带顶栏（与 [ProviderEditorScreen] 一致，不能嵌进设置页的 Scaffold）。
+ * Sub-agent create/edit page: has its own top bar (consistent with [ProviderEditorScreen], cannot be nested inside the settings page's Scaffold).
  *
- * 表单字段对应定义文件的 frontmatter，保存时由 AgentDefinitionParser.serialize 写回 `.md`，
- * 所以在 App 内建的子代理与手写的定义完全等价，可继续用文本编辑器改。
+ * Form fields map to the definition file's frontmatter; on save, AgentDefinitionParser.serialize writes them back to `.md`,
+ * so sub-agents created in-app are fully equivalent to hand-written definitions and can still be edited with a text editor.
  *
- * @param initial 编辑目标；null 表示新建。
- * @param onSaved 保存成功后回调，带回存盘后的名称（改过名就是新名），供调用方定位详情页。
+ * @param initial Target to edit; null means create.
+ * @param onSaved Callback after a successful save, carrying the persisted name (the new one if renamed) so the caller can locate the detail page.
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -92,7 +92,7 @@ internal fun SubAgentEditorScreen(
     var scopeIsGlobal by rememberSaveable {
         mutableStateOf(initial?.scope?.let { it == AgentDefinitionScope.GLOBAL } ?: true)
     }
-    // Set<InjectPart> 进不了 Bundle，存 token 列表；切页或旋转后仍能还原。
+    // Set<InjectPart> cannot go into a Bundle, so store a token list; it still restores after page switches or rotation.
     var injectTokens by rememberSaveable {
         mutableStateOf((initial?.inject ?: AgentDefinition.DEFAULT_INJECT).map { it.token })
     }
@@ -215,7 +215,7 @@ internal fun SubAgentEditorScreen(
                             style = MaterialTheme.typography.bodyMedium,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
-                        // 作用域决定文件落在哪个目录，改已有定义的作用域等于移动文件，这里只允许新建时选。
+                        // The scope decides which directory the file lives in; changing an existing definition's scope means moving the file, so it is only selectable when creating.
                         FilterChip(
                             selected = !scopeIsGlobal,
                             enabled = initial == null,
@@ -481,8 +481,8 @@ internal fun SubAgentEditorScreen(
 }
 
 /**
- * 工具多选 Sheet：带搜索的勾选列表。工具名里的 `task` 也会列出来但选它没用——
- * 子代理不能嵌套派发，保存时由 AgentDefinition.filterToolNames 统一剔除。
+ * Tool multi-select sheet: a searchable checklist. The `task` tool name is listed too, but selecting it is useless —
+ * sub-agents cannot dispatch nested tasks, and AgentDefinition.filterToolNames strips it uniformly on save.
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -567,8 +567,8 @@ private fun ToolPickerSheet(
 }
 
 /**
- * 单选/多选列表行。不用 [SettingsRow]：它在可点击时会追加右尖头（勾选列表里是误导），
- * 而且只在选中时渲染尾部图标会让行内文字随勾选左右跳。图标始终占位，未选中时透明。
+ * Single/multi-select list row. Not [SettingsRow]: it appends a right chevron when clickable (misleading in a checklist),
+ * and rendering the trailing icon only when selected would make the row text shift with selection. The icon always occupies the slot and is transparent when unselected.
  */
 @Composable
 private fun PickerRow(

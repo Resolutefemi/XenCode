@@ -13,10 +13,10 @@ import java.io.File
 import java.nio.file.Files
 
 /**
- * 重置容器时 rootfs 的删除行为。
+ * rootfs deletion behavior when resetting a container.
  *
- * 回归点：重置曾在主线程递归删除 rootfs，装满工具的容器有十万级 inode，界面冻结几十秒直到 ANR。
- * 现在删除在 IO 线程进行并回报进度；标记文件先删，中途进程被杀不会留下「标记有效、内容残缺」的容器。
+ * Regression point: reset used to recursively delete rootfs on the main thread; a container full of tools has on the order of a hundred thousand inodes, freezing the UI for tens of seconds until ANR.
+ * Deletion now runs on the IO thread with progress reporting; the marker file is deleted first, so a mid-way process kill never leaves a container with a valid marker but incomplete contents.
  */
 class ContainerInstallerResetTest {
 
@@ -33,28 +33,28 @@ class ContainerInstallerResetTest {
     }
 
     @Test
-    fun resetRootfs_内置容器_返回时目录已彻底删除() = runTest {
+    fun resetRootfs_builtinContainer_directoryFullyDeletedOnReturn() = runTest {
         val rootfs = fakeRootfs(File(filesDir, "rootfs"), ".installed")
 
         installer.resetRootfs(ContainerProfile.BUILTIN_ALPINE)
 
-        assertFalse("重置返回时 rootfs 必须已删完", rootfs.exists())
+        assertFalse("rootfs must be fully deleted by the time reset returns", rootfs.exists())
         assertFalse(installer.isInstalled())
     }
 
     @Test
-    fun resetRootfs_回报已删条目数() = runTest {
+    fun resetRootfs_reportsDeletedEntryCount() = runTest {
         fakeRootfs(File(filesDir, "rootfs"), ".installed")
         val reported = mutableListOf<Int>()
 
         installer.resetRootfs(ContainerProfile.BUILTIN_ALPINE) { reported += it }
 
-        // rootfs 本身 + usr + usr/bin + busybox；安装标记在删除前先删，不计入
+        // rootfs itself + usr + usr/bin + busybox; the install marker is deleted beforehand and not counted
         assertEquals(4, reported.last())
     }
 
     @Test
-    fun resetRootfs_自定义容器_只删自己的目录并清系统缓存() = runTest {
+    fun resetRootfs_customContainer_deletesOnlyOwnDirsAndClearsSystemCache() = runTest {
         val custom = localProfile("custom-1")
         val customRootfs = fakeRootfs(File(filesDir, "rootfs_custom-1"), ".installed_custom")
         val builtinRootfs = fakeRootfs(File(filesDir, "rootfs"), ".installed")
@@ -63,15 +63,15 @@ class ContainerInstallerResetTest {
         installer.resetRootfs(custom)
 
         assertFalse(customRootfs.exists())
-        assertTrue("不能连带动到内置 rootfs", builtinRootfs.exists())
-        assertNull("rootfs 已删，系统识别缓存要一起失效", osDetector.cachedOs("custom-1"))
+        assertTrue("must not also wipe the built-in rootfs", builtinRootfs.exists())
+        assertNull("rootfs is deleted, so the OS detection cache must be invalidated with it", osDetector.cachedOs("custom-1"))
     }
 
     @Test
-    fun resetRootfs_远程SSH容器_不碰同名本地目录() = runTest {
+    fun resetRootfs_remoteSshContainer_neverTouchesSameNamedLocalDir() = runTest {
         val remote = ContainerProfile(
             id = "custom-2",
-            name = "远程",
+            name = "remote",
             rootfsSource = RootfsSource.RemoteSsh("conn-1", "/home/u/workspace"),
             shellPath = null,
             isBuiltin = false,
@@ -81,18 +81,18 @@ class ContainerInstallerResetTest {
 
         installer.resetRootfs(remote)
 
-        assertTrue("远程 profile 无本地 rootfs，不应删任何本地目录", strayDir.exists())
+        assertTrue("a remote profile has no local rootfs and must not delete any local directory", strayDir.exists())
     }
 
     @Test
-    fun resetRootfs_目录不存在时静默返回() = runTest {
+    fun resetRootfs_missingDirectory_returnsSilently() = runTest {
         installer.resetRootfs(localProfile("custom-3"))
 
         assertFalse(File(filesDir, "rootfs_custom-3").exists())
     }
 
     @Test
-    fun resetRootfs_不跟随符号链接删到链接目标() = runTest {
+    fun resetRootfs_doesNotFollowSymlinksToDeleteTargets() = runTest {
         val outside = File(root, "outside").apply { mkdirs() }
         val keep = File(outside, "important.txt").apply { writeText("keep me") }
         val rootfs = fakeRootfs(File(filesDir, "rootfs"), ".installed")
@@ -101,12 +101,12 @@ class ContainerInstallerResetTest {
         installer.resetRootfs(ContainerProfile.BUILTIN_ALPINE)
 
         assertFalse(rootfs.exists())
-        assertTrue("符号链接指向的目录不能被跟着删掉", outside.exists())
+        assertTrue("the directory a symlink points to must not be deleted through the link", outside.exists())
         assertEquals("keep me", keep.readText())
     }
 
     @Test
-    fun prootTmpDirFor_按容器隔离_重置内置不影响自定义容器的临时目录() = runTest {
+    fun prootTmpDirFor_isolatedPerContainer_resettingBuiltinDoesNotAffectCustomTmp() = runTest {
         val custom = localProfile("custom-4")
         fakeRootfs(File(filesDir, "rootfs_custom-4"), ".installed_custom")
         File(filesDir, "rootfs_custom-4/tmp").mkdirs()
@@ -115,10 +115,10 @@ class ContainerInstallerResetTest {
 
         installer.resetRootfs(ContainerProfile.BUILTIN_ALPINE)
 
-        // PROOT_TMP_DIR 曾固定取内置 rootfs 的 tmp，重置内置容器会让所有容器报 can't canonicalize。
+        // PROOT_TMP_DIR used to be hardwired to the built-in rootfs's tmp; resetting the built-in container made every container fail with can't canonicalize.
         val customTmp = installer.prootTmpDirFor(custom)
         assertEquals(File(filesDir, "rootfs_custom-4/tmp"), customTmp)
-        assertTrue("自定义容器的 PROOT_TMP_DIR 不能随内置容器重置而消失", customTmp.isDirectory)
+        assertTrue("the custom container's PROOT_TMP_DIR must not vanish when the built-in container is reset", customTmp.isDirectory)
     }
 
     private fun localProfile(id: String) = ContainerProfile(
@@ -129,7 +129,7 @@ class ContainerInstallerResetTest {
         isBuiltin = false
     )
 
-    /** 造一个有层级的假 rootfs，含安装标记。 */
+    /** Builds a fake rootfs with some hierarchy, including the install marker. */
     private fun fakeRootfs(dir: File, marker: String): File {
         File(dir, "usr/bin").mkdirs()
         File(dir, "usr/bin/busybox").writeText("bin")

@@ -49,7 +49,7 @@ class ContextCompactorTest {
         AgentMessage.UserMessage(id = "goal", content = "continue the task")
     )
 
-    /** 一条超长工具输出撑爆上下文的会话：绝大多数「上下文超阈值」其实是这一种。 */
+    /** A session where one oversized tool output blows the context: most "context over threshold" cases are exactly this. */
     private fun toolHeavyHistory(toolChars: Int = 20_000): List<AgentMessage> = listOf(
         AgentMessage.UserMessage(id = "goal", content = "run the command"),
         AgentMessage.AssistantMessage(id = "call", content = "", toolCalls = listOf(ToolCall("c1", "shell", emptyMap()))),
@@ -165,7 +165,7 @@ class ContextCompactorTest {
         prepare()
         val result = compactor.compactIfNeeded(history(), provider, force = true)
         val summary = result.messages[1] as AgentMessage.AssistantMessage
-        // 摘要是 assistant 消息且紧跟 marker，没有边界时模型会把它当成自己没写完的话续写。
+        // The summary is an assistant message right after the marker; without a boundary the model treats it as its own unfinished words and continues writing.
         assertTrue(summary.content.startsWith(SUMMARY_HEADER))
         assertTrue(summary.content.endsWith(SUMMARY_FOOTER))
         assertTrue(summary.content.contains("Concise handoff"))
@@ -177,8 +177,8 @@ class ContextCompactorTest {
         coEvery { provider.complete(any(), any(), any(), any()) } returns AIResponse("")
         val original = history()
         val result = compactor.compactIfNeeded(original, provider, sessionId = "session", force = true)
-        // 没有工具输出可折时诚实失败：上下文没变小，但一条消息都不能少。
-        // 旧实现在这里整段丢弃 head 并插一条占位，导致模型失去前因后产出乱码。
+        // Fails honestly when there is no tool output to fold: the context does not shrink, but not a single message may be lost.
+        // The old implementation dropped the whole head here and inserted a placeholder, leaving the model without context and producing garbage.
         assertFalse(result.compacted)
         assertEquals(original.map { it.id }, result.messages.map { it.id })
         coVerify(exactly = 0) { dao.commitCompaction(any(), any(), any(), any()) }
@@ -211,11 +211,11 @@ class ContextCompactorTest {
         prepare(context = 4_000)
         val original = toolHeavyHistory()
         val before = CompactionText.estimateRequest("", emptyList(), original)
-        assertTrue("前置条件：上下文必须真的超阈值", before > 2_678)
+        assertTrue("precondition: the context must actually exceed the threshold", before > 2_678)
         val result = compactor.compactIfNeeded(original, provider, force = true)
         assertTrue(result.compacted)
         assertTrue(CompactionText.estimateRequest("", emptyList(), result.messages) < before)
-        // 微压缩不调模型，因此没有超时、没有失败，也就不可能走到「摘要失败丢弃历史」。
+        // Micro-compaction never calls the model, so there is no timeout, no failure, and thus no way to reach the "drop history on failed summary" path.
         coVerify(exactly = 0) { provider.complete(any(), any(), any(), any()) }
         coVerify(exactly = 0) { dao.commitCompaction(any(), any(), any(), any()) }
     }
@@ -232,9 +232,9 @@ class ContextCompactorTest {
                 is AgentMessage.ToolResultMessage -> {
                     val folded = kept[index] as AgentMessage.ToolResultMessage
                     assertEquals(message.id, folded.id)
-                    // UI 与落库读的 result 保持完整，用户看到的输出一点没少。
+                    // The result read by UI and persistence stays complete — the user sees the output in full.
                     assertEquals(message.result, folded.result)
-                    // 只有喂模型的投影被折叠。
+                    // Only the projection fed to the model is folded.
                     assertTrue(folded.modelResult!!.length < message.result.length)
                 }
             }
@@ -244,7 +244,7 @@ class ContextCompactorTest {
     @Test
     fun microCompactPreservesRecentToolResultsAndToolCallPairing() = runTest {
         prepare(context = 4_000)
-        // 早期一条超大输出 + 最新一条小输出：只有早期那条该被折。
+        // One huge early output + one small latest output: only the early one should be folded.
         val original = listOf(
             AgentMessage.UserMessage(id = "goal", content = "run"),
             AgentMessage.AssistantMessage(id = "call0", content = "", toolCalls = listOf(ToolCall("c0", "shell", emptyMap()))),
@@ -256,19 +256,19 @@ class ContextCompactorTest {
         val kept = compactor.compactIfNeeded(original, provider, force = true).messages
         val early = kept[2] as AgentMessage.ToolResultMessage
         val recent = kept[5] as AgentMessage.ToolResultMessage
-        assertNull("预算内的近期工具输出不应被折叠", recent.modelResult)
+        assertNull("recent tool output within budget should not be folded", recent.modelResult)
         assertEquals("small output", recent.result)
         assertEquals("R".repeat(20_000), early.result)
         assertNotNull(early.modelResult)
         assertTrue(early.modelResult!!.length < 20_000)
-        // tool-call / tool-result 配对完整保留。
+        // tool-call / tool-result pairing is preserved intact.
         assertEquals(listOf("c0", "c1"), kept.filterIsInstance<AgentMessage.AssistantMessage>().flatMap { it.toolCalls }.map { it.id })
     }
 
     @Test
     fun microCompactStubStillNamesTheToolSoItCanBeRerun() = runTest {
-        // 小窗口 + 多条超长输出，逼折叠逐级加深。最近的结果受保护保持高保真，
-        // 越早的被压得越狠——这与 Claude Code 的 microcompact 行为一致。
+        // Small window + several oversized outputs force progressively deeper folding. The most recent result is protected and stays high-fidelity,
+        // while earlier ones get compressed harder — matching Claude Code's microcompact behavior.
         prepare(context = 4_000)
         val original = buildList {
             add(AgentMessage.UserMessage(id = "goal", content = "run"))
@@ -282,18 +282,18 @@ class ContextCompactorTest {
         val result = compactor.compactIfNeeded(original, provider, force = true, onEvent = { events.add(it) })
         val kept = result.messages
         assertTrue(result.compacted)
-        // 微压缩不调模型：没有超时、没有失败，也就不可能走到「摘要失败丢弃历史」。
+        // Micro-compaction never calls the model: no timeout, no failure, and thus no way to reach the "drop history on failed summary" path.
         coVerify(exactly = 0) { provider.complete(any(), any(), any(), any()) }
         coVerify(exactly = 0) { dao.commitCompaction(any(), any(), any(), any()) }
 
         val folded = kept.filterIsInstance<AgentMessage.ToolResultMessage>().mapNotNull { it.modelResult }
-        assertTrue("应当有工具输出被折叠", folded.isNotEmpty())
-        // 每一档都带工具名与原始长度：模型认得出是哪次调用，也拿得到是否重跑的参考。
+        assertTrue("some tool output should have been folded", folded.isNotEmpty())
+        // Every tier carries the tool name and original length: the model can tell which call it was and has a reference for whether to rerun.
         assertTrue(folded.joinToString("\n"), folded.all { it.contains("shell") && it.contains("200000") })
-        // 越早的压得越狠：最近的结果受保护，保真度高于最早的。
+        // Earlier results are compressed harder: the most recent result is protected and keeps higher fidelity than the earliest.
         val lengths = kept.filterIsInstance<AgentMessage.ToolResultMessage>().map { (it.modelResult ?: it.result).length }
-        assertTrue("最早应比最近压得更狠：$lengths", lengths.first() < lengths.last())
-        // 原始输出在落库侧一条没少。
+        assertTrue("earliest should be compressed harder than latest: $lengths", lengths.first() < lengths.last())
+        // Not a single original output is lost on the persistence side.
         assertTrue(kept.filterIsInstance<AgentMessage.ToolResultMessage>().all { it.result == "R".repeat(200_000) })
     }
 

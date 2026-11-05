@@ -36,7 +36,7 @@ abstract class AgentDatabase : RoomDatabase() {
     companion object {
         const val SCHEMA_VERSION = 58
 
-        /** 数据库文件名（落在 `databases/` 下，另有 Room 默认 WAL 模式产生的 `-wal`/`-shm`）。 */
+        /** Database file name (lives under `databases/`, plus the `-wal`/`-shm` files produced by Room's default WAL mode). */
         const val DATABASE_NAME = "aicode_agent_db"
     }
 }

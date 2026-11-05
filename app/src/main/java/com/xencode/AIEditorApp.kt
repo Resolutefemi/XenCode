@@ -39,26 +39,26 @@ class AIEditorApp : Application(), Configuration.Provider {
         const val TAG = "AIEditorApp"
         const val LANG_PREFS = "language_prefs_sync"
         const val LANG_KEY = "language_tag"
-        /** 崩溃堆栈经 Intent extra 传递，超出 Binder 上限会抛异常，需截断。 */
+        /** The crash stack travels via Intent extras; exceeding the Binder limit throws, so it must be truncated. */
         const val MAX_CRASH_STACK_CHARS = 50_000
         private const val CRASH_PREFS = "crash_state"
         private const val KEY_CRASH_UI_SHOWING = "crash_ui_showing"
         private const val KEY_LAST_CRASH_TIME = "last_crash_time"
         private const val KEY_CRASH_COUNT = "crash_count"
-        /** 10 秒内的连续崩溃视为密集崩溃。 */
+        /** Consecutive crashes within 10 seconds count as a crash burst. */
         private const val CRASH_RESET_WINDOW_MS = 10_000L
-        /** 密集崩溃达到 3 次触发硬熔断退出，杜绝死循环。 */
+        /** A burst of 3 crashes trips the hard breaker and exits, preventing infinite loops. */
         private const val MAX_CONSECUTIVE_CRASHES = 3
 
-        /** 当前导航路由（MainActivity 写入），崩溃时随报告带出，用于定位崩溃页面。 */
+        /** Current navigation route (written by MainActivity), attached to crash reports to locate the crashing screen. */
         @Volatile
         var currentRoute: String? = null
 
-        /** 当前工作区模式（本地 PRoot / 远程 SSH），崩溃时随报告带出。 */
+        /** Current workspace mode (local PRoot / remote SSH), attached to crash reports. */
         @Volatile
         var currentWorkspaceMode: String? = null
 
-        /** 重置崩溃状态（主进程健康运行或用户主动从错误页重启时调用）。 */
+        /** Resets crash state (called when the main process runs healthy or the user restarts from the error page). */
         fun resetCrashState(context: android.content.Context) {
             context.getSharedPreferences(CRASH_PREFS, android.content.Context.MODE_PRIVATE)
                 .edit()
@@ -68,12 +68,12 @@ class AIEditorApp : Application(), Configuration.Provider {
                 .apply()
         }
 
-        /** 向后兼容的旧别名，保留供外部调用。 */
+        /** Legacy alias kept for backward compatibility with external callers. */
         fun resetCrashUiFlag(context: android.content.Context) {
             resetCrashState(context)
         }
 
-        /** 兼容获取当前进程名。 */
+        /** Gets the current process name, compatibly. */
         fun getProcessNameCompat(context: android.content.Context): String {
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
                 return Application.getProcessName()
@@ -92,21 +92,21 @@ class AIEditorApp : Application(), Configuration.Provider {
                 ?: context.packageName
         }
 
-        /** 判断当前进程是否为专门渲染崩溃错误页的子进程。 */
+        /** Returns whether this process is the child process dedicated to rendering the crash error page. */
         fun isCrashProcess(context: android.content.Context): Boolean =
             getProcessNameCompat(context).endsWith(":crash")
     }
 
     override fun attachBaseContext(base: android.content.Context) {
-        // 最早入口：在任何 Hilt 注入/业务初始化之前就绪日志与崩溃落盘。
-        // 启动早期（如 Hilt 注入链实例化 @Singleton 工具）的崩溃若发生在 FileLogger 初始化之前
-        // 会不留任何痕迹，故把日志与全局崩溃处理器提到 attachBaseContext 最前。
+        // Earliest entry point: have logging and crash persistence ready before any Hilt injection / business init.
+        // A crash early in startup (e.g. the Hilt injection chain instantiating @Singleton utilities) that happens
+        // before FileLogger initializes would leave no trace, so logging and the global crash handler go first in attachBaseContext.
         FileLogger.init(base)
         AILogger.init(base)
         installCrashHandler()
-        // 全局代理入口：必须在任何 Hilt 注入 / OkHttpClient 构建之前设置，
-        // 使 App 侧全部 HTTP 链路（对话、MCP、更新检查等）按需走全局/提供商代理。
-        // 用 base 而非下文才定义的局部 context：attachBaseContext 阶段 base 即合法 Context。
+        // Global proxy entry point: must be set before any Hilt injection / OkHttpClient construction,
+        // so every app-side HTTP path (chat, MCP, update checks, etc.) can use the global/provider proxy as needed.
+        // Use base rather than the local context defined below: at attachBaseContext time base is the valid Context.
         AppProxy.applyGlobal(base)
         val tag = base.getSharedPreferences(LANG_PREFS, android.content.Context.MODE_PRIVATE)
             .getString(LANG_KEY, null)
@@ -120,114 +120,114 @@ class AIEditorApp : Application(), Configuration.Provider {
         super.attachBaseContext(base.createConfigurationContext(config))
     }
 
-    /** Hilt 字段注入：在 [onCreate] 的 super 调用后即可用。 */
+    /** Hilt field injection: available after the super call in [onCreate]. */
     @Inject
     lateinit var logSettings: LogSettingsRepository
 
-    /** 后台保活开关持久化。 */
+    /** Persistence for the background keep-alive switch. */
     @Inject
     lateinit var keepaliveSettings: KeepaliveSettingsRepository
 
-    /** WorkManager Worker 工厂：使 @HiltWorker（KeepaliveWorker）能注入依赖。 */
+    /** WorkManager worker factory: lets @HiltWorker (KeepaliveWorker) get its dependencies injected. */
     @Inject
     lateinit var workerFactory: HiltWorkerFactory
 
-    /** MCP 生命周期总管：启动即连接已配置的远程 server。 */
+    /** MCP lifecycle manager: connects configured remote servers at startup. */
     @Inject
     lateinit var mcpManager: McpManager
 
-    /** MCP 配置仓库：启动即监听 mcp.json 外部直接编辑，改动数秒内刷新列表并触发重连。 */
+    /** MCP config repository: watches for external direct edits to mcp.json at startup; changes refresh the list within seconds and trigger reconnection. */
     @Inject
     lateinit var mcpConfigRepository: com.xencode.feature.agent.domain.mcp.McpConfigRepository
 
-    /** 工具授权规则仓库：启动即监听 permissions.json 外部直接编辑，改动数秒内刷新规则。 */
+    /** Tool authorization rules repository: watches for external direct edits to permissions.json at startup; changes refresh the rules within seconds. */
     @Inject
     lateinit var permissionRulesRepository: com.xencode.feature.agent.domain.permission.PermissionRulesRepository
 
-    /** 技能配置仓库：启动即监听技能目录与 skills.json 外部变更，改动数秒内刷新技能列表。 */
+    /** Skill config repository: watches the skills directory and skills.json for external changes at startup; the skill list refreshes within seconds. */
     @Inject
     lateinit var skillConfigRepository: com.xencode.feature.agent.domain.skill.SkillConfigRepository
 
-    /** 旧 Room git 凭据一次性迁移器：启动即把旧表数据写入 git-credentials 文件后删表（真源已迁到文件）。 */
+    /** One-shot migrator for legacy Room git credentials: at startup writes the old table into the git-credentials file, then drops the table (the file is now the source of truth). */
     @Inject
     lateinit var legacyCredentialMigrator: com.xencode.feature.credentials.data.LegacyCredentialMigrator
 
-    /** 敏感字段加密迁移器：启动即把历史明文的 API Key/密码/私钥文件加密回写（幂等）。 */
+    /** Sensitive-field encryption migrator: at startup re-encrypts historically plaintext API key/password/private-key files in place (idempotent). */
     @Inject
     lateinit var secretEncryptionMigrator: com.xencode.feature.settings.data.SecretEncryptionMigrator
 
-    /** git 凭据仓库：启动即把旧版明文凭据文件迁移为编码格式。 */
+    /** Git credential repository: at startup migrates the legacy plaintext credential file to the encoded format. */
     @Inject
     lateinit var fileCredentialRepository: com.xencode.feature.credentials.data.repository.FileCredentialRepository
 
-    /** 三端 git 缺凭据的统一弹窗桥：监听容器内 credential helper 经文件 IPC 发来的未登录请求，
-     *  暴露 StateFlow 供全局弹窗回填后回喂 git。必须在主线程启动（FileObserver 绑定主 Looper）。 */
+    /** Unified dialog bridge for missing git credentials across all ends: listens for signed-out requests sent over file IPC by the in-container credential helper,
+     *  exposes a StateFlow for a global dialog to fill in and feed back to git. Must be started on the main thread (FileObserver binds the main Looper). */
     @Inject
     lateinit var credentialRequestBridge: com.xencode.feature.credentials.data.CredentialRequestBridge
 
-    /** 执行模式仓库（本地 PRoot / 远程 SSH）。 */
+    /** Execution mode repository (local PRoot / remote SSH). */
     @Inject
     lateinit var executionModeRepository: com.xencode.feature.settings.data.repository.ExecutionModeRepository
 
-    /** 应用语言偏好仓库：持久化用户选择的语言，供 attachBaseContext 同步读取。 */
+    /** App language preference repository: persists the user-selected language for attachBaseContext to read synchronously. */
     @Inject
     lateinit var languageSettings: LanguageSettingsRepository
 
-    /** 执行模式同步缓存：启动时从 DataStore 读首帧注入 DI。 */
+    /** Synchronous execution mode cache: reads the first frame from DataStore at startup and feeds it into DI. */
     @Inject
     lateinit var executionModeHolder: com.xencode.feature.settings.data.repository.ExecutionModeHolder
 
-    /** 远程 SSH 连接管理器：远程模式下启动即用配置建立连接。 */
+    /** Remote SSH connection manager: in remote mode, connects using the config at startup. */
     @Inject
     lateinit var remoteSshConnection: com.xencode.feature.agent.domain.container.RemoteSshConnection
 
-    /** 当前激活 profile 的连接配置解析器：连接/profile/模式变化时驱动重连。 */
+    /** Resolver for the active profile's connection config: drives reconnection when the connection/profile/mode changes. */
     @Inject
     lateinit var activeRemoteConnectionResolver: com.xencode.feature.agent.domain.container.ActiveRemoteConnectionResolver
 
-    /** 工作区仓库：SSH 重连成功后重新加载工作区。 */
+    /** Workspace repository: reloads the workspace after a successful SSH reconnection. */
     @Inject
     lateinit var workspaceRepository: com.xencode.feature.workspace.data.repository.WorkspaceRepository
 
-    /** 连接与同步仓库：注入以在启动早期创建 @Singleton 实例，其内部跟随当前工作区自动连接/断开挂载。 */
+    /** Connection & sync repository: injected so the @Singleton is created early; it internally follows the current workspace, connecting/disconnecting mounts automatically. */
     @Inject
     lateinit var remoteRepository: com.xencode.feature.workspace.domain.repository.RemoteRepository
 
-    /** 模型元数据服务：启动即异步从本仓库拉取模型目录（12h 缓存，失败静默，兜底内置数据）。 */
+    /** Model metadata service: pulls the model catalog from this repository asynchronously at startup (12h cache, silent on failure, falls back to built-in data). */
     @Inject
     lateinit var modelMetadataService: ModelMetadataService
 
-    /** 提供商级代理注册表：启动即构建 provider→代理 索引，供 AppProxy 按 target host 分派。 */
+    /** Provider-level proxy registry: builds the provider->proxy index at startup for AppProxy to dispatch by target host. */
     @Inject
     lateinit var providerProxyRegistry: com.xencode.feature.settings.data.repository.ProviderProxyRegistry
 
-    /** 长驻作用域：持续把持久化的日志等级同步到 FileLogger。 */
+    /** Long-lived scope: continuously syncs the persisted log level into FileLogger. */
     private val appScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
     override fun onCreate() {
         if (isCrashProcess(this)) {
-            // 崩溃错误页运行在独立 :crash 进程中。
-            // 坚决不执行 super.onCreate()（避免触发 Hilt 的 @Inject 字段注入与隐式业务类加载），
-            // 也坚决不启动主进程业务协程、数据库访问或常驻服务，使错误页拥有纯净轻量的渲染环境。
+            // The crash error page runs in its own :crash process.
+            // Deliberately skip super.onCreate() (avoiding Hilt's @Inject field injection and implicit business class loading),
+            // and never start main-process business coroutines, database access, or persistent services, giving the error page a clean, lightweight rendering environment.
             return
         }
         super.onCreate()
         logDeviceInfo()
-        // 把提供商级代理注册表挂到 AppProxy（applyGlobal 已在 attachBaseContext 完成），
-        // 此后按目标 host 分派 provider 专属代理；无 provider 配置时回退全局代理。
+        // Attach the provider-level proxy registry to AppProxy (applyGlobal already ran in attachBaseContext);
+        // from here on, provider-specific proxies are dispatched by target host; without a provider config it falls back to the global proxy.
         AppProxy.registerProviderProxyRegistry(providerProxyRegistry)
-        // 注册完整版 BouncyCastle 放后台 IO 协程，避免在主线程加载大量密码学类阻塞首屏；
-        // 远程 SSH 连接在 appScope 中执行，使用前完成注册即可。
+        // Registering the full BouncyCastle goes to a background IO coroutine, avoiding loading a pile of crypto classes on the main thread and blocking first paint;
+        // the remote SSH connection runs in appScope, and registration only needs to finish before first use.
         appScope.launch(Dispatchers.IO) {
             registerBouncyCastle()
         }
         createNotificationChannels()
-        // 启动凭据请求监听：容器内 credential helper 写来的 cred-req-* → 全局弹窗回填 → 回喂 git 续跑。
+        // Start the credential request listener: cred-req-* written by the in-container credential helper -> global dialog fills it in -> fed back to git to resume.
         credentialRequestBridge.start()
-        // ── 非关键后台任务：延迟到首屏后再执行 ──
-        // 冷启动时 JIT 编译巨型 Composable（AIChatPanel 等）分配 ~39MB，触发 GC 风暴阻塞主线程。
-        // 这些文件解压/迁移/网络刷新任务在后台线程分配大量临时对象，如果与 JIT 同时跑会叠加 GC 压力。
-        // 延迟 500ms 让 JIT 编译窗口先过，首屏渲染不受 GC 干扰。任务本身都是幂等的，晚 500ms 无影响。
+        // -- Non-critical background tasks: deferred until after first paint --
+        // On a cold start, JIT-compiling the giant Composables (AIChatPanel etc.) allocates ~39MB and triggers a GC storm that blocks the main thread.
+        // These file extraction/migration/network refresh tasks allocate many temporary objects on background threads; running them alongside JIT compounds GC pressure.
+        // Delaying 500ms lets the JIT compilation window pass first, keeping first paint free of GC interference. The tasks are all idempotent, so a 500ms delay is harmless.
         appScope.launch {
             kotlinx.coroutines.delay(500)
             ContainerInstaller.extractDocs(this@AIEditorApp)
@@ -264,29 +264,29 @@ class AIEditorApp : Application(), Configuration.Provider {
             kotlinx.coroutines.delay(800)
             com.xencode.feature.settings.data.local.ProviderPresetLibrary.refreshFromNetworkIfStale(this@AIEditorApp)
         }
-        // 启动即加载持久化等级，并随设置页改动实时生效（唯一同步点）。
+        // Load the persisted level at startup and apply settings-screen changes in real time (the single sync point).
         appScope.launch {
             logSettings.levelFlow.collectLatest { FileLogger.setMinLevel(it) }
         }
-        // 启动即同步从 DataStore 读首帧执行模式缓存到 ExecutionModeHolder，供 DI @Provides 同步读取。
-        // 异步读首帧模式写入 ExecutionModeHolder。委托层（DelegatingCommandEngine/DelegatingFileAccess）
-        // 每次方法调用时才按 holder.currentMode() 转发，不依赖注入时机，故 holder 晚几毫秒写入无妨——
-        // 首次命令/文件操作一定在 UI 启动之后，那时 holder 早已就绪。
-        // SSH 连接放后台，失败不阻塞 UI（连接失败时首次命令会触发 ensureInstalled 重试）。
+        // At startup, synchronously read the first-frame execution mode from DataStore into ExecutionModeHolder for DI @Provides to read synchronously.
+        // Reads the first-frame mode asynchronously and writes it into ExecutionModeHolder. The delegating layer (DelegatingCommandEngine/DelegatingFileAccess)
+        // forwards per method call based on holder.currentMode(), independent of injection timing, so a few milliseconds' delay writing the holder is fine —
+        // the first command/file operation always happens after the UI starts, by which time the holder is long ready.
+        // The SSH connection goes to the background; failure does not block the UI (if it failed, the first command triggers an ensureInstalled retry).
         appScope.launch {
             val mode = executionModeRepository.executionModeFlow.first()
             executionModeHolder.setMode(mode)
         }
-        // SSH 连接监督常驻（config 为空时空转）：定期探活、断线自动重连，重连成功后重载工作区与同步文档。
+        // SSH connection supervisor runs persistently (idles with an empty config): periodic liveness checks, automatic reconnect on drop; on reconnect it reloads the workspace and syncs docs.
         appScope.launch {
             remoteSshConnection.startSupervisor(appScope) {
                 runCatching { workspaceRepository.initialize() }
-                    .onFailure { FileLogger.w(TAG, "SSH 重连后重新加载工作区失败", it) }
+                    .onFailure { FileLogger.w(TAG, "Failed to reload workspace after SSH reconnection", it) }
                 syncDocsToRemote()
                 releaseBuiltinAssetsToRemote()
             }
         }
-        // 当前激活 profile 的连接配置变化（编辑连接/编辑 profile/切 profile/切模式）即重连，改连接即时生效。
+        // Reconnect whenever the active profile's connection config changes (edit connection / edit profile / switch profile / switch mode), so connection edits take effect immediately.
         appScope.launch {
             combine(
                 activeRemoteConnectionResolver.activeConfigFlow,
@@ -296,23 +296,23 @@ class AIEditorApp : Application(), Configuration.Provider {
                 if (config == null || config == remoteSshConnection.config) return@collect
                 runCatching {
                     remoteSshConnection.connect(config)
-                    // 连接成功后同步内置文档到远程 ~/.xencode/docs/，供 AI 查阅。
+                    // After connecting, sync built-in docs to the remote ~/.xencode/docs/ for the AI to consult.
                     syncDocsToRemote()
                     releaseBuiltinAssetsToRemote()
-                }.onFailure { FileLogger.e(TAG, "SSH 连接失败，将在首次命令时重试", it) }
+                }.onFailure { FileLogger.e(TAG, "SSH connection failed; will retry on the first command", it) }
             }
         }
-        // 连接与同步的「跟随当前工作区」由 RemoteRepository 内部监听工作区变化自动执行（启动注入即就绪）：
-        // 工作区就绪/切换时，自动断开非当前工作区的挂载，连接当前工作区里勾了「应用启动时自动连接」的挂载。
-        // 后台保活常驻通知的唯一反应器：监听开关，启停 TerminalKeepaliveService 的常驻模式。
-        // 既覆盖设置页实时切换，也覆盖冷启动恢复。仅在「由开变关」时发 disable，
-        // 避免为关闭而凭空拉起从未开过的 Service。
+        // RemoteRepository handles "follow the current workspace" for connections and sync internally by watching workspace changes (ready as soon as injected at startup):
+        // when a workspace becomes ready or switches, it automatically disconnects other workspaces' mounts and connects the mounts in the current workspace marked "auto-connect on app start".
+        // The sole reactor for the background keep-alive persistent notification: watches the switch and starts/stops TerminalKeepaliveService's persistent mode.
+        // Covers both live toggling in settings and cold-start restore. Sends disable only on an on->off transition,
+        // avoiding spuriously starting a Service that was never on just to turn it off.
         appScope.launch {
             var last: Boolean? = null
             keepaliveSettings.enabledFlow.distinctUntilChanged().collect { enabled ->
                 if (enabled) {
                     TerminalKeepaliveService.enablePersistent(this@AIEditorApp)
-                    // WorkManager 兜底：周期检查服务存活，被杀后自动拉起。
+                    // WorkManager fallback: periodically checks the service is alive and revives it after a kill.
                     KeepaliveWorker.schedule(this@AIEditorApp)
                 } else if (last == true) {
                     TerminalKeepaliveService.disablePersistent(this@AIEditorApp)
@@ -321,81 +321,81 @@ class AIEditorApp : Application(), Configuration.Provider {
                 last = enabled
             }
         }
-        // 连接已配置的 MCP server，把其工具注册进 ToolRegistry（内部自有 scope，失败不影响启动）。
+        // Connect configured MCP servers and register their tools into ToolRegistry (own internal scope; failure does not affect startup).
         mcpManager.start()
-        // 权限规则由 App 启动即常驻订阅（AI 评估随时要读到最新规则）；MCP 配置与技能列表
-        // 改由各自消费方（McpManager / 设置页）按需订阅，无需在这里拉起。
+        // Permission rules are subscribed persistently at app startup (AI evaluation must always read the latest rules); MCP config and the skill list
+        // are instead subscribed on demand by their consumers (McpManager / the settings screen), so nothing needs to start here.
         appScope.launch { permissionRulesRepository.startWatching() }
-        // 持续同步工作区模式缓存，崩溃时随报告带出
+        // Continuously sync the workspace mode cache; attached to crash reports
         appScope.launch {
             executionModeRepository.executionModeFlow.collect { mode ->
                 currentWorkspaceMode = mode.name
             }
         }
-        // 主进程健康启动 10 秒后，自动清零连续崩溃计数与错误页显示标志，恢复健康状态
+        // 10 seconds after the main process starts healthy, auto-reset the consecutive-crash counter and the error-page flag, restoring a healthy state
         appScope.launch {
             kotlinx.coroutines.delay(10_000)
             resetCrashState(this@AIEditorApp)
         }
-        // 语言切换由 MainActivity 的 attachBaseContext + recreate() 统一管理。
-        // MainActivity 继承 ComponentActivity（非 AppCompatActivity），
-        // AppCompatDelegate.setApplicationLocales 的自动 recreate 不生效，
-        // 且两者同时设置 locale 会竞争导致偶发语言错乱。
+        // Language switching is managed uniformly by MainActivity's attachBaseContext + recreate().
+        // MainActivity extends ComponentActivity (not AppCompatActivity),
+        // so AppCompatDelegate.setApplicationLocales's automatic recreate does not take effect,
+        // and setting the locale in both places would race and occasionally scramble the language.
     }
 
-    /** 记录设备/版本信息：用户报「某系统版本上容器起不来」时，日志里得先有系统与 ABI 上下文。 */
+    /** Log device/version info: when a user reports "the container will not start on some OS version", the log needs the system and ABI context first. */
     private fun logDeviceInfo() {
         runCatching {
             val versionName = packageManager.getPackageInfo(packageName, 0).versionName
             FileLogger.i(
                 TAG,
-                "设备信息：${Build.MANUFACTURER} ${Build.MODEL}，Android ${Build.VERSION.RELEASE}" +
-                    "(API ${Build.VERSION.SDK_INT})，ABI=${Build.SUPPORTED_ABIS.joinToString(",")}，" +
-                    "targetSdk=${applicationInfo.targetSdkVersion}，nativeLibraryDir=${applicationInfo.nativeLibraryDir}，" +
-                    "版本=$versionName"
+                "Device info: ${Build.MANUFACTURER} ${Build.MODEL}, Android ${Build.VERSION.RELEASE}" +
+                    "(API ${Build.VERSION.SDK_INT}), ABI=${Build.SUPPORTED_ABIS.joinToString(",")}, " +
+                    "targetSdk=${applicationInfo.targetSdkVersion}, nativeLibraryDir=${applicationInfo.nativeLibraryDir}, " +
+                    "version=$versionName"
             )
-        }.onFailure { FileLogger.w(TAG, "记录设备信息失败", it) }
+        }.onFailure { FileLogger.w(TAG, "Failed to log device info", it) }
     }
 
-    /** HiltWorkerFactory：@HiltWorker 的 Worker 经此工厂创建，才能注入 Repository。 */
+    /** HiltWorkerFactory: @HiltWorker workers must be created through this factory to get Repository injection. */
     override val workManagerConfiguration: Configuration
         get() = Configuration.Builder()
             .setWorkerFactory(workerFactory)
             .build()
 
     /**
-     * 读取 assets/docs 下所有内置文档（含 guide/ advanced/ 等分类子目录），通过 SSH exec 同步到远程 ~/.xencode/docs/。
-     * 远程模式下 AI 查阅 ~/.xencode/docs/ 的设置说明文档时，需要这些文件存在于远程服务器。
-     * 连接成功与重连成功后调用，保证远程文档随 App 升级更新。失败仅记日志，不阻断流程。
+     * Reads all built-in docs under assets/docs (including category subdirectories like guide/ and advanced/) and syncs them to the remote ~/.xencode/docs/ via SSH exec.
+     * In remote mode, when the AI consults the settings docs under ~/.xencode/docs/, these files must exist on the remote server.
+     * Called after a successful connect and reconnect, keeping remote docs updated as the app upgrades. Failures are only logged and never block the flow.
      */
     private suspend fun syncDocsToRemote() {
         runCatching {
             val docs = linkedMapOf<String, String>()
             collectAssetDocs("docs", "", docs)
             remoteSshConnection.uploadDocs(docs)
-        }.onFailure { FileLogger.w(TAG, "同步内置文档到远程失败", it) }
+        }.onFailure { FileLogger.w(TAG, "Failed to sync built-in docs to remote", it) }
     }
 
     /**
-     * 释放内置子代理定义（Explore）与面板示例脚本到远程 `~/.xencode/agents`、`~/.xencode/scripts`。
-     * 远程模式下全局 agents/scripts 以远端为准，内置默认需在远端存在才能开箱即用；仅补齐缺失、不覆盖用户修改。
+     * Releases the built-in sub-agent definition (Explore) and panel example scripts to the remote `~/.xencode/agents` and `~/.xencode/scripts`.
+     * In remote mode the remote side is authoritative for global agents/scripts; the built-in defaults must exist there to work out of the box — only fills in what is missing, never overwrites user changes.
      */
     private suspend fun releaseBuiltinAssetsToRemote() {
         remoteSshConnection.uploadBuiltinFiles("agents", collectAssetBytes("agents"))
         remoteSshConnection.uploadBuiltinFiles("scripts", collectAssetBytes("xencode/scripts"), executable = true)
     }
 
-    /** 收集 assets 目录下的扁平文件（name → 字节）。目录项会被跳过。 */
+    /** Collects the flat files in an assets directory (name -> bytes). Directory entries are skipped. */
     private fun collectAssetBytes(assetDir: String): Map<String, ByteArray> {
         val out = linkedMapOf<String, ByteArray>()
         assets.list(assetDir)?.forEach { entry ->
             runCatching { assets.open("$assetDir/$entry").use { out[entry] = it.readBytes() } }
-                .onFailure { FileLogger.w(TAG, "读取内置资源失败: $assetDir/$entry", it) }
+                .onFailure { FileLogger.w(TAG, "Failed to read built-in asset: $assetDir/$entry", it) }
         }
         return out
     }
 
-    /** 递归收集 assets 文档，key 为相对 docs/ 的路径（如 guide/terminal.md）。 */
+    /** Recursively collects asset docs; the key is the path relative to docs/ (e.g. guide/terminal.md). */
     private fun collectAssetDocs(assetDir: String, relativePrefix: String, out: MutableMap<String, String>) {
         val entries = assets.list(assetDir) ?: return
         for (entry in entries) {
@@ -404,57 +404,58 @@ class AIEditorApp : Application(), Configuration.Provider {
             try {
                 out[relativePath] = assets.open(assetPath).bufferedReader().use { it.readText() }
             } catch (e: java.io.IOException) {
-                // 目录项：assets.open 对目录抛 IOException，递归处理
+                // Directory entry: assets.open throws IOException for directories, recurse into it
                 collectAssetDocs(assetPath, relativePath, out)
             }
         }
     }
 
-    /** 注册完整版 BouncyCastle 取代 Android 自带的裁剪版。
-     *  sshj 0.38.0 用 X25519 做密钥交换，Android 自带的 BC provider 不含 X25519 算法，
-     *  需先移除裁剪版再注册 bcprov-jdk18on（sshj 传递依赖）的完整版，并告诉 sshj 使用它。
-     *  必须在任何 sshj 调用之前完成。 */
+    /** Registers the full BouncyCastle to replace Android's trimmed-down version.
+     *  sshj 0.38.0 uses X25519 for key exchange; Android's bundled BC provider lacks the X25519 algorithm,
+     *  so the trimmed version must be removed first, then the full bcprov-jdk18on (an sshj transitive dependency)
+     *  registered, and sshj told to use it. Must complete before any sshj call. */
     private fun registerBouncyCastle() {
-        // 先移除 Android 自带的裁剪版 BC，再注册完整版 bcprov-jdk18on。
-        // 用 addProvider 而非 insertProviderAt(…, 1)：BC 只需存在于 Provider 列表中供 sshj
-        // 通过 SecurityUtils.setSecurityProvider("BC") 按名查到即可，无需排到最高优先级。
-        // 若抬到第 1 位，会抢占 OkHttp/Conscrypt 初始化默认 SSLContext 时的 KeyStore 查找，
-        // BC 注册了 BKS 类型却没有配套默认 truststore，导致抛 KeyStoreException: BKS not found
-        // （表现为检测更新等 HTTPS 请求崩溃）。放末尾让系统自带 provider 继续负责 TLS。
+        // Remove Android's trimmed-down BC first, then register the full bcprov-jdk18on.
+        // Use addProvider rather than insertProviderAt(..., 1): BC just needs to exist in the Provider list so
+        // sshj can find it by name via SecurityUtils.setSecurityProvider("BC"); top priority is unnecessary.
+        // If it were moved to position 1, it would hijack the KeyStore lookup when OkHttp/Conscrypt initializes
+        // the default SSLContext — BC registers the BKS type but ships no matching default truststore, throwing
+        // KeyStoreException: BKS not found (manifesting as crashes on HTTPS requests like update checks). Leaving it last lets the system's own providers keep handling TLS.
         java.security.Security.removeProvider("BC")
         java.security.Security.addProvider(org.bouncycastle.jce.provider.BouncyCastleProvider())
         SecurityUtils.setSecurityProvider("BC")
     }
 
     /**
-     * 捕获未处理异常：落盘后拉起全屏错误页（展示崩溃详情、支持复制），
-     * 随即杀掉进程让系统重启并恢复错误页。
+     * Catches unhandled exceptions: persists the crash, launches the full-screen error page (showing crash details,
+     * supporting copy), then kills the process so the system restarts and restores the error page.
      *
-     * 必须杀进程：主线程崩溃后其 Looper 已死，不杀进程则错误页窗口虽出现
-     * 但 onCreate 永不执行（白屏），最终被系统当 ANR 杀掉。杀掉后 AMS 检测到
-     * 进程死在 Activity 创建途中，会自动重启进程并恢复 CrashActivity，
-     * 新进程主线程健康，错误页才能正常渲染。
+     * The process must be killed: after a main-thread crash its Looper is dead; without killing, the error page
+     * window appears but onCreate never runs (blank screen) and is eventually killed as an ANR. Once killed, AMS
+     * detects the process died mid-Activity-creation, automatically restarts it and restores CrashActivity —
+     * with a healthy main thread in the new process, the error page renders properly.
      *
-     * 防递归：错误页自身崩溃时落盘标志仍在，直接交回系统默认处理器，避免无限重启。
+     * Recursion guard: if the error page itself crashes, the persisted flag is still set, so hand it straight
+     * back to the system default handler to avoid infinite restarts.
      */
     private fun installCrashHandler() {
         val previous = Thread.getDefaultUncaughtExceptionHandler()
         val isCrash = isCrashProcess(this)
         Thread.setDefaultUncaughtExceptionHandler { thread, throwable ->
             val processName = getProcessNameCompat(this)
-            FileLogger.e("CRASH", "线程 ${thread.name} 未捕获异常 (进程=$processName)", throwable)
-            // 崩溃前同步 flush 缓冲日志，避免最后一段（含本行错误）留在内存中丢失。
+            FileLogger.e("CRASH", "Uncaught exception on thread ${thread.name} (process=$processName)", throwable)
+            // Flush buffered logs synchronously before the crash so the last chunk (including this error line) is not lost in memory.
             FileLogger.flushSync()
 
-            // 1. 若 :crash 进程自身发生异常：交回系统默认处理器并彻底退出，绝不二次拉起错误页
+            // 1. If the :crash process itself throws: hand back to the system default handler and exit for good — never launch the error page again
             if (isCrash) {
-                FileLogger.e(TAG, "崩溃错误页进程发生异常，强制终止进程，避免递归")
+                FileLogger.e(TAG, "Exception in the crash error page process; killing the process to avoid recursion")
                 previous?.uncaughtException(thread, throwable)
                 Process.killProcess(Process.myPid())
                 return@setDefaultUncaughtExceptionHandler
             }
 
-            // 2. 主进程崩溃：检查崩溃频次与状态，防止死循环无限拉起
+            // 2. Main process crash: check crash frequency and state to prevent an infinite relaunch loop
             val prefs = getSharedPreferences(CRASH_PREFS, MODE_PRIVATE)
             val isUiShowing = prefs.getBoolean(KEY_CRASH_UI_SHOWING, false)
             val lastCrashTime = prefs.getLong(KEY_LAST_CRASH_TIME, 0L)
@@ -469,9 +470,9 @@ class AIEditorApp : Application(), Configuration.Provider {
                 .putInt(KEY_CRASH_COUNT, recentCrashCount)
                 .apply()
 
-            // 熔断保护：错误页正在展示又发生崩溃，或短时间内连续崩溃达到阈值
+            // Circuit breaker: a crash while the error page is showing, or a burst of crashes hitting the threshold in a short window
             if (isUiShowing || recentCrashCount >= MAX_CONSECUTIVE_CRASHES) {
-                FileLogger.e(TAG, "触发崩溃熔断保护 (isUiShowing=$isUiShowing, count=$recentCrashCount)，终止自启交由系统处理")
+                FileLogger.e(TAG, "Crash circuit breaker tripped (isUiShowing=$isUiShowing, count=$recentCrashCount); stopping auto-restart and leaving it to the system")
                 previous?.uncaughtException(thread, throwable)
                 Process.killProcess(Process.myPid())
                 return@setDefaultUncaughtExceptionHandler
@@ -490,8 +491,8 @@ class AIEditorApp : Application(), Configuration.Provider {
                     }
                 )
             } catch (t: Throwable) {
-                // 错误页启动失败（如系统限制）：交回默认处理器，不让崩溃被吞掉
-                FileLogger.e(TAG, "启动崩溃错误页失败", t)
+                // Error page failed to start (e.g. system restrictions): hand back to the default handler so the crash is not swallowed
+                FileLogger.e(TAG, "Failed to launch the crash error page", t)
                 prefs.edit().remove(KEY_CRASH_UI_SHOWING).apply()
                 previous?.uncaughtException(thread, throwable)
                 return@setDefaultUncaughtExceptionHandler
@@ -501,8 +502,9 @@ class AIEditorApp : Application(), Configuration.Provider {
     }
 
     /**
-     * 崩溃进程的内存快照，随报告带出。必须在主进程采集——错误页跑在 :crash 独立进程，
-     * 在那里读到的只是汇报进程的堆，对定位 OOM 无意义。
+     * Memory snapshot of the crashing process, attached to the report. Must be captured in the main process —
+     * the error page runs in the separate :crash process, where reading the heap only reflects the reporting
+     * process and is useless for diagnosing OOM.
      */
     private fun memorySummary(): String = runCatching {
         val runtime = Runtime.getRuntime()
@@ -544,7 +546,7 @@ class AIEditorApp : Application(), Configuration.Provider {
             }
             notificationManager.createNotificationChannel(channel)
 
-            // Agent 完成通知：需要弹窗+声音，区别于 terminal_service 的静默常驻通知。
+            // Agent completion notification: needs a heads-up + sound, unlike terminal_service's silent persistent notification.
             val agentChannel = NotificationChannel(
                 "agent_complete",
                 getString(R.string.notification_channel_agent_complete),

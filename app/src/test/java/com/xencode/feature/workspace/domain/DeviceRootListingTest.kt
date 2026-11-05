@@ -15,7 +15,7 @@ class DeviceRootListingTest {
         "$type\t$size\t$mtime\t$mode\t$name\u0000"
 
     @Test
-    fun `parseFindOutput_常规目录与文件`() {
+    fun parseFindOutput_regularDirsAndFiles() {
         val output = rec("d", "4096", "1729165800.0123456789", "40755", "sub") +
             rec("f", "120", "1729165801.5", "644", "main.kt")
         val entries = DeviceRootListing.parseFindOutput(output, real)
@@ -36,7 +36,7 @@ class DeviceRootListingTest {
     }
 
     @Test
-    fun `parseFindOutput_文件名含制表符换行与unicode`() {
+    fun parseFindOutput_filenamesWithTabsNewlinesAndUnicode() {
         val output = rec("f", "1", "100.0", "644", "we\tird") +
             rec("f", "2", "100.0", "644", "line\nbreak") +
             rec("f", "3", "100.0", "644", "文档.txt")
@@ -45,7 +45,7 @@ class DeviceRootListingTest {
     }
 
     @Test
-    fun `parseFindOutput_符号链接与非存在目标按非目录处理`() {
+    fun parseFindOutput_symlinksAndMissingTargetsTreatedAsNonDirectory() {
         val output = rec("l", "10", "100.0", "777", "link") +
             rec("N", "0", "100.0", "0", "dangling")
         val entries = DeviceRootListing.parseFindOutput(output, real)
@@ -54,12 +54,12 @@ class DeviceRootListingTest {
     }
 
     @Test
-    fun `parseFindOutput_空目录与空输出`() {
+    fun parseFindOutput_emptyDirAndEmptyOutput() {
         assertTrue(DeviceRootListing.parseFindOutput("", real).isEmpty())
     }
 
     @Test
-    fun `parseFindOutput_跳过非法与字段残缺记录`() {
+    fun parseFindOutput_skipsIllegalAndTruncatedRecords() {
         val output = "\u0000garbage\u0000" + rec("f", "1", "100.0", "644", "ok") +
             rec("f", "1", "100.0", "644", "")
         val entries = DeviceRootListing.parseFindOutput(output, real)
@@ -67,28 +67,28 @@ class DeviceRootListingTest {
     }
 
     @Test
-    fun `parseFindOutput_数值缺失时给默认值`() {
+    fun parseFindOutput_missingNumbersFallBackToDefaults() {
         val entries = DeviceRootListing.parseFindOutput(rec("f", "x", "y", "zz", "f"), real)
         assertEquals(1, entries.size)
         assertEquals(0L, entries[0].size)
         assertEquals(0L, entries[0].lastModified)
-        assertEquals("rwx", entries[0].permissions) // 无法解析时按 root 默认可读写执行
+        assertEquals("rwx", entries[0].permissions) // when unparseable, defaults to root's rwx
     }
 
     @Test
-    fun `permissionsFromOctal_八进制转rwx`() {
+    fun permissionsFromOctal_octalToRwx() {
         assertEquals("rwx", DeviceRootListing.permissionsFromOctal("755"))
         assertEquals("rw-", DeviceRootListing.permissionsFromOctal("644"))
         assertEquals("rw-", DeviceRootListing.permissionsFromOctal("600"))
         assertEquals("r--", DeviceRootListing.permissionsFromOctal("444"))
         assertEquals("---", DeviceRootListing.permissionsFromOctal("000"))
-        assertEquals("rwx", DeviceRootListing.permissionsFromOctal("40755")) // 目录：取末三位
-        assertEquals("rwx", DeviceRootListing.permissionsFromOctal("")) // 无法解析
-        assertEquals("rwx", DeviceRootListing.permissionsFromOctal("9x9")) // 非法字符
+        assertEquals("rwx", DeviceRootListing.permissionsFromOctal("40755")) // directory: take the last three digits
+        assertEquals("rwx", DeviceRootListing.permissionsFromOctal("")) // unparseable
+        assertEquals("rwx", DeviceRootListing.permissionsFromOctal("9x9")) // invalid characters
     }
 
     @Test
-    fun `parseLegacyOutput_旧格式兼容`() {
+    fun parseLegacyOutput_legacyFormatCompatibility() {
         val output = "d\t4096|1729165800|drwxr-xr-x\tsub\n" +
             "f\t120|1729165801|-rw-r--r--\tmain.kt\n" +
             "f\t0|0|-\twe\tird\n"
@@ -100,19 +100,19 @@ class DeviceRootListingTest {
         assertEquals("rwx", entries[0].permissions)
         assertFalse(entries[1].isDirectory)
         assertEquals("rw-", entries[1].permissions)
-        assertEquals("we\tird", entries[2].name) // 名字含 tab 由旧协议拼回
-        assertEquals("rwx", entries[2].permissions) // stat 缺失时默认
+        assertEquals("we\tird", entries[2].name) // a name containing a tab is stitched back by the legacy protocol
+        assertEquals("rwx", entries[2].permissions) // default when stat is missing
     }
 
     @Test
-    fun `parseLegacyOutput_跳过空行与残缺行`() {
+    fun parseLegacyOutput_skipsBlankAndTruncatedLines() {
         val output = "\nf\t120|1729165801|-rw-r--r--\tmain.kt\nbad\n"
         val entries = DeviceRootListing.parseLegacyOutput(output, real)
         assertEquals(1, entries.size)
     }
 
     @Test
-    fun `findScript_含单命令printf与路径引用`() {
+    fun findScript_singlePrintfCommandWithPathQuote() {
         val script = DeviceRootListing.findScript("/data/local/tmp/my ws")
         assertTrue(script.startsWith("cd '/data/local/tmp/my ws'"))
         assertTrue(script.contains("find -L . -mindepth 1 -maxdepth 1"))
@@ -121,7 +121,7 @@ class DeviceRootListingTest {
     }
 
     @Test
-    fun `legacyScript_仍可用作兜底`() {
+    fun legacyScript_stillUsableAsFallback() {
         val script = DeviceRootListing.legacyScript("/data/local/tmp/ws")
         assertTrue(script.contains("for f in * .[!.]* ..?*;"))
         assertTrue(script.contains("stat -c '%s|%Y|%A'"))

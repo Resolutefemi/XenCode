@@ -181,8 +181,8 @@ fun ProviderEditorScreen(
     onNavigateBack: () -> Unit,
     onSave: (AIProviderConfig) -> Unit,
     /**
-     * 从预设库新建时预填的名称/类型/Base URL/模型列表；
-     * 仅当 [initialProvider] 为 null（新建场景）时生效。
+     * Name/type/Base URL/model list prefilled when creating from the preset library;
+     * only effective when [initialProvider] is null (create scenario).
      */
     presetPrefill: ProviderPreset? = null,
     initialTab: Int = 0,
@@ -255,7 +255,7 @@ fun ProviderEditorScreen(
     var showScriptParamsSheet by remember { mutableStateOf(false) }
     var fetchDialogKey by remember { mutableIntStateOf(0) }
 
-    // 两个 tab 的滚动状态提升到页面层，聚合出「是否正在滚动」供底部 tab栏滚动弱化（同 Git 页面）。
+    // Both tabs' scroll states are hoisted to the page level, aggregating an "is scrolling" flag for the bottom tab bar's scroll dimming (same as the Git page).
     val configScrollState = rememberScrollState()
     val modelsListState = rememberLazyListState()
     var modelsOrderDirty by remember { mutableStateOf(false) }
@@ -335,8 +335,8 @@ fun ProviderEditorScreen(
         scriptParams = scriptParams.filter { it.first.isNotBlank() }.toMap()
     ).sanitized()
 
-    // 新建场景下判断用户是否填写了实质内容：名称、API Key、Base URL 任一非空白，或已添加模型 / DIY 脚本参数。
-    // 全空白时退出编辑页（防止新建一个名为「默认供应商」的空记录）。
+    // In the create scenario, check whether the user entered anything substantive: any non-blank name/API Key/Base URL, or added models / DIY script params.
+    // If all blank, leave the editor without saving (prevents creating an empty record named "Default provider").
     fun hasSubstantiveInput(): Boolean =
         initialProvider != null ||
             name.isNotBlank() ||
@@ -353,7 +353,7 @@ fun ProviderEditorScreen(
         onSave(currentConfig())
     }
 
-    // 拉取成功后自动对齐：远端已不存在的本地模型直接移除（可在「偏好设置」关掉）。拉取失败或返回空列表时不动列表。
+    // Auto-align after a successful fetch: local models no longer present remotely are removed directly (can be turned off in "Preferences"). On fetch failure or an empty result, the list is untouched.
     LaunchedEffect(fetchState, showFetchDialog, autoRemoveStaleModels) {
         if (!autoRemoveStaleModels) return@LaunchedEffect
         val state = fetchState
@@ -472,7 +472,7 @@ fun ProviderEditorScreen(
                             .padding(bottom = 70.dp),
                         verticalArrangement = Arrangement.spacedBy(Spacing.sm)
                     ) {
-                    // ── 基本信息 ──
+                    // ── Basic info ──
                     SettingsGroupHeader(text = stringResource(R.string.provider_section_basic))
                     SettingsGroup(
                         modifier = Modifier.onboardingTarget(OnboardingStep.PROVIDER_CONFIG_INFO)
@@ -549,7 +549,7 @@ fun ProviderEditorScreen(
                         )
                     }
 
-                    // ── 选项 ──
+                    // ── Options ──
                     SettingsGroupHeader(text = stringResource(R.string.provider_section_options))
                     SettingsGroup {
                         ProviderSwitchRow(
@@ -564,8 +564,8 @@ fun ProviderEditorScreen(
                             checked = useFullUrl,
                             onCheckedChange = { useFullUrl = it }
                         )
-                        // 新版端点开关：OpenAI 是 Responses API，Gemini 是 Interactions API，
-                        // 共用 useResponseApi 一个字段（语义一致：切到该家的新版统一端点）。
+                        // New-style endpoint toggle: Responses API for OpenAI, Interactions API for Gemini,
+                        // both share the single useResponseApi field (same semantics: switch to that vendor's new unified endpoint).
                         if (type == ProviderType.OPENAI || type == ProviderType.GEMINI) {
                             SettingsDivider()
                             ProviderSwitchRow(
@@ -602,7 +602,7 @@ fun ProviderEditorScreen(
                             checked = multiKeyEnabled,
                             onCheckedChange = { enabled ->
                                 multiKeyEnabled = enabled
-                                // 开启时把已填的单 Key 带进列表，避免输入框隐藏后看起来「刚填的 Key 丢了」。
+                                // When enabled, carry the already-entered single key into the list, so hiding the input field does not look like the just-typed key is gone.
                                 if (enabled && apiKeys.isEmpty() && apiKey.isNotBlank()) apiKeys.add(ProviderKey(apiKey))
                             }
                         )
@@ -644,7 +644,7 @@ fun ProviderEditorScreen(
                         )
                     }
 
-                    // ── 自定义面板 (DIY) ──
+                    // ── Custom dashboard (DIY) ──
                     SettingsGroupHeader(text = stringResource(R.string.provider_section_dashboard))
                     SettingsGroup {
                         ProviderTextFieldRow(
@@ -1144,7 +1144,7 @@ fun ProviderEditorScreen(
         )
     }
 
-    // 模型拉取结果弹窗
+    // Model fetch result dialog
     if (showFetchDialog) {
         key(fetchDialogKey) {
             FetchModelsDialog(
@@ -1223,7 +1223,7 @@ private fun AddModelSheet(
                 .heightIn(max = screenHeight * 0.88f)
                 .imePadding()
         ) {
-            // ── 顶部标题栏：居中标题（仿 MCP 编辑对话框）──
+            // ── Top title bar: centered title (like the MCP edit dialog) ──
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -1244,7 +1244,7 @@ private fun AddModelSheet(
                 Spacer(modifier = Modifier.size(36.dp))
             }
 
-            // ── 表单区：输入框直接铺背景，卡片承载能力开关 ──
+            // ── Form area: inputs laid directly on the background, capability toggles inside a card ──
             Column(
                 modifier = Modifier
                     .weight(1f)
@@ -1320,7 +1320,7 @@ private fun AddModelSheet(
                 Card(
                     shape = RoundedCornerShape(12.dp),
                     colors = CardDefaults.cardColors(
-                        // 中性浅灰，避免 surfaceVariant 在蓝调主题下偏蓝。
+                        // Neutral light gray, avoiding surfaceVariant looking bluish in blue-tinted themes.
                         containerColor = MaterialTheme.semanticColors.mutedSurface
                     ),
                     modifier = Modifier.fillMaxWidth()
@@ -1355,7 +1355,7 @@ private fun AddModelSheet(
                 Spacer(modifier = Modifier.height(8.dp))
             }
 
-            // ── 底部保存按钮（仿 MCP 编辑对话框）──
+            // ── Bottom save button (like the MCP edit dialog) ──
             Column(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -1399,7 +1399,7 @@ private fun AddModelSheet(
     }
 }
 
-/** 分段组小标题：灰色小字、紧凑间距，直接铺在弹窗背景上（无卡片）。 */
+/** Section group subtitle: small gray text with tight spacing, laid directly on the sheet background (no card). */
 @Composable
 private fun SectionLabel(text: String) {
     Text(
@@ -1411,7 +1411,7 @@ private fun SectionLabel(text: String) {
     )
 }
 
-/** 添加/编辑模型弹窗内的全宽输入框：样式与 MCP 编辑对话框一致。 */
+/** Full-width input inside the add/edit model sheet: styled like the MCP edit dialog. */
 @Composable
 private fun ModelSheetTextField(
     label: String,
@@ -1436,7 +1436,7 @@ private fun ModelSheetTextField(
     )
 }
 
-/** 能力开关行：标题 + 右侧 Switch，卡片内一行。 */
+/** Capability toggle row: title + Switch on the right, one row inside a card. */
 @Composable
 private fun CapabilitySwitchRow(
     title: String,
@@ -1564,7 +1564,7 @@ private fun FetchModelsDialog(
                 }
                 is FetchState.Error -> {
                     if (isOnboarding) {
-                        // 引导模式下未配置有效 Key 时，呈现 DeepSeek 推荐模型演示供新手继续体验
+                        // In onboarding, when no valid key is configured, show recommended DeepSeek demo models so beginners can continue
                         val fallbackModels = listOf("deepseek-v4-flash").filter { it !in existingModels }
                         val grouped = fallbackModels.groupBy { m -> modelBrandKey(m) }
                             .toSortedMap(compareBy<String> { it == "other" }.thenBy { brandDisplayName(context, it) })
@@ -1670,7 +1670,7 @@ private fun FetchModelsDialog(
                             }
                         }
                     } else {
-                        // 按品牌分组，每个分类一个独立卡片。"other" 分组永远在最后，其他按显示名称排序。
+                        // Group by brand, one card per category. The "other" group is always last; the rest sort by display name.
                         val grouped = newModels.groupBy { m -> modelBrandKey(m) }
                             .toSortedMap(compareBy<String> { it == "other" }.thenBy { brandDisplayName(context, it) })
 
@@ -1764,7 +1764,7 @@ private fun FetchModelsDialog(
     }
 }
 
-/** 拉取模型加载骨架屏：模拟品牌标题 + 模型行占位块，避免加载时空白/转圈。 */
+/** Fetch-models loading skeleton: placeholder brand headers + model row blocks, avoiding a blank screen or spinner while loading. */
 @Composable
 private fun FetchModelsSkeleton() {
     val block = if (MaterialTheme.colorScheme.background.luminance() > 0.5f) {
@@ -1835,7 +1835,7 @@ internal fun defaultProviderBaseUrl(type: ProviderType): String = when (type) {
     else -> "https://api.openai.com/"
 }
 
-/** 分组内输入行：全宽 AppTextField，可选密文转换与尾随操作。 */
+/** Input row inside a group: full-width AppTextField with optional visual transformation and trailing element. */
 @Composable
 private fun ProviderTextFieldRow(
     label: String,
@@ -1861,7 +1861,7 @@ private fun ProviderTextFieldRow(
     )
 }
 
-/** 分组内开关行：标题 + 可选副标题 + 右侧 Switch。 */
+/** Toggle row inside a group: title + optional subtitle + Switch on the right. */
 @Composable
 private fun ProviderSwitchRow(
     title: String,
@@ -1896,7 +1896,7 @@ private fun ProviderSwitchRow(
     }
 }
 
-/** 提供商类型选择底部弹窗，样式与主题选择弹窗一致。 */
+/** Provider type selection bottom sheet, styled like the theme selection sheet. */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun ProviderProxyPage(
@@ -2023,8 +2023,8 @@ private fun keyRotationStrategyLabel(strategy: KeyRotationStrategy): String = st
 )
 
 /**
- * 多 Key 管理子页：Key 列表增删 + 取用策略 + 切换状态码 + 冷却时长。
- * 与代理页同一模式——就地渲染的内嵌页，改动写回编辑器状态，随提供商一起保存。
+ * Multi-key management sub-page: key list add/remove + rotation strategy + switch status codes + cooldown duration.
+ * Same pattern as the proxy page — an inline page rendered in place; edits are written back to the editor state and saved with the provider.
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -2038,7 +2038,7 @@ private fun ProviderKeysPage(
     onSetCooldownMinutes: (Int) -> Unit,
     onSetSwitchStatusCodes: (String) -> Unit
 ) {
-    // 行稳定 id：Key 值可被就地编辑，不能拿它当 LazyColumn 的 key，否则每敲一个字都换一次身份、输入框会失焦。
+    // Stable row ids: key values are edited in place and cannot serve as the LazyColumn key, otherwise every keystroke changes identity and the input loses focus.
     val rowIds = remember { mutableStateListOf<Int>().apply { keys.indices.forEach { add(it) } } }
     var nextRowId by remember { mutableIntStateOf(keys.size) }
     var expandedIds by remember { mutableStateOf(emptySet<Int>()) }
@@ -2054,7 +2054,7 @@ private fun ProviderKeysPage(
 
     val lazyListState = rememberLazyListState()
     val reorderableState = rememberReorderableLazyListState(lazyListState) { from, to ->
-        // onMove 下标按整个 LazyColumn 算，减去前置小标题项才是 Key 下标；落在策略/失败切换区则忽略。
+        // onMove indices count the whole LazyColumn; subtract the leading section header item to get the key index; ignore drops in the strategy/failover section.
         val fromIndex = from.index - PROVIDER_KEYS_LEADING_ITEMS
         val toIndex = to.index - PROVIDER_KEYS_LEADING_ITEMS
         if (fromIndex !in keys.indices || toIndex !in keys.indices || fromIndex == toIndex) {
@@ -2222,12 +2222,12 @@ private fun ProviderKeysPage(
     }
 }
 
-/** Key 列表前的固定项数量：一个分组小标题。拖拽回调下标需减去它才能映射到 Key 下标。 */
+/** Number of fixed items before the key list: one section header. Drag callback indices must subtract it to map to key indices. */
 private const val PROVIDER_KEYS_LEADING_ITEMS = 1
 
 /**
- * 单条 Key 卡片：折叠时只显示序号与掩码预览，展开后可编辑 Key 与调度权重。
- * 长按头部拖动可调整顺序（[dragModifier] 由 ReorderableItem 作用域提供）。
+ * Single key card: collapsed shows only the index and masked preview; expanded allows editing the key and scheduling weight.
+ * Long-press the header and drag to reorder ([dragModifier] provided by the ReorderableItem scope).
  */
 @Composable
 private fun ProviderKeyCard(
@@ -2318,14 +2318,14 @@ private fun ProviderKeyCard(
     }
 }
 
-/** 卡片头部的密钥掩码预览：只露前两位，避免整串明文出现在列表里。 */
+/** Masked key preview in the card header: shows only the first two characters, keeping the full plaintext out of the list. */
 private fun String.maskedKeyPreview(): String = when {
     isBlank() -> ""
     length <= 8 -> "******"
     else -> "${take(2)}*****..."
 }
 
-/** 分组内数字步进行：标题 + 副标题，右侧「− 值 +」。 */
+/** Numeric stepper row inside a group: title + subtitle, with "- value +" on the right. */
 @Composable
 private fun StepperRow(
     title: String,
@@ -2458,7 +2458,7 @@ private fun ScriptPickerBottomSheet(
     }
 }
 
-/** 脚本原始输出底部弹窗。 */
+/** Raw script output bottom sheet. */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun RawOutputBottomSheet(
@@ -2483,7 +2483,7 @@ private fun RawOutputBottomSheet(
                 .padding(bottom = Spacing.xl),
             verticalArrangement = Arrangement.spacedBy(Spacing.md)
         ) {
-            // 顶栏：标题 + 复制按钮
+            // Top bar: title + copy button
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 verticalAlignment = Alignment.CenterVertically,
@@ -2513,7 +2513,7 @@ private fun RawOutputBottomSheet(
                 }
             }
 
-            // 原始输出内容容器
+            // Raw output content container
             Surface(
                 shape = RoundedCornerShape(12.dp),
                 color = MaterialTheme.semanticColors.mutedSurface,
@@ -2567,7 +2567,7 @@ private fun DashboardTestResultBox(
                 lastSuccessResult = null
             }
             is ProviderDashboardState.Loading -> {
-                // 保持已有的 lastSuccessResult，不清除，防止高度塌陷
+                // Keep the existing lastSuccessResult, do not clear it, to prevent height collapse
             }
             ProviderDashboardState.Idle -> {
                 lastSuccessResult = null
@@ -2595,7 +2595,7 @@ private fun DashboardTestResultBox(
                     .alpha(if (isRunning) 0.6f else 1f)
             ) {
                 if (!isExpanded) {
-                    // 折叠状态（Compact）
+                    // Collapsed state (Compact)
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
@@ -2645,7 +2645,7 @@ private fun DashboardTestResultBox(
                         }
                     }
                 } else {
-                    // 展开状态
+                    // Expanded state
                     Column(
                         modifier = Modifier
                             .fillMaxWidth()
@@ -2779,7 +2779,7 @@ private fun DashboardTestResultBox(
     }
 }
 
-/** 自定义请求头编辑弹窗：Header 名-值列表，发送请求时完全覆盖同名默认头，值支持 {{SESSION_ID}} / {{API_KEY}} 占位符。 */
+/** Custom header edit sheet: header name-value list, fully replacing same-named default headers when sending; values support {{SESSION_ID}} / {{API_KEY}} placeholders. */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun ProviderHeadersSheet(
@@ -2801,7 +2801,7 @@ private fun ProviderHeadersSheet(
                 .heightIn(max = screenHeight * 0.88f)
                 .imePadding()
         ) {
-            // 顶部标题栏：居中标题 + 右侧关闭。
+            // Top title bar: centered title + close on the right.
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -2837,7 +2837,7 @@ private fun ProviderHeadersSheet(
                     .padding(bottom = 8.dp)
             )
 
-            // 列表编辑区：可滚动，超出弹窗高度可滚动查看。
+            // List edit area: scrollable when content exceeds the sheet height.
             Column(
                 modifier = Modifier
                     .weight(1f, fill = false)
@@ -2910,7 +2910,7 @@ private fun ProviderHeadersSheet(
                 Spacer(Modifier.height(Spacing.xs))
             }
 
-            // 底部：添加一行 + 完成按钮。
+            // Bottom: add-a-row button + done button.
             Column(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -2958,7 +2958,7 @@ private fun ProviderHeadersSheet(
     }
 }
 
-/** 自定义面板 (DIY) 脚本参数编辑弹窗：Key-Value 列表，保存后注入为 AICODE_KEY_<KEY> 环境变量。 */
+/** Custom dashboard (DIY) script params edit sheet: key-value list, injected as AICODE_KEY_<KEY> environment variables after saving. */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun ProviderScriptParamsSheet(
@@ -2980,7 +2980,7 @@ private fun ProviderScriptParamsSheet(
                 .heightIn(max = screenHeight * 0.88f)
                 .imePadding()
         ) {
-            // 顶部标题栏：居中标题 + 右侧关闭。
+            // Top title bar: centered title + close on the right.
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -3016,7 +3016,7 @@ private fun ProviderScriptParamsSheet(
                     .padding(bottom = 8.dp)
             )
 
-            // 列表编辑区：可滚动，超出弹窗高度可滚动查看。
+            // List edit area: scrollable when content exceeds the sheet height.
             Column(
                 modifier = Modifier
                     .weight(1f, fill = false)
@@ -3089,7 +3089,7 @@ private fun ProviderScriptParamsSheet(
                 Spacer(Modifier.height(Spacing.xs))
             }
 
-            // 底部：添加一行 + 完成按钮。
+            // Bottom: add-a-row button + done button.
             Column(
                 modifier = Modifier
                     .fillMaxWidth()

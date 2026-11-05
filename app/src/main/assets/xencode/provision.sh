@@ -1,22 +1,22 @@
 #!/bin/sh
-# 容器环境脚本（通用）：一个脚本，两个入口。
-#   1) 首次进入终端：在 PTY 上弹出初始化菜单（自动安装 / 环境安装 / 手动安装 / 退出），用户完成
-#      后写 /.provisioned 标记，之后进入终端不再弹。
-#   2) 容器内执行命令 `xencode`（等价于 `provision.sh --env`）：直接打开「环境安装」菜单，按场景
-#      安装开发环境，可反复使用，不受初始化标记影响。
-# 两个入口共用同一套逻辑：按容器内包管理器（apk/apt-get/dnf/yum/pacman）安装运行时，并可换国内镜像源。
-# 由 App 启动时提取到 ~/.xencode/provision.sh（容器内 /root/.xencode/provision.sh，经 -b 绑定可见）；
-# 公共能力（包管理器探测/包名映射/版本探测/换源/场景）在 lib/env-common.sh，与本脚本一并提取。
-# 修改包清单/安装逻辑/镜像源后，需同步在 LinuxContainerEngine.PROVISION_VERSION 上 +1 触发存量设备重跑。
-# 注意：apk 源分支 v3.21 需与 assets 内 alpine-rootfs 版本（ContainerInstaller.INSTALL_VERSION）保持一致。
+# Container environment script (generic): one script, two entry points.
+#   1) First entry into the terminal: shows the initialization menu on the PTY (auto install / environment setup /
+#      manual install / exit); once the user finishes, the /.provisioned marker is written and the menu never shows again.
+#   2) Running `xencode` inside the container (equivalent to `provision.sh --env`): opens the "Environment setup"
+#      menu directly, installing dev environments by scenario; reusable anytime, unaffected by the init marker.
+# Both entry points share one logic: install runtimes via the container's package manager (apk/apt-get/dnf/yum/pacman), with optional China mirror switch.
+# Extracted by the app at startup to ~/.xencode/provision.sh (/root/.xencode/provision.sh inside the container, visible via the -b bind);
+# shared capabilities (package manager detection / package name mapping / version detection / mirror switching / scenarios) live in lib/env-common.sh, extracted together with this script.
+# After changing package lists / install logic / mirrors, bump LinuxContainerEngine.PROVISION_VERSION by 1 so existing devices re-run initialization.
+# Note: the apk repo branch v3.21 must match the alpine-rootfs version in assets (ContainerInstaller.INSTALL_VERSION).
 
 PROVISION_VERSION="provision-script-v10"
 PROVISION_SKIPPED="provision-script-skipped"
 MARKER="/.provisioned"
 
-# ── 载入公共库（包名映射/换源/场景等）。按脚本自身所在目录定位：生产脚本在 /root/.xencode/provision.sh、
-# 库在 /root/.xencode/lib/；工作区草稿副本（xencode-env/）结构相同，故同一份脚本两处都能跑。
-# 缺失时不阻塞：提示重启 App 重新提取后重进终端。──
+# -- Load the shared library (package name mapping / mirror switching / scenarios, etc.). Located relative to the script's own directory:
+# the production script is /root/.xencode/provision.sh with the library at /root/.xencode/lib/; the workspace draft copy (xencode-env/)
+# has the same structure, so the same script runs in both. If missing, do not block: prompt to restart the app and re-enter the terminal. --
 SELF_DIR=$(dirname "$0")
 [ "${SELF_DIR#/}" = "$SELF_DIR" ] && SELF_DIR="$(pwd)/$SELF_DIR"
 AICODE_LIB_DIR="$SELF_DIR/lib"
@@ -33,7 +33,7 @@ fi
 
 detect_pmgr
 
-# ── 已安装运行时一览（环境安装菜单用）──
+# -- Overview of installed runtimes (for the environment setup menu) --
 list_installed() {
     echo ""
     echo "Installed runtimes:"
@@ -51,7 +51,7 @@ list_installed() {
     [ -x "$HOME/.local/flutter-$FLUTTER_VERSION/bin/flutter" ] && echo "  · Flutter SDK: $HOME/.local/flutter-$FLUTTER_VERSION"
 }
 
-# ── 环境安装菜单（场景化）：初始化菜单的「环境安装」与 `xencode` 命令共用 ──
+# -- Environment setup menu (scenario-based): shared by the init menu "Environment setup" and the `xencode` command --
 env_install_menu() {
     TOTAL=$(echo $SCENARIO_IDS | wc -w)
     CUSTOM_IDX=$((TOTAL + 1))
@@ -117,7 +117,7 @@ env_install_menu() {
     done
 }
 
-# ══ 入口 2：`xencode`（provision.sh --env）→ 直接打开环境安装菜单，不受初始化标记影响 ══
+# == Entry point 2: `xencode` (provision.sh --env) -> opens the environment setup menu directly, unaffected by the init marker ==
 if [ "$1" = "--env" ]; then
     plog "xencode opened env menu: PMGR=${PMGR:-unknown}"
     if [ -z "$PMGR" ]; then
@@ -128,20 +128,20 @@ if [ "$1" = "--env" ]; then
     exit 0
 fi
 
-# ══ 入口 1：首次进入终端的初始化流程 ══
+# == Entry point 1: first-run initialization when entering the terminal ==
 plog "provision.sh start: version=$PROVISION_VERSION HOME=$HOME uid=$(id -u 2>/dev/null) PATH=$PATH"
 
-# ── 宿主 supplementary gid 修复：proot 会把宿主进程的补充组（Android AID 3003 inet、
-# 9997 everybody、App 自身 uid 派生 gid 等）透传进容器，/etc/group 查不到名字会让
-# groups 等命令报警（cannot find name for group ID xxx）。幂等补行：gid_ 命名空间先清再补
-# 防历史残留；位于 MARKER 检查之前，每次进终端都执行（已配置设备同样生效），gid 变化自动跟上。
-# 全部静默失败，不阻塞进入 shell。
+# -- Host supplementary gid fix: proot passes the host process supplementary groups (Android AID 3003 inet,
+# 9997 everybody, gids derived from the app own uid, etc.) into the container; /etc/group having no names for
+# them makes commands like groups warn (cannot find name for group ID xxx). Idempotent backfill: the gid_
+# namespace is cleared then refilled to avoid stale leftovers; placed before the MARKER check so it runs on
+# every terminal entry (also on already-provisioned devices), automatically tracking gid changes. All failures are silent and never block entering the shell.
 sed -i '/^gid_/d' /etc/group 2>/dev/null
 for g in $(id -G 2>/dev/null); do
     grep -q ":x:$g:" /etc/group 2>/dev/null || echo "gid_$g:x:$g:" >> /etc/group 2>/dev/null
 done
 
-# 已按当前版本完成或用户选择手动安装（跳过）则直接退出
+# Exit immediately if already provisioned for the current version, or the user chose manual install (skip)
 if [ -f "$MARKER" ]; then
     state=$(cat "$MARKER" 2>/dev/null)
     if [ "$state" = "$PROVISION_VERSION" ]; then plog "marker already $PROVISION_VERSION, skip menu"; exit 0; fi

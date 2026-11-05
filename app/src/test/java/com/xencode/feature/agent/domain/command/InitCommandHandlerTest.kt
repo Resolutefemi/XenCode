@@ -10,7 +10,7 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 /**
- * /init 命令：菜单元数据、指令正文来源、参数替换与执行行为。
+ * The /init command: menu metadata, prompt body source, argument substitution, and execution behavior.
  */
 class InitCommandHandlerTest {
 
@@ -21,7 +21,7 @@ class InitCommandHandlerTest {
     fun metadata_valuesAreCorrect() {
         assertEquals("init", handler.name)
         assertEquals(R.string.slash_command_init_desc, handler.descriptionRes)
-        assertTrue("接受参数以承载用户关注点", handler.acceptsArgs)
+        assertTrue("accepts arguments to carry user focus areas", handler.acceptsArgs)
     }
 
     @Test
@@ -34,9 +34,9 @@ class InitCommandHandlerTest {
         every { promptProvider.resolvePrompt(InitCommandHandler.PROMPT_NAME) } returns "focus: \$ARGUMENTS"
         val context = mockk<SlashCommandContext>(relaxed = true)
 
-        handler.execute(context, "测试")
+        handler.execute(context, "test")
 
-        verify { context.initProject("focus: 测试") }
+        verify { context.initProject("focus: test") }
     }
 
     @Test

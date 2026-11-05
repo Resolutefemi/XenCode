@@ -1,153 +1,153 @@
 # CLAUDE.md
 
-本仓库的 AI 协作规则（Claude Code、XenCode 等 AI 编程助手均读取本文件），优先级高于默认通用规则。
+AI collaboration rules for this repository (read by Claude Code, XenCode, and other AI coding assistants); they take precedence over the default general rules.
 
-## 基本约定
+## Basic Conventions
 
-- **永远使用中文回复。**
-- 文件读写用已有的文件工具，不用 `cat` / `sed` / `echo >` 代替。
-- Android 应用：Kotlin + Compose + Hilt + Coroutines/Flow，模块 `:app` / `:terminal-emulator` / `:terminal-view`。
-- **优先使用项目自定义组件（硬规则）**：
-  - **输入框**：优先使用 `core/ui/AppTextField.kt`（及其配套配色 `appTextFieldColors()`、弹窗专用 `dialogTextFieldColors()`），禁止在业务页面无故裸写带有长下划线的原生 `TextField`，禁止在各模块私自重复包装 OutlinedTextField。
-  - **开关**：一律使用 `core/ui/AppSwitch.kt`，禁止使用原生 M3 `Switch`。
-  - **模态底栏**：一律使用 `core/ui/AdaptiveModalBottomSheet.kt`（已集成平板自适应与 fling fix），禁止直接调用原生 `ModalBottomSheet`；长表单容器外层注意追加 `.imePadding()` 避让软键盘。
-  - **分组卡片与列表行**：设置与表单页面优先复用 `feature/settings/presentation/component/SettingsGroupComponents.kt` 中的 `SettingsGroup`、`SettingsRow`、`SettingsDivider`、`SettingsGroupHeader`，保持统一卡片与层级质感。
-  - **左滑删除**：一律使用 `core/ui/SwipeToDeleteRow.kt`。
-  - **主题与设计规范**：严格遵循 `core/theme/AIEditorTheme.kt` 的 `Spacing`、`Radius`（含 `Radius.mdLarge = 12.dp`）与 `MaterialTheme.semanticColors`，禁止随意硬编码非标魔数与色彩。
+- **Always respond in English.**
+- Use the existing file tools for reading and writing files; do not substitute `cat` / `sed` / `echo >`.
+- Android app: Kotlin + Compose + Hilt + Coroutines/Flow; modules `:app` / `:terminal-emulator` / `:terminal-view`.
+- **Prefer the project's custom components (hard rule)**:
+  - **Text fields**: prefer `core/ui/AppTextField.kt` (with its companion color scheme `appTextFieldColors()` and the dialog-specific `dialogTextFieldColors()`); never gratuitously hand-roll a raw `TextField` with a long underline in business pages, and never privately re-wrap OutlinedTextField in each module.
+  - **Switches**: always use `core/ui/AppSwitch.kt`; never use the raw M3 `Switch`.
+  - **Modal bottom sheets**: always use `core/ui/AdaptiveModalBottomSheet.kt` (built-in tablet adaptation and fling fix); never call the raw `ModalBottomSheet` directly; on long forms, add `.imePadding()` to the outer container to keep clear of the soft keyboard.
+  - **Group cards and list rows**: settings and form pages should reuse `SettingsGroup`, `SettingsRow`, `SettingsDivider`, and `SettingsGroupHeader` from `feature/settings/presentation/component/SettingsGroupComponents.kt` to keep a consistent card look and visual hierarchy.
+  - **Swipe-to-delete**: always use `core/ui/SwipeToDeleteRow.kt`.
+  - **Theme and design spec**: strictly follow `Spacing`, `Radius` (including `Radius.mdLarge = 12.dp`) and `MaterialTheme.semanticColors` from `core/theme/AIEditorTheme.kt`; never hard-code off-spec magic numbers or colors.
 
-## 构建与验证
+## Build & Verification
 
-**改完编译型代码（`.kt` / `.gradle.kts` / `AndroidManifest.xml`）→ 提交前必跑冒烟编译；`git push` 前必跑单元测试，并跑 `check_migrations.py` 迁移对账。** 只改文档 / 资源文案 / 纯 `.md` 时这些都跳过。
+**After changing compiled code (`.kt` / `.gradle.kts` / `AndroidManifest.xml`) → always run the smoke build before committing; before `git push`, always run the unit tests plus the `check_migrations.py` migration audit.** Skip all of this for docs-only / resource-copy / pure `.md` changes.
 
-| 用途 | 命令 |
+| Purpose | Command |
 | --- | --- |
-| 冒烟编译（日常默认） | `./gradlew :app:assembleUniversalDebug` |
-| 推送前单测 | `./gradlew :app:testUniversalDebugUnitTest` |
-| 推送前迁移对账 | `python3 scripts/check_migrations.py`（或 `./gradlew checkMigrations`） |
-| 发版构建 APK / AAB | `./gradlew assembleRelease` / `./gradlew bundleRelease` |
+| Smoke build (daily default) | `./gradlew :app:assembleUniversalDebug` |
+| Pre-push unit tests | `./gradlew :app:testUniversalDebugUnitTest` |
+| Pre-push migration audit | `python3 scripts/check_migrations.py` (or `./gradlew checkMigrations`) |
+| Release build APK / AAB | `./gradlew assembleRelease` / `./gradlew bundleRelease` |
 
-- **别用聚合任务做日常验证**：`assembleDebug` / `assembleRelease` / `test` / `build` 都会跨三个 flavor 全跑，耗时极长。
-- 产物：`app/build/outputs/apk/<flavor>/release/app-<flavor>-release.apk`、`.../bundle/<flavor>/release/app-<flavor>-release.aab`。
-- flavor 按 ABI 拆分：`universal`（arm64-v8a + x86_64）、`armsolo`（仅 arm64-v8a）、`x86solo`（仅 x86_64）。
-- release 签名凭据读 `app/keystore.properties`（`storeFile` / `storePassword` / `keyAlias` / `keyPassword`）；本地通常不存放签名文件，CI 从 GitHub secret 还原到 `app/xencode.jks`。
-- **`targetSdk` 锁定 28**（`minSdk = 26`）：PRoot 需在 App 可写目录执行二进制，Android 10+ 的 W^X / SELinux 禁止该行为，别升。
+- **Do not use aggregate tasks for daily verification**: `assembleDebug` / `assembleRelease` / `test` / `build` run across all three flavors and take extremely long.
+- Artifacts: `app/build/outputs/apk/<flavor>/release/app-<flavor>-release.apk`, `.../bundle/<flavor>/release/app-<flavor>-release.aab`.
+- Flavors are split by ABI: `universal` (arm64-v8a + x86_64), `armsolo` (arm64-v8a only), `x86solo` (x86_64 only).
+- Release signing credentials are read from `app/keystore.properties` (`storeFile` / `storePassword` / `keyAlias` / `keyPassword`); the keystore is normally not kept locally — CI restores it from a GitHub secret to `app/xencode.jks`.
+- **`targetSdk` is locked at 28** (`minSdk = 26`): PRoot needs to execute binaries from an app-writable directory, which Android 10+ W^X / SELinux forbids — do not bump it.
 
-## 架构地图
+## Architecture Map
 
-feature-based 分层 + DDD。入口 `AIEditorApp` 初始化 `FileLogger`、`TerminalKeepaliveService`、`McpManager`。
+Feature-based layering + DDD. The entry point `AIEditorApp` initializes `FileLogger`, `TerminalKeepaliveService`, and `McpManager`.
 
-- **`core/`**：跨 feature 基础设施 —— `db/`（含 `MigrationLoader.kt`）、`net/`、`theme/`、`ui/`、`util/`（含 `FileLogger`）。
-- **`feature/`**（`app/src/main/java/com/xencode/feature/`）：
-  - `agent`：AI agent 核心 —— 提示词、工具注册与权限、MCP、provider 适配（`data/remote/` 下 `anthropic` / `openai` / `gemini`）。
-  - `terminal`：终端与会话。本地模式 Termux 组件 + PRoot（`LinuxContainerEngine`）；远程模式 sshj。
-  - `workspace`：工作区与 DocumentsProvider，远程走 `RemoteSftpFileAccess`。
-  - `editor`：sora-editor 编辑器。`git`：Git 操作。`settings`：provider、日志、保活等设置。
-  - `backup`：备份恢复与加密。`credentials`：凭据管理与注入容器。
-- **远程 SSH 链路**：`RemoteSshConnection`（共享 sshj client）+ `RemoteSshEngine`（执行命令）+ `RemoteSftpFileAccess`（文件）+ `RemoteTerminalSessionManager`（终端）。
-- **工具系统**：`feature/agent/domain/tool/` 下各工具经 `ToolRegistry` 注册，执行权限由 `ToolPermissionManager` 与 `ToolPermissionPolicyEngine` 管控。
-- **MCP**：`feature/agent/domain/mcp/`，连接远端 server 并动态注册其工具。**DI**：Hilt，各 feature 自带 DI 模块。
+- **`core/`**: cross-feature infrastructure — `db/` (including `MigrationLoader.kt`), `net/`, `theme/`, `ui/`, `util/` (including `FileLogger`).
+- **`feature/`** (`app/src/main/java/com/xencode/feature/`):
+  - `agent`: the AI agent core — prompts, tool registration and permissions, MCP, provider adapters (`anthropic` / `openai` / `gemini` under `data/remote/`).
+  - `terminal`: terminal and sessions. Local mode uses Termux components + PRoot (`LinuxContainerEngine`); remote mode uses sshj.
+  - `workspace`: workspace and DocumentsProvider; remote access goes through `RemoteSftpFileAccess`.
+  - `editor`: the sora-editor based editor. `git`: Git operations. `settings`: provider, logs, keep-alive and other settings.
+  - `backup`: backup/restore and encryption. `credentials`: credential management and injection into containers.
+- **Remote SSH chain**: `RemoteSshConnection` (shared sshj client) + `RemoteSshEngine` (command execution) + `RemoteSftpFileAccess` (files) + `RemoteTerminalSessionManager` (terminal).
+- **Tool system**: each tool under `feature/agent/domain/tool/` is registered via `ToolRegistry`; execution permissions are governed by `ToolPermissionManager` and `ToolPermissionPolicyEngine`.
+- **MCP**: `feature/agent/domain/mcp/`, connects to remote servers and dynamically registers their tools. **DI**: Hilt, each feature has its own DI module.
 
-### 数据库与迁移
+### Database & Migrations
 
-Room（`feature/agent/data/local/database/AgentDatabase.kt` + 各 DAO），迁移分两套，**一个版本只能二选一**：
+Room (`feature/agent/data/local/database/AgentDatabase.kt` + the DAOs); migrations come in two flavors, **a version must pick exactly one of them**:
 
-- **文件式（默认）**：`core/db/MigrationLoader.kt` 读 `app/src/main/assets/migrations/{VERSION}_description.sql`，由 `SqlScriptSplitter` 按语句切分（识别注释与字符串字面量，**字符串里可放心写 `;`**，不再需要 `char(59)` 绕行）；整段迁移包事务、任一条失败整体回滚，成功记入 `migration_history` 表。
-- **AutoMigration**：纯 schema 变更（加列/建表/索引）可用 `@AutoMigration(from = N-1, to = N)` 编译期自动生成，改 entity 忘写迁移会直接编译失败；含数据清理/重命名/改约束的版本必须走文件式。
+- **File-based (default)**: `core/db/MigrationLoader.kt` reads `app/src/main/assets/migrations/{VERSION}_description.sql`, and `SqlScriptSplitter` splits it into statements (it recognizes comments and string literals, so **a `;` inside a string is safe** — the `char(59)` workaround is no longer needed); the whole migration is wrapped in a transaction and rolls back entirely if any statement fails; on success it is recorded in the `migration_history` table.
+- **AutoMigration**: pure schema changes (add column/table/index) can use `@AutoMigration(from = N-1, to = N)` auto-generated at compile time; changing an entity without writing the migration fails the build outright. Versions involving data cleanup/renames/constraint changes must use the file-based approach.
 
-改 schema 三步：
+Three steps to change the schema:
 
-1. 递增 `AgentDatabase.kt` 的 `SCHEMA_VERSION`（当前 55）。
-2. 文件式：在 `app/src/main/assets/migrations/` 新建 `{VERSION}_description.sql`（如 `46_add_provider_multi_key.sql`），**编号必须连续**；AutoMigration：加注解，保证 `to == SCHEMA_VERSION` 且 `from` 衔接文件式最大版本。
-3. 写入 DDL/SQL，启动时自动执行并记入 `migration_history` 表。
+1. Increment `SCHEMA_VERSION` in `AgentDatabase.kt` (currently 55).
+2. File-based: create `{VERSION}_description.sql` under `app/src/main/assets/migrations/` (e.g. `46_add_provider_multi_key.sql`), **numbers must be consecutive**; AutoMigration: add the annotation, making sure `to == SCHEMA_VERSION` and `from` follows the largest file-based version.
+3. Write the DDL/SQL; it runs automatically at startup and is recorded in the `migration_history` table.
 
-**跨分支冲突硬规则**（RC/hotfix 与 `main` 并行推进时）
+**Hard rules for cross-branch conflicts** (when RC/hotfix progresses in parallel with `main`)
 
-- **发布即冻结**：已打 `v*` tag 的迁移文件内容与编号不可再改，补丁只能靠新增迁移修正。
-- **合流后移**：RC/hotfix 若带数据库迁移，其迁移号一旦随 tag 发布即占用；合回 `main` 时，`main` 上所有编号 ≤ 已发布最大版本号的未发布迁移必须整体重编号到该上限之后（内容一字不改、编号连续），并同步递增 `SCHEMA_VERSION`。已发布号一律不可复用。
-- **对账脚本**：`python3 scripts/check_migrations.py`（或 `./gradlew checkMigrations`）校验编号连续、SCHEMA_VERSION 一致、已发布迁移未被篡改/复用，**推送前必跑**；CI（ci.yml 与 android-release.yml）已在构建前挂载，合流后未后移会被直接拦下。
+- **A release is frozen**: once a migration file has shipped under a `v*` tag, its contents and number can no longer change; fixes may only come from newly added migrations.
+- **Renumber after merging back**: if an RC/hotfix carries database migrations, its migration numbers are taken once released with a tag; when merging back into `main`, every unpublished migration on `main` numbered <= the largest released number must be renumbered wholesale beyond that ceiling (contents unchanged, numbers consecutive), with `SCHEMA_VERSION` incremented to match. Released numbers must never be reused.
+- **Audit script**: `python3 scripts/check_migrations.py` (or `./gradlew checkMigrations`) verifies consecutive numbering, SCHEMA_VERSION consistency, and that released migrations were not tampered with or reused, **must run before pushing**; CI (ci.yml and android-release.yml) already runs it before building, so a merge that was not renumbered gets blocked outright.
 
-## 资产同步（硬规则）
+## Asset Sync (hard rules)
 
-`app/src/main/assets/prompts/`（AI 提示词）与 `docs-site/docs/`（用户文档）是 AI Agent 的知识来源，必须与代码同步：
+`app/src/main/assets/prompts/` (AI prompts) and `docs-site/docs/` (user docs) are the AI agent's knowledge sources and must stay in sync with the code:
 
-- **AI 工作流改动 → 同步 `prompts/`**：工具增删改名、参数签名变化、agent 行为或提示词逻辑调整，都要更新 `prompts/` 下对应文件（自行查找，不存在则新建）。
-- **功能或工具变化 → 检查 `docs-site/docs/`** 是否有使用文档要更新。
-- **UI 变化（新增页面、改交互、调布局、改文案）→ 必须更新 `docs-site/docs/`**；新增文档页同步加进 `docs-site/.vitepress/config.ts` 侧栏与 `docs-site/docs/guide/overview.md` 索引。
-- **用户可见中文文案 → 必须进双语 strings.xml**：写入 `values/strings.xml`（中文）与 `values-en/strings.xml`（英文），代码用 `stringResource(R.string.xxx)` 引用。**禁止在 `.kt` 中硬编码中文 UI 文案。** 命名用语义化英文小写下划线，跨页面复用的加 `common_` 前缀。
-- **提供商预设只在仓库数据文件维护**：新增或调整内置 AI 供应商，**只改 `data/providers.json`**（App 启动时从仓库动态拉取的源）；**不要**同步改 `app/src/main/assets/providers.json`（内置兜底快照，随发版固化）与 `docs-site/` 文档。
+- **AI workflow changes → sync `prompts/`**: adding/removing/renaming tools, parameter signature changes, and agent behavior or prompt-logic adjustments all require updating the corresponding file under `prompts/` (locate it yourself; create it if it does not exist).
+- **Feature or tool changes → check `docs-site/docs/`** for user docs that need updating.
+- **UI changes (new pages, interaction, layout, or copy changes) → must update `docs-site/docs/`**; also add new doc pages to the `docs-site/.vitepress/config.ts` sidebar and the `docs-site/docs/guide/overview.md` index.
+- **User-visible Chinese copy → must go into the bilingual strings.xml**: write it into `values/strings.xml` (Chinese) and `values-en/strings.xml` (English), and reference it from code with `stringResource(R.string.xxx)`. **Never hard-code Chinese UI copy in `.kt` files.** Name keys as semantic lowercase snake_case; add a `common_` prefix for keys reused across pages.
+- **Provider presets are maintained only in the repo data file**: to add or adjust a built-in AI provider, **change only `data/providers.json`** (the source the app pulls dynamically from the repo at startup); do **not** also change `app/src/main/assets/providers.json` (the built-in fallback snapshot, frozen at release) or the `docs-site/` docs.
 
-**文档目录约定**：`docs-site/docs/` 是文档唯一事实源，`guide/` 放功能说明、`advanced/` 放环境搭建与进阶教程。构建时由 `syncAiDocs` task 复制到 `assets/docs/`，AI 在容器内看到的是 `~/.xencode/docs/{guide,advanced}/*.md`。**面向用户书写**：讲清怎么做、会看到什么、出错怎么办；变量名、错误码、内部实现路径属于 `prompts/`，别写进用户文档。
+**Docs directory conventions**: `docs-site/docs/` is the single source of truth for documentation — `guide/` holds feature guides and `advanced/` holds environment setup and advanced tutorials. At build time the `syncAiDocs` task copies them to `assets/docs/`, so inside the container the AI sees `~/.xencode/docs/{guide,advanced}/*.md`. **Write for users**: explain how to do it, what they will see, and what to do when something goes wrong; variable names, error codes, and internal implementation paths belong in `prompts/`, not user docs.
 
-## Git 提交规范
+## Git Commit Conventions
 
-Conventional Commits（`.githooks/commit-msg` 本地校验），格式 `<type>(<scope>): <subject>`，正文空行隔开。
+Conventional Commits (validated locally by `.githooks/commit-msg`), format `<type>(<scope>): <subject>`, with the body separated by a blank line.
 
 - **type** ∈ `feat | fix | refactor | docs | style | chore | ci | build | perf | test`
-- **scope** 可选，用功能模块：`agent | settings | terminal | workspace | git | ui | mcp | db | core | docs | build | deps`
-- **subject** 一行简述，中英文均可，句末不加句号。例：`fix(settings): 修复 provider 保存时校验失败`
-- 仅紧急情况可用 `git commit --no-verify` 跳过校验。
+- **scope** optional, use a functional module: `agent | settings | terminal | workspace | git | ui | mcp | db | core | docs | build | deps`
+- **subject** a one-line summary, Chinese or English, no trailing period. E.g. `fix(settings): fix provider validation failure on save`
+- Use `git commit --no-verify` to skip validation only in emergencies.
 
-## 分支工作流
+## Branch Workflow
 
-Tag 驱动发版，平时 `main` 上的提交不影响发布包。
+Releases are tag-driven; day-to-day commits on `main` do not affect the release package.
 
-- **新功能 / 复杂多文件改动 / 架构重构** → 开 `feat/xxx` 或 `refactor/xxx`，动手前先定好分支名，验证通过后合回 `main`。
-- **日常 bug 修复 / 补单测 / CI 与构建配置 / 纯文档 / 资源文案** → 直接提交 `main`。
-- **预览版热修复** → 从该 RC Tag 拉 `hotfix/xxx`，见〈发版〉。
-- **合并后清理分支**：`git branch --merged main` 确认后 `git branch -d <branch>`；推送过的同步 `git push origin --delete <branch>`。
+- **New features / complex multi-file changes / architectural refactors** → open a `feat/xxx` or `refactor/xxx` branch; settle the branch name before starting, and merge back into `main` once verification passes.
+- **Routine bug fixes / added unit tests / CI and build config / docs-only / resource copy** → commit directly to `main`.
+- **Preview-release hotfixes** → branch `hotfix/xxx` from that RC tag; see the Releases section.
+- **Clean up branches after merging**: after confirming with `git branch --merged main`, run `git branch -d <branch>`; for already-pushed branches also run `git push origin --delete <branch>`.
 
-## PR 合并流程
+## PR Merge Process
 
-**在本地验证完再推送，不用 `gh pr merge` 在远端直接合**（绕过本地编译验证，且与本地在途提交分叉）。
+**Finish local verification before pushing; do not merge remotely with `gh pr merge`** (it bypasses local compile verification and diverges from your local in-flight commits).
 
-1. **摸状态**：`git fetch origin` → `gh pr view <N> --json state,mergeable,mergeStateStatus,headRefName,changedFiles` + `gh pr checks <N>` → `git rev-list --left-right --count origin/main...main`。fork 来的 PR 的 Vercel 必报 `Authorization required to deploy`（`mergeStateStatus` 随之 `UNSTABLE`），属正常，只看 `Build & Test` 是否 pass。
-2. **拉到本地**：`git fetch origin pull/<N>/head:pr-<N>`。勿用 `gh pr checkout`，它会改当前分支的跟踪关系。
-3. **审查**：`gh pr diff <N> > /tmp/pr<N>.diff` 通读。**PR 描述与 CodeRabbit 结论都不算证据**，逐项落地核实：
-   - 新引入的库在 `app/build.gradle.kts` 里是否已有
-   - 新用的 `R.string.xxx` 在中英两份 `strings.xml` 里是否都存在
-   - 调用的既有组件签名是否匹配；被改了签名的组件用 `rg` 找出全部调用点确认都改到
-   - 新交互是否复用既有实现（例：模型拖拽排序对照 `ProvidersAndLogSection.kt` 的手柄写法）
-   - 安全面：可疑网络请求、凭据外发、命令拼接
-   - 〈资产同步〉各项；含数据库迁移的 PR 必须跑 `python3 scripts/check_migrations.py` 对账（编号连续、与已发布 tag 无冲突）
-   - 超出 PR 标题范围的改动记下来交用户定夺
-4. **预演冲突**：`git merge-tree --write-tree --name-only main pr-<N>`。只输出一个 tree hash = 可干净合并；列出文件名 = 有冲突。
-5. **临时分支合并**：`git switch -c merge/pr-<N> main` → `git merge --no-ff pr-<N> -m "Merge pull request #<N> from <owner>/<head-branch>" -m "<PR 标题>"`。
-6. **冒烟 + 真机验证**：动了 UI 或交互的 PR 必须发 APK 给用户真机验证，**通过才继续**。
-7. **单测 + 推送**：`git switch main && git merge --ff-only merge/pr-<N> && git push origin main`。head commit 成为 `main` 祖先后 GitHub 自动标记 Merged，用 `gh pr view <N> --json state,mergeCommit` 核实。
-8. **清理**：`git branch -d merge/pr-<N> pr-<N>`。不动 stash 与未跟踪文件。
+1. **Check the state**: `git fetch origin` → `gh pr view <N> --json state,mergeable,mergeStateStatus,headRefName,changedFiles` + `gh pr checks <N>` → `git rev-list --left-right --count origin/main...main`. Vercel always reports `Authorization required to deploy` for fork PRs (`mergeStateStatus` then shows `UNSTABLE`) — that is normal; only check whether `Build & Test` passes.
+2. **Fetch locally**: `git fetch origin pull/<N>/head:pr-<N>`. Do not use `gh pr checkout`; it changes the current branch's tracking relationship.
+3. **Review**: read through `gh pr diff <N> > /tmp/pr<N>.diff`. **Neither the PR description nor CodeRabbit's conclusions count as evidence** — verify every item against the code:
+   - Whether newly introduced libraries already exist in `app/build.gradle.kts`
+   - Whether newly used `R.string.xxx` keys exist in both the Chinese and English `strings.xml`
+   - Whether the signatures of existing components being called still match; for components with changed signatures, use `rg` to find every call site and confirm they were all updated
+   - Whether new interactions reuse existing implementations (e.g. model drag-to-reorder should mirror the handle pattern in `ProvidersAndLogSection.kt`)
+   - Security surface: suspicious network requests, credentials being sent out, command concatenation
+   - Every item under Asset Sync; PRs containing database migrations must run `python3 scripts/check_migrations.py` to audit (consecutive numbering, no conflict with released tags)
+   - Note changes beyond the PR title's scope and let the user decide
+4. **Rehearse conflicts**: `git merge-tree --write-tree --name-only main pr-<N>`. A single tree hash in the output = clean merge; a list of file names = conflicts.
+5. **Merge on a temporary branch**: `git switch -c merge/pr-<N> main` → `git merge --no-ff pr-<N> -m "Merge pull request #<N> from <owner>/<head-branch>" -m "<PR title>"`.
+6. **Smoke + real-device verification**: PRs touching UI or interactions must ship an APK for the user to verify on a real device, **and only proceed after it passes**.
+7. **Unit tests + push**: `git switch main && git merge --ff-only merge/pr-<N> && git push origin main`. Once the head commit becomes an ancestor of `main`, GitHub marks it Merged automatically; verify with `gh pr view <N> --json state,mergeCommit`.
+8. **Clean up**: `git branch -d merge/pr-<N> pr-<N>`. Do not touch stashes or untracked files.
 
-**必须停下来问用户**：本地 `main` 有未推提交（推 `main` 会把在途提交一并带上去）／预演有冲突／PR 含数据库迁移或构建、CI、签名改动／审查发现超范围改动或质量问题／编译或单测失败。
+**Must stop and ask the user**: local `main` has unpushed commits (pushing `main` would carry the in-flight commits along) / the rehearsal shows conflicts / the PR contains database migrations or build, CI, or signing changes / review finds out-of-scope changes or quality issues / compilation or unit tests fail.
 
-## Issue 审查
+## Issue Review
 
-收到待评估的 issue（新功能 / bug 报告 / 改进建议）时，按以下顺序评估并输出审查报告：
+When you receive an issue to triage (new feature / bug report / improvement suggestion), evaluate it in the following order and produce a review report:
 
-1. **通读 issue**：提炼核心诉求、验收标准、所属模块（对照〈架构地图〉）与优先级；关联的讨论、PR、历史 commit 一并核实。**issue 里提出的实现方案只是作者的建议，不代表最优解，不得直接采纳**，优劣须在第 2~4 步结合代码与查证独立判断。
-2. **阅读相关代码**：按 issue 提到的模块定位并阅读真实代码（`list` / `search` / `readFile`），确认描述是否属实、影响面多大。**陈述事实以核实过的代码为准，issue 作者的描述不算证据**。做法拿不准或需要业界对照时，用 `websearch` / `webfetch` 查官方文档、同类实现与社区实践。
-3. **评估是否合适**：结合项目约束判断该改动该不该做——
-   - 是否符合 feature-based 分层 + DDD 现有结构，是否重复造已有轮子；
-   - 是否触碰硬约束（`targetSdk` 28、迁移编号连续、双语 strings.xml、`prompts/` / 文档同步等〈资产同步〉各项）；
-   - 改动范围与风险：是否触及启动 / 容器 / 签名 / CI 等敏感面（此类改动发版需按〈发版〉先发 RC）。
-4. **平替方案**：不受 issue 提案的局限，以核实过的代码与查证资料为依据，给出至少一个替代实现并对比（实现成本、风险、维护性、对既有用户的影响），给出推荐结论；需要用户取舍时用选择题征询，别替用户拍板。
-5. **输出报告**：以对话回复形式输出报告，包含：结论（采纳 / 拒绝 / 待定）、理由、相关代码位置（带行号链接）、方案对比、建议的下一步（是否进入 PLAN、是否开分支按〈分支工作流〉）。报告不落盘，除非用户明确要求写文件。
+1. **Read the issue through**: distill the core ask, acceptance criteria, module (against the Architecture Map), and priority; also verify related discussions, PRs, and past commits. **The implementation proposed in the issue is merely the author's suggestion, not necessarily the optimal one, and must not be adopted as-is** — its pros and cons must be judged independently in steps 2-4 against the code and verified sources.
+2. **Read the relevant code**: locate and read the actual code for the modules the issue mentions (`list` / `search` / `readFile`), confirming whether the description holds and how wide the impact is. **Facts are stated from verified code; the issue author's description is not evidence**. When unsure of the approach or needing an industry comparison, use `websearch` / `webfetch` to check official docs, similar implementations, and community practice.
+3. **Assess whether it fits**: judge whether the change should be made given the project's constraints —
+   - Whether it fits the existing feature-based layering + DDD structure, or reinvents an existing wheel;
+   - Whether it hits hard constraints (`targetSdk` 28, consecutive migration numbers, bilingual strings.xml, `prompts/` / docs sync, and the other Asset Sync items);
+   - Scope and risk: whether it touches sensitive surfaces such as startup / containers / signing / CI (such changes require an RC first per the Releases section).
+4. **Alternative solutions**: do not be boxed in by the issue's proposal; based on the verified code and research, offer at least one alternative implementation and compare them (implementation cost, risk, maintainability, impact on existing users), then give a recommendation; when the user must make a trade-off, ask via multiple choice instead of deciding for them.
+5. **Produce the report**: output the report as a conversational reply, including: conclusion (accept / reject / pending), rationale, relevant code locations (with line-number links), solution comparison, and suggested next steps (whether to enter PLAN, whether to open a branch per the Branch Workflow). Do not write the report to disk unless the user explicitly asks for a file.
 
-## 发版
+## Releases
 
-**版本号唯一事实源是 Git Tag / Commit，无需手写。** `versionName` 由 `gitVersionName()` 解析（tag `v1.7.0` → `1.7.0`，非 Tag 提交 → `1.7.0-dev.N+<hash>`）；`versionCode` 由 `gitCommitCount()` 递增。
+**Git Tag / Commit is the single source of truth for the version number — nothing is hand-written.** `versionName` is resolved by `gitVersionName()` (tag `v1.7.0` → `1.7.0`; a non-tag commit → `1.7.0-dev.N+<hash>`); `versionCode` increments via `gitCommitCount()`.
 
-### 是否先发 RC
+### Whether to ship an RC first
 
-靠 GitHub Release 分发且无灰度，发出去即终态，RC 是主要兜底：
+Distribution is via GitHub Release with no staged rollout — what ships is final, so RCs are the main fallback:
 
-- **必须先发 RC**：含新功能或行为变化（定档 `x.Y.0`）；构建链路 / 签名 / flavor / CI 改动；容器镜像 / PRoot / ABI 改动。
-- **可直接发正式**：仅纯文档 / typo / 资源文案（定档 `x.y.Z`）。
-- **看改动面**：仅纯 bug 修复（定档 `x.y.Z`）小改直接正式，触碰启动或容器的仍先发 RC。
+- **Must ship an RC first**: new features or behavior changes (versioned `x.Y.0`); build pipeline / signing / flavor / CI changes; container image / PRoot / ABI changes.
+- **Can go straight to stable**: docs-only / typo / resource copy changes (versioned `x.y.Z`).
+- **Depends on the change surface**: small pure bug fixes (versioned `x.y.Z`) can go straight to stable; anything touching startup or containers still needs an RC first.
 
-### 步骤
+### Steps
 
-0. **更新内置模型数据（仅打 Tag 前执行）**：`python3 scripts/update-models-dev-assets.py` 从 models.dev 刷新 `app/src/main/assets/api.official.json`（只保留内置 12 个官方 provider、不引入新 provider，现有 provider 下可扩充模型与单价）。**该脚本只在打 Tag 发版前手动执行；日常提交 / 推 main / 其它开发流程一律不跑**。**失败时脚本非零退出且不改快照——直接跳过此步发版，不要重试或手改文件**；成功则把快照改动一并提交到即将打 Tag 的分支。
-1. **在 `main` 最新提交上打 Tag 并推送**：`git tag v1.7.0-rc1 && git push origin v1.7.0-rc1`。**严禁在 `feat/*` / `refactor/*` 上打 Tag 发版**，必须先合入 `main`。
-2. CI 捕获 `v*` Tag 后自动推导版本、构建 APK、发布 Release。
-3. **真机装 RC 包**，至少跑通 AI 对话 + 终端 + 容器启动三条主线。
-4. **有问题**：从该 RC Tag 拉 `hotfix/xxx` 修复（**勿从最新 `main` 或功能分支拉**，否则会把已合入的未发版功能带进修复包）→ 升 rc 序号打 Tag 重发 → 修复合回 `main` 并推送 → 删 hotfix 分支。这是允许在非 `main` 分支打 Tag 的唯一例外。**无问题**：直接打正式 Tag（`v1.7.0`）转正。
-   - 若 hotfix 带数据库迁移：迁移号随 tag 发布即冻结（发布即冻结），合回 `main` 时 `main` 上编号更小的未发布迁移必须后移（见〈数据库与迁移〉合流后移），push 前先跑 `check_migrations.py`，CI 兜底拦截。
+0. **Update built-in model data (run only before tagging)**: `python3 scripts/update-models-dev-assets.py` refreshes `app/src/main/assets/api.official.json` from models.dev (keeps only the 12 built-in official providers, adds no new providers; existing providers may gain models and unit prices). **Run this script manually only before tagging a release; never during routine commits / pushing main / any other development flow**. **On failure the script exits non-zero and leaves the snapshot untouched — skip this step and release anyway; do not retry or hand-edit the file**; on success, commit the snapshot changes to the branch about to be tagged.
+1. **Tag the latest commit on `main` and push**: `git tag v1.7.0-rc1 && git push origin v1.7.0-rc1`. **Never tag a release on `feat/*` / `refactor/*`** — merge into `main` first.
+2. Once CI catches the `v*` tag it derives the version, builds the APK, and publishes the Release automatically.
+3. **Install the RC build on a real device** and at least exercise the three main lines: AI chat + terminal + container startup.
+4. **Problems found**: branch `hotfix/xxx` from that RC tag and fix there (**never from latest `main` or a feature branch**, or already-merged unreleased features would ride into the hotfix package) → bump the rc number, tag, and re-release → merge the fix back into `main` and push → delete the hotfix branch. This is the only exception that allows tagging a non-`main` branch. **No problems**: tag stable directly (`v1.7.0`) to promote it.
+   - If the hotfix carries database migrations: the migration numbers freeze once released with the tag (a release is frozen); when merging back into `main`, unpublished migrations on `main` with smaller numbers must be renumbered (see Renumber-after-merging under Database & Migrations), run `check_migrations.py` before pushing, and CI blocks it as the fallback.

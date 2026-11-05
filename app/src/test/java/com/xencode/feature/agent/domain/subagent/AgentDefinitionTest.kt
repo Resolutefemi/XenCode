@@ -118,7 +118,7 @@ class AgentDefinitionTest {
         prompt = "p"
     )
 
-    /** 省略两个名单即继承全量工具，但 task 永远剔除（子代理不能嵌套派发）。 */
+    /** Omitting both lists inherits all tools, but task is always excluded (subagents cannot dispatch nested tasks). */
     @Test
     fun filter_emptyListsInheritAllExceptTask() {
         assertEquals(allTools - "task", def().filterToolNames(allTools))
@@ -139,7 +139,7 @@ class AgentDefinitionTest {
         assertEquals(allTools - "task" - "Bash" - "terminal", result)
     }
 
-    /** 黑名单先生效，两名单都命中的工具最终被移除。 */
+    /** The denylist applies first; tools hit by both lists are ultimately removed. */
     @Test
     fun filter_denyWinsOverAllow() {
         val result = def(
@@ -173,7 +173,7 @@ class AgentDefinitionTest {
         assertEquals(listOf("Bash"), def(allowed = listOf("bash")).filterToolNames(allTools))
     }
 
-    /** 同名定义项目级覆盖全局，结果按名称排序。 */
+    /** Same-named definitions: project overrides global; the result is sorted by name. */
     @Test
     fun mergeAll_projectOverridesGlobal() {
         val global = listOf(

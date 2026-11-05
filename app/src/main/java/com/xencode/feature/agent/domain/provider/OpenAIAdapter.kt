@@ -49,28 +49,28 @@ class OpenAIAdapter @Inject constructor(
     override var maxNetworkRetries: Int = MAX_NETWORK_RETRIES
 
     /**
-     * 是否在 Chat Completion 路径发送 `prompt_cache_key`（缓存 shard 路由）。
-     * 默认关闭——OpenAI 官方 Chat Completion 不接受未知字段（400）；仅第三方兼容服务（DeepInfra/Cerebras 等）支持。
-     * Responses API 路径官方原生支持，无条件发送，不受本开关影响。
+     * Whether to send `prompt_cache_key` (cache shard routing) on the Chat Completion path.
+     * Off by default: official OpenAI Chat Completion rejects unknown fields (400); only third-party compatible services (DeepInfra/Cerebras etc.) support it.
+     * The Responses API path supports it natively and sends it unconditionally, unaffected by this toggle.
      */
     var chatCacheKeyEnabled: Boolean = false
 
-    /** 自定义请求头：占位符替换后写出，完全覆盖同名默认头。 */
+    /** Custom request headers: written out after placeholder substitution, fully overriding same-named default headers. */
     override var customHeaders: Map<String, String> = emptyMap()
 
-    // OpenAI 系不发输出上限参数（用服务端默认），仅为接口完整性保留。
+    // The OpenAI family sends no output-limit parameter (the server default applies); kept only for interface completeness.
     override var maxOutputTokens: Int? = null
 
-    // null 时请求体不带 temperature（Gson 跳过 null 字段），交由服务端默认。
+    // When null, the request body omits temperature (Gson skips null fields) and the server default applies.
     override var temperature: Float? = null
 
     private fun extraHeaders(): Map<String, String> =
         resolveCustomHeaders(customHeaders, logSessionId, apiKey)
 
     /**
-     * 目标端点：Responses API 开启时用 `v1/responses`，否则用 chat/completions 路径（[defaultProviderApiPath]）。
-     * useResponseApi 时请求体是 Responses 格式（`input`），若仍打到 chat/completions 会被服务端以
-     * 「missing field `messages`」拒绝，故必须同步切端点。useFullUrl 时直接用用户填的完整 baseUrl。
+     * Target endpoint: `v1/responses` when the Responses API is enabled, otherwise the chat/completions path ([defaultProviderApiPath]).
+     * With useResponseApi the request body is Responses-shaped (`input`); sending it to chat/completions would be rejected by the server with
+     * "missing field `messages`", so the endpoint must switch in lockstep. With useFullUrl the user's full baseUrl is used as-is.
      */
     private fun resolveApiUrl(): String {
         if (useFullUrl) return baseUrl
@@ -146,10 +146,10 @@ class OpenAIAdapter @Inject constructor(
     }
 
     /**
-     * o 系列推理模型不接受 system role，要求改用 developer。
-     * 按前缀判定：o1/o3/o4 及后续 o 系列（o5、o6…），以及 gpt-5 系（官方归入同一「推理模型」角色约定），
-     * 一律用 developer。gpt-4 及更早、以及第三方兼容服务（deepseek/kimi/minimax/moonshot 等）不命中
-     * 前缀，继续走 system，不受影响。
+     * o-series reasoning models reject the system role and require developer instead.
+     * Decided by prefix: o1/o3/o4 and later o-series (o5, o6...), plus the gpt-5 series (officially under the same
+     * "reasoning model" role convention), all use developer. gpt-4 and earlier, and third-party compatible services
+     * (deepseek/kimi/minimax/moonshot etc.), match no prefix, keep system, and are unaffected.
      */
     private fun systemRoleForModel(): String = when {
         model.startsWith("o", ignoreCase = true) -> "developer"
@@ -158,11 +158,11 @@ class OpenAIAdapter @Inject constructor(
     }
 
     /**
-     * 思考强度 → OpenAI reasoning_effort。
-     * OpenAI 官方 Chat Completions 的 reasoning_effort 仅接受 low/medium/high（gpt-5 系额外支持
-     * none/minimal，但 o 系列不接受），"none"/"minimal" 原样透传会在多数推理模型上 400。
-     * 这里把 "none"/"minimal" 明确跳过（不发该字段，交由服务端默认），"xhigh"/"max" 归一到 high
-     * （OpenAI 无更高档），low/medium/high 原样透传。与 Anthropic/Gemini 对齐「不可表达即跳过」的策略。
+     * Reasoning effort -> OpenAI reasoning_effort.
+     * Official OpenAI Chat Completions reasoning_effort accepts only low/medium/high (the gpt-5 series additionally
+     * supports none/minimal, but the o-series does not); passing "none"/"minimal" through verbatim 400s on most reasoning models.
+     * Here "none"/"minimal" are explicitly skipped (the field is omitted and the server default applies) and "xhigh"/"max" normalize to high
+     * (OpenAI has nothing higher), while low/medium/high pass through. Aligned with Anthropic/Gemini on the "skip when inexpressible" policy.
      */
     private fun normalizeReasoningEffort(effort: String?): String? = when (effort) {
         null -> null
@@ -172,8 +172,8 @@ class OpenAIAdapter @Inject constructor(
     }
 
     /**
-     * Responses 请求体。system prompt 作为首个 message item 进 `input`（与顶层 `instructions` 等价，
-     * 服务端同样按首条 system 消息处理），因此不再单独发 `instructions`。
+     * Responses request body. The system prompt enters `input` as the first message item (equivalent to the
+     * top-level `instructions`, which the server likewise treats as the first system message), so `instructions` is not sent separately.
      */
     private fun buildResponsesRequest(
         systemPrompt: String,
@@ -189,8 +189,8 @@ class OpenAIAdapter @Inject constructor(
                 systemPrompt = systemPrompt,
                 systemRole = systemRoleForModel(),
                 messages = messages,
-                // DeepSeek 思考模式：带 tools 的请求必须把历史每轮的思考内容回传（同 Chat
-                // Completions 那边的 reasoning_content）；官方/通用路径在存有合法快照时也会自动回传。
+                // DeepSeek thinking mode: requests with tools must replay every historical turn's reasoning (same as
+                // reasoning_content on the Chat Completions side); the official/generic path also replays automatically when a valid snapshot exists.
                 includeReasoningItems = isDeepSeek
             )
         )
@@ -203,22 +203,22 @@ class OpenAIAdapter @Inject constructor(
             if (isDeepSeek) {
                 request["reasoning"] = mapOf("effort" to effort)
             } else {
-                // OpenAI 官方/通用 Responses 规范：显式开启思考总结（summary: "auto"），
-                // 并索取 encrypted_content 密文，供无状态多轮对话连续推理。
+                // OpenAI official/generic Responses spec: explicitly enable reasoning summaries (summary: "auto")
+                // and request the encrypted_content ciphertext, for continuous reasoning across stateless multi-turn conversations.
                 request["reasoning"] = mapOf("effort" to effort, "summary" to "auto")
                 request["include"] = listOf("reasoning.encrypted_content")
             }
         }
-        // OpenAI 官方 Responses 原生支持 prompt_cache_key（同会话路由到同一缓存 shard）；
-        // 自动管理缓存的服务（如 DeepSeek）会静默忽略该字段，不会报错。
+        // Official OpenAI Responses supports prompt_cache_key natively (routes a session to the same cache shard);
+        // services that manage caching automatically (e.g. DeepSeek) silently ignore the field without erroring.
         logSessionId?.let { request["prompt_cache_key"] = it }
         return request
     }
 
     /**
-     * Responses API 的非流式请求。与 Chat Completions 的差异集中在三处：工具定义字段扁平、
-     * 历史是 input item 序列（见 [buildResponsesInput]）、结果从 `output` 的顶层 item 解析
-     * （工具调用是独立的 function_call item，不在 assistant 消息的 content 里）。
+     * Non-streaming Responses API request. Three differences from Chat Completions: tool definition fields are flat,
+     * history is an input item sequence (see [buildResponsesInput]), and results are parsed from top-level items of `output`
+     * (tool calls are standalone function_call items, not inside an assistant message's content).
      */
     private suspend fun completeViaResponses(
         systemPrompt: String,
@@ -306,10 +306,10 @@ class OpenAIAdapter @Inject constructor(
             prompt_cache_key = if (chatCacheKeyEnabled) logSessionId else null
         )
         val seq = AILogger.logRequest(logSessionId, "OpenAI", model, "POST", url, request)
-        // 原始 SSE 分批落盘（见 AILogger.beginRawSse），本轮结束在 finally 收尾。
+        // Raw SSE is flushed to disk in batches (see AILogger.beginRawSse); finalized in finally at end of turn.
         val sseLog = AILogger.beginRawSse(logSessionId, "OpenAI", seq)
 
-        // 流式请求整体可重试；重试前上层会收到 Retrying 事件并清空已展示文本。
+        // The streaming request is retryable as a whole; before each retry the upper layer receives a Retrying event and clears the displayed text.
         try {
             val triedKeys = mutableSetOf(apiKey)
             streamWithStaircaseRetry(
@@ -325,13 +325,13 @@ class OpenAIAdapter @Inject constructor(
                     withFirstContentTimeout(firstByteTimeoutMs) { firstContent ->
             val textBuilder = StringBuilder()
             val budget = StreamBudget()
-            // tool_call index -> 累积中的工具调用（保序）。
+            // tool_call index -> tool call being accumulated (order-preserving).
             val toolAccs = LinkedHashMap<Int, OpenAIToolAcc>()
-            // 生图扩展：部分兼容服务在 delta.images 里整块返回图片（image_url 的 data URL）。
+            // Image-generation extension: some compatible services return images whole in delta.images (image_url data URLs).
             val streamedImages = mutableListOf<AgentImage>()
             var finishReason: String? = null
-            // 未收到 [DONE] 就到了流尾（对端 EOF / 代理提前断开 / 网络切换）；
-            // 已有正文时降级交付而不是整轮失败，详见 [logStreamTruncated]。
+            // Stream hit end-of-stream before [DONE] arrived (peer EOF / proxy dropped early / network switch);
+            // if some text exists, deliver it degraded instead of failing the whole turn; see [logStreamTruncated].
             var truncatedByNetwork = false
             var sseLines = 0
             var streamInputTokens = 0
@@ -354,10 +354,10 @@ class OpenAIAdapter @Inject constructor(
                 }
                 try {
                     val reader = rb.charStream().buffered()
-                    // 收到服务端 [DONE] 标记即 break 正常结束；readLine() 返回 null 说明结束标记还没到、
-                    // 连接就没了（网络中断/TCP 重置/代理提前断开）。
-                    // 只有正文还没收到时才抛异常让重试/日志接管；已经吐了字就降级交付
-                    // （标记截断输出，由 Agent 循环自动续写），避免整轮失败、已流出内容全部作废。
+                    // Breaking on the server's [DONE] marker ends the stream normally; readLine() returning null means the marker
+                    // had not arrived and the connection died (network drop / TCP reset / proxy closed early).
+                    // Throw and let retry/logging take over only when no body has arrived yet; once text has streamed, deliver degraded
+                    // (mark the output truncated and let the Agent loop auto-continue), avoiding a failed turn that wastes everything already streamed.
                     while (true) {
                         coroutineContext.ensureActive()
                         val line = reader.readLine()
@@ -382,11 +382,11 @@ class OpenAIAdapter @Inject constructor(
                             val msg = errObj.get("message")?.takeIf { !it.isJsonNull }?.asString ?: "Unknown error"
                             throw StreamApiException(code, msg)
                         }
-                        // 单行 SSE 解析：不同上游/模型的字段类型偶有出入（如把对象写成数组、把字符串写成对象），
-                        // Gson 的 getAsJsonObject/getAsJsonArray 在类型不符时会直接抛 ClassCastException，
-                        // asString/asInt 对非原始值会抛 UnsupportedOperationException。
-                        // 单行异常不应中断整条流——这里宽松解析，出错仅跳过该行；已累积的文本与后续行不受影响。
-                        // 必须放行 CancellationException，否则会吞掉协程取消信号。
+                        // Per-line SSE parsing: upstream/model field types occasionally vary (e.g. an object written as an array, a string as an object);
+                        // Gson's getAsJsonObject/getAsJsonArray throw ClassCastException on type mismatch,
+                        // and asString/asInt throw UnsupportedOperationException on non-primitives.
+                        // One bad line must not kill the stream: parse leniently and skip only that line; accumulated text and later lines are unaffected.
+                        // CancellationException must be rethrown, or the coroutine cancellation signal would be swallowed.
                         try {
                             obj.get("usage")?.takeIf { it.isJsonObject }?.asJsonObject?.let { u ->
                                 streamInputTokens = u.get("prompt_tokens")?.takeIf { !it.isJsonNull }?.asInt ?: streamInputTokens
@@ -401,7 +401,7 @@ class OpenAIAdapter @Inject constructor(
                                 finishReason = it
                             }
 
-                            // 文字增量
+                            // Text delta
                             delta.get("content")?.takeIf { !it.isJsonNull }?.asString?.let { c ->
                                 if (c.isNotEmpty()) {
                                     budget.add(c)
@@ -411,10 +411,10 @@ class OpenAIAdapter @Inject constructor(
                                     emit(AIStreamChunk.TextDelta(c))
                                 }
                             }
-                            // 思考过程增量：标准 OpenAI 走 reasoning_content，部分第三方兼容服务
-                            // （如 mimo）走顶层 reasoning 或 reasoning_details（reasoning.text 数组）。
-                            // 仅 UI 实时展示，不计入正文（思考不落库，重试时重新流出即可，无重复文本风险），
-                            // 但收到即说明连接已活，取消首字节超时。
+                            // Reasoning delta: standard OpenAI uses reasoning_content; some third-party compatible services
+                            // (e.g. mimo) use top-level reasoning or reasoning_details (an array of reasoning.text).
+                            // Live UI display only, never added to the body (reasoning is not persisted, so a retry can simply re-stream it with no duplicate-text risk),
+                            // but receiving it proves the connection is live and cancels the first-byte timeout.
                             val reasoningText = delta.get("reasoning_content")?.takeIf { !it.isJsonNull }?.asString
                                 ?: delta.get("reasoning")?.takeIf { !it.isJsonNull }?.asString
                                 ?: delta.get("reasoning_details")?.takeIf { it.isJsonArray }?.asJsonArray
@@ -427,10 +427,10 @@ class OpenAIAdapter @Inject constructor(
                                 onContent()
                                 emit(AIStreamChunk.ReasoningDelta(reasoningText))
                             }
-                            // 工具调用增量：按 index 聚合 id/name/arguments 片段。
-                            // 有些模型（如 DeepSeek）在后续增量 chunk 中只传 arguments 片段，
-                            // id 和 name 为空字符串 ""，不应覆盖已收到的有效值——否则首次 chunk
-                            // 收到的完整 id/name 会被后续空值清空，导致 ToolCall 丢失。
+                            // Tool-call deltas: aggregate id/name/argument fragments by index.
+                            // Some models (e.g. DeepSeek) send only argument fragments in later delta chunks,
+                            // with id and name as empty strings ""; those must not overwrite valid values already received; otherwise the full
+                            // id/name from the first chunk gets blanked by later empty values and the ToolCall is lost.
                             delta.getAsJsonArray("tool_calls")?.takeIf { it.size() > 0 }?.let {
                                 firstContent.receivedContent()
                                 onContent()
@@ -439,19 +439,19 @@ class OpenAIAdapter @Inject constructor(
                                 val tc = el.asJsonObject
                                 val idx = tc.get("index")?.asInt ?: 0
                                 val acc = toolAccs.getOrPut(idx) { OpenAIToolAcc() }
-                                // 仅在 id/name 非空时更新，避免增量 chunk 的空值覆盖首 chunk 的有效值
+                                // Update only when id/name is non-empty, so empty values in delta chunks cannot clobber the first chunk's valid values
                                 tc.get("id")?.takeIf { !it.isJsonNull }?.asString?.takeIf { it.isNotEmpty() }?.let { acc.id = it }
                                 tc.getAsJsonObject("function")?.let { fn ->
                                     fn.get("name")?.takeIf { !it.isJsonNull }?.asString?.takeIf { it.isNotEmpty() }?.let { name ->
-                                        // 首次拿到工具名（后续增量只给 arguments 片段）：通知 UI
-                                        // 「模型准备调什么」，免得长参数流式期间一直停在「正在思考」
+                                        // Tool name received for the first time (later deltas only carry argument fragments): notify the UI
+                                        // what the model is about to call, instead of sitting on a generic "thinking" state while long arguments stream
                                         if (acc.name.isEmpty()) emit(AIStreamChunk.ToolCallDeclared(name))
                                         acc.name = name
                                     }
                                     fn.get("arguments")?.takeIf { !it.isJsonNull }?.asString?.let { budget.add(it); acc.args.append(it) }
                                 }
                             }
-                            // 生图扩展：图片整块到达、无增量，累积待 Final 交工作流落盘。
+                            // Image-generation extension: images arrive whole with no deltas and are accumulated until Final, when the workflow persists them.
                             delta.getAsJsonArray("images")?.forEach { el ->
                                 val img = el.takeIf { it.isJsonObject }?.asJsonObject ?: return@forEach
                                 img.toOpenAIAgentImage()?.let { image ->
@@ -466,7 +466,7 @@ class OpenAIAdapter @Inject constructor(
                             throw e
                         } catch (e: Exception) {
                             coroutineContext.ensureActive()
-                            // 该行 SSE 解析失败，跳过；不影响已累积文本与后续行。
+                            // This SSE line failed to parse; skip it without affecting accumulated text or later lines.
                         }
                     }
                 } finally {
@@ -477,7 +477,7 @@ class OpenAIAdapter @Inject constructor(
 
             val toolCalls = toolAccs.values
                 .filter { it.id.isNotEmpty() || it.name.isNotEmpty() }
-                // 断流时入参几乎必然半截：残缺参数去执行工具（写文件/跑命令）风险远大于丢掉这次调用。
+                // On a broken stream the arguments are almost certainly truncated: running a tool (write file / run command) with mangled arguments is far riskier than dropping the call.
                 .filter { !truncatedByNetwork || looksLikeCompleteJsonObject(it.args.toString()) }
                 .map { acc -> ToolCall(id = acc.id, name = acc.name, arguments = parseToolArguments(acc.args.toString())) }
             emit(AIStreamChunk.Final(AIResponse(content = textBuilder.toString(), toolCalls = toolCalls, stopReason = if (truncatedByNetwork) STREAM_TRUNCATED_STOP_REASON else finishReason, inputTokens = streamInputTokens, outputTokens = streamOutputTokens, cachedInputTokens = streamCachedInputTokens, cacheCreationTokens = streamCacheCreationTokens, images = streamedImages)))
@@ -493,16 +493,16 @@ class OpenAIAdapter @Inject constructor(
             AILogger.logError(logSessionId, "OpenAI", enriched, seq)
             throw enriched
         } finally {
-            // 无论成功/失败/取消，把已收到的原始 SSE 落盘（重试时会从上次中断处续写）。
+            // On success, failure, or cancellation, flush the received raw SSE to disk (retries resume from where the last attempt stopped).
             sseLog.finish()
         }
     }.flowOn(Dispatchers.IO)
 
     /**
-     * Responses API 的流式请求。与 Chat Completions 的 delta 帧不同，这里是语义事件流（见
-     * [ResponsesStreamAccumulator]），且**官方不发 `[DONE]`**：结束只能按 response.completed /
-     * incomplete / failed 判定。沿用旧的“没收到 [DONE] 就报断流”会把正常结束当成错误，
-     * 故这里以 [ResponsesStreamAccumulator.terminated] 作为退出条件，读到流尾仍未终止才算被截断。
+     * Streaming Responses API request. Unlike Chat Completions' delta frames, this is a semantic event stream (see
+     * [ResponsesStreamAccumulator]), and **the official API sends no `[DONE]`**: completion can only be judged by
+     * response.completed / incomplete / failed. Keeping the old "no [DONE] means a broken stream" rule would treat
+     * normal completion as an error, so [ResponsesStreamAccumulator.terminated] is the exit condition here; only an unterminated read to end-of-stream counts as truncated.
      */
     private suspend fun FlowCollector<AIStreamChunk>.streamViaResponses(
         systemPrompt: String,
@@ -513,7 +513,7 @@ class OpenAIAdapter @Inject constructor(
         val url = resolveApiUrl()
         val request = buildResponsesRequest(systemPrompt, messages, tools, reasoningEffort, stream = true)
         val seq = AILogger.logRequest(logSessionId, "OpenAI", model, "POST", url, request)
-        // 原始 SSE 分批落盘（见 AILogger.beginRawSse），本轮结束在 finally 收尾。
+        // Raw SSE is flushed to disk in batches (see AILogger.beginRawSse); finalized in finally at end of turn.
         val sseLog = AILogger.beginRawSse(logSessionId, "OpenAI", seq)
         try {
             val triedKeys = mutableSetOf(apiKey)
@@ -550,8 +550,8 @@ class OpenAIAdapter @Inject constructor(
                                 coroutineContext.ensureActive()
                                 val line = reader.readLine()
                                 if (line == null) {
-                                    // 没等到终止事件连接就没了。正文还没收到才抛异常让重试/日志接管；
-                                    // 已经吐了字就降级交付（标成截断输出，由 Agent 循环自动续写）。
+                                    // The connection died before a terminal event. Throw and let retry/logging take over only when no body has arrived;
+                                    // once text has streamed, deliver degraded (mark the output truncated and let the Agent loop auto-continue).
                                     if (!acc.hasSalvageableText()) {
                                         throw IOException("SSE stream interrupted: no response.completed event received (possible network drop)")
                                     }
@@ -565,7 +565,7 @@ class OpenAIAdapter @Inject constructor(
                                 val data = line.removePrefix("data:").trim()
                                 if (data.isEmpty()) continue
                                 sseLog.append(line)
-                                // 官方 Responses 不发 [DONE]，但部分兼容服务会补发，收到即视为流结束。
+                                // Official Responses sends no [DONE], but some compatible services append one; receiving it ends the stream.
                                 if (data == "[DONE]") break
                                 val obj = runCatching { JsonParser.parseString(data).asJsonObject }.getOrNull() ?: continue
                                 obj.get("error")?.takeIf { it.isJsonObject }?.asJsonObject?.let { errObj ->
@@ -573,8 +573,8 @@ class OpenAIAdapter @Inject constructor(
                                     val msg = errObj.get("message")?.takeIf { !it.isJsonNull }?.asString ?: "Unknown error"
                                     throw StreamApiException(code, msg)
                                 }
-                                // 单个事件的字段类型异常不应废掉整条流，只跳过该事件；
-                                // 但 StreamApiException（response.failed）与取消信号必须放行。
+                                // A field-type error in one event must not kill the stream; skip only that event,
+                                // but StreamApiException (response.failed) and cancellation signals must be rethrown.
                                 val delta = try {
                                     acc.accept(obj).also {
                                         if (acc.receivedContent) {
@@ -596,13 +596,13 @@ class OpenAIAdapter @Inject constructor(
                                         onContent()
                                         emit(AIStreamChunk.TextDelta(delta.text))
                                     }
-                                    // 思考增量仅用于 UI 展示，不计入正文；收到即说明连接已活，取消首字节超时。
+                                    // Reasoning deltas are UI display only and never added to the body; receiving one proves the connection is live and cancels the first-byte timeout.
                                     is ResponsesDelta.Reasoning -> {
                                         firstContent.receivedContent()
                                         onContent()
                                         emit(AIStreamChunk.ReasoningDelta(delta.text))
                                     }
-                                    // 工具名先于参数到达：通知 UI 提前把状态换成具体场景
+                                    // The tool name arrives before the arguments: notify the UI to switch to a concrete scene early
                                     is ResponsesDelta.ToolCallDeclared -> {
                                         firstContent.receivedContent()
                                         onContent()
@@ -634,7 +634,7 @@ class OpenAIAdapter @Inject constructor(
         }
     }
 
-    /** 流式过程中按 index 累积的工具调用状态。 */
+    /** Tool-call state accumulated by index during streaming. */
     private class OpenAIToolAcc {
         var id = ""
         var name = ""
@@ -652,8 +652,8 @@ class OpenAIAdapter @Inject constructor(
                     val toolCalls = if (message.toolCalls.isNotEmpty()) {
                         message.toolCalls.map { convertToOpenAIToolCall(it) }
                     } else null
-                    // DeepSeek 思考模式要求 assistant 消息的 reasoning_content 字段必须存在
-                    // （即使是空串也要带上），否则工具调用轮回传时 API 报 400。
+                    // DeepSeek thinking mode requires the assistant message's reasoning_content field to exist
+                    // (even as an empty string), or the API returns 400 when tool-call turns are replayed.
                     val reasoningContent = if (model.contains("deepseek", ignoreCase = true)) {
                         message.reasoning
                     } else {
@@ -667,7 +667,7 @@ class OpenAIAdapter @Inject constructor(
                     )
                 }
                 is AgentMessage.ToolResultMessage -> {
-                    // 文件类工具喂模型用精简投影文本（减少完整 diff 回传的 token），UI/持久化仍走完整 result。
+                    // File-type tools feed the model a condensed projection (fewer tokens than replaying the full diff); the UI/persistence still use the full result.
                     val modelText = message.modelResult
                         ?: modelToolResultText(message.toolName, message.result)
                         ?: message.result
@@ -692,15 +692,15 @@ class OpenAIAdapter @Inject constructor(
             }
         }
 
-        // 防御性清理：保证 assistant(tool_calls) 与其 tool 响应消息按 tool_call_id 一一配对并紧跟，
-        // 避免上游 400。可能破坏配对的场景：
-        // 1) 并发/异步工具结果乱序落位（如 askUserQuestion 阻塞等待期间其他工具结果插队），
-        //    assistant(tool_calls) 与其响应被其他消息隔开 → 将匹配的 tool 响应吸附回紧跟其后；
-        // 2) 孤立 tool 消息（前驱 assistant 无 tool_calls，如上下文压缩导致配对断裂）→ 跳过，
-        //    否则 OpenAI 报 "Messages with role 'tool' must be a response to a preceding
-        //    message with 'tool_calls'"；
-        // 3) assistant 声明的 tool_calls 无对应响应（如用户拒绝导致部分调用未执行）→ 裁剪，
-        //    否则 OpenAI 报 "insufficient tool messages following tool_calls message"。
+        // Defensive cleanup: ensure each assistant(tool_calls) and its tool response messages are paired one-to-one by tool_call_id and adjacent,
+        // avoiding upstream 400s. Scenarios that can break pairing:
+        // 1) Concurrent/async tool results landing out of order (e.g. other tool results jumping ahead while askUserQuestion blocks):
+        //    assistant(tool_calls) and its responses separated by other messages -> absorb the matching tool responses back right after it;
+        // 2) Orphaned tool messages (the preceding assistant has no tool_calls, e.g. pairing broken by context compression) -> skip,
+        //    otherwise OpenAI errors with "Messages with role 'tool' must be a response to a preceding
+    //    message with 'tool_calls'";
+        // 3) Assistant-declared tool_calls with no matching response (e.g. some calls not executed because the user declined) -> trim,
+        //    otherwise OpenAI errors with "insufficient tool messages following tool_calls message".
         val cleaned = mutableListOf<OpenAIChatMessage>()
         val consumed = BooleanArray(raw.size)
         for (i in raw.indices) {
@@ -724,7 +724,7 @@ class OpenAIAdapter @Inject constructor(
                 cleaned.add(if (keptCalls === msg.tool_calls) msg else msg.copy(tool_calls = keptCalls.ifEmpty { null }))
                 cleaned.addAll(matchedTools)
             } else if (msg.role == "tool") {
-                consumed[i] = true // 孤立 tool 消息，跳过
+                consumed[i] = true // Orphaned tool message, skip
             } else {
                 cleaned.add(msg)
             }
@@ -753,7 +753,7 @@ class OpenAIAdapter @Inject constructor(
         )
     )
 
-    /** `data:` URL（base64 内嵌）→ AgentImage；远程 URL / 非 base64 / 非法一律返回 null。 */
+    /** `data:` URL (base64-embedded) -> AgentImage; remote URLs / non-base64 / invalid all return null. */
     private fun dataUrlToAgentImage(url: String): AgentImage? {
         if (!url.startsWith("data:", ignoreCase = true)) return null
         val comma = url.indexOf(',')
@@ -766,7 +766,7 @@ class OpenAIAdapter @Inject constructor(
         return AgentImage(mimeType = mime, base64Data = data)
     }
 
-    /** 流式 delta.images 里的单个元素 → AgentImage。 */
+    /** Single element of streaming delta.images -> AgentImage. */
     private fun com.google.gson.JsonObject.toOpenAIAgentImage(): AgentImage? {
         val url = when (val img = get("image_url")) {
             is com.google.gson.JsonPrimitive -> img.asString
@@ -776,17 +776,17 @@ class OpenAIAdapter @Inject constructor(
         return dataUrlToAgentImage(url)
     }
 
-    /** 非流式 message.images 的单个图片项 → AgentImage。 */
+    /** Single image item of non-streaming message.images -> AgentImage. */
     private fun OpenAIImagePart.toAgentImage(): AgentImage? {
         val url = image_url?.url ?: return null
         return dataUrlToAgentImage(url)
     }
 
     /**
-     * OpenAI chat completion 返回的 content 可能是字符串或数组（多模态/生图模型）。
-     * 数组元素里可能含 image_url 的 base64 data URL（几 MB），直接 toString() 会把整段 base64
-     * 当成 assistant 文本落库，撑爆 SQLite CursorWindow 导致启动崩溃。这里只提取文本部分，
-     * 图片只保留说明/远程 URL 引用，绝不把 base64 写进 content。
+     * The content returned by OpenAI chat completion can be a string or an array (multimodal/image-generation models).
+     * Array elements may contain image_url base64 data URLs (several MB); calling toString() directly would persist the
+     * whole base64 as assistant text, blow up the SQLite CursorWindow, and crash startup. Only the text parts are extracted;
+     * images keep only a caption/remote URL reference, and base64 is never written into content.
      */
     private fun Any?.asTextContent(): String = when (this) {
         null -> ""

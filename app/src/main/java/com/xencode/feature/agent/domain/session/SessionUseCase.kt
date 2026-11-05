@@ -19,22 +19,22 @@ class SessionUseCase @Inject constructor(
     companion object {
         private const val TAG = "SessionUseCase"
         const val TITLE_MAX = 20
-        /** 工具占位行前缀：标记「执行中、结果未回」的孤儿，UI 与回放据此识别。 */
+        /** Tool placeholder row prefix: marks "running, result not yet back" orphans, recognized by UI and replay. */
         const val PENDING_TOOL_MARKER = "[running]"
-        /** 历史版本 emoji 前缀；冷启动收尾与回放仍需识别。 */
+        /** Legacy emoji prefix; still recognized by cold-start cleanup and replay. */
         const val LEGACY_PENDING_TOOL_MARKER = "\u23F3"
-        /** 历史版本停止 emoji 前缀；UI 剥离结果文本时兼容。 */
+        /** Legacy stopped emoji prefix; kept for compatibility when the UI strips result text. */
         const val LEGACY_STOPPED_TOOL_MARKER = "\u23F9"
         const val INTERRUPTED_TOOL_TEXT = "Execution interrupted (app was closed)"
         const val DEFAULT_TITLE = "New Chat"
 
         fun displayTitle(title: String): String = when (title.trim()) {
-            "新会话", "新对话", DEFAULT_TITLE -> DEFAULT_TITLE
+            "New Session", "New Chat", DEFAULT_TITLE -> DEFAULT_TITLE
             else -> title
         }
     }
 
-    /** 冷启动收尾：上次进程被杀时若有工具正在执行，其占位行会永久显示「执行中」。 */
+    /** Cold-start cleanup: if a tool was executing when the last process was killed, its placeholder row would show "running" forever. */
     suspend fun initColdStartCleanup() {
         runCatching {
             val n = listOf(PENDING_TOOL_MARKER, LEGACY_PENDING_TOOL_MARKER).sumOf { marker ->
@@ -44,8 +44,8 @@ class SessionUseCase @Inject constructor(
                     interruptedContent = INTERRUPTED_TOOL_TEXT
                 )
             }
-            if (n > 0) FileLogger.i(TAG, "冷启动收尾 $n 条残留「执行中」工具行为已中断")
-        }.onFailure { FileLogger.e(TAG, "回收残留执行中工具行失败", it) }
+            if (n > 0) FileLogger.i(TAG, "Cold-start cleanup interrupted $n leftover running tool rows")
+        }.onFailure { FileLogger.e(TAG, "Failed to reclaim leftover running tool rows", it) }
     }
 
     fun newSessionEntity(
@@ -73,10 +73,10 @@ class SessionUseCase @Inject constructor(
         else clean.take(TITLE_MAX) + "…"
     }
 
-    /** 删除会话及其全部子代理会话（消息 + 会话记录一并删除）。返回被删除的会话 id 列表。 */
+    /** Deletes a session and all its sub-agent sessions (messages + session records together). Returns the list of deleted session ids. */
     suspend fun deleteSession(id: String): List<String> {
         val deleted = mutableListOf(id)
-        // 递归收集子会话（v1 仅一层，循环即可）
+        // Collect child sessions recursively (v1 has only one level, so a loop suffices)
         chatSessionDao.getSubSessionsByParentOnce(id).forEach { child ->
             agentMessageDao.deleteBySession(child.id)
             chatSessionDao.delete(child.id)
@@ -87,7 +87,7 @@ class SessionUseCase @Inject constructor(
         return deleted
     }
 
-    /** 删除某工作区下的全部会话（含子代理会话）及其消息，返回删除的会话数。 */
+    /** Deletes all sessions under a workspace (including sub-agent sessions) and their messages; returns the number of sessions deleted. */
     suspend fun deleteSessionsByWorkspace(workspacePath: String): Int {
         val sessions = chatSessionDao.getAllSessionsByWorkspaceOnce(workspacePath)
         if (sessions.isEmpty()) return 0
@@ -100,12 +100,12 @@ class SessionUseCase @Inject constructor(
         return chatSessionDao.getRootSessionsByWorkspaceOnce(workspacePath).firstOrNull()
     }
 
-    /** 工作区里最近更新的根会话（忽略置顶），供启动时进入最近会话。 */
+    /** The most recently updated root session in the workspace (ignoring pinned ones), for entering the latest session at startup. */
     suspend fun getMostRecentSessionOfWorkspace(workspacePath: String): ChatSessionEntity? {
         return chatSessionDao.getLatestRootSessionByWorkspace(workspacePath)
     }
 
-    /** 回收工作区下多余的空会话（从未发送过消息），保留 [keepId]；保证列表最多一个空会话。 */
+    /** Reclaims surplus empty sessions in the workspace (never sent a message), keeping [keepId]; ensures at most one empty session in the list. */
     suspend fun recycleEmptySessions(workspacePath: String, keepId: String? = null): Int {
         var count = 0
         chatSessionDao.getRootSessionsByWorkspaceOnce(workspacePath).forEach { session ->
@@ -118,14 +118,14 @@ class SessionUseCase @Inject constructor(
     }
 
     /**
-     * 创建子代理会话，继承父会话的 provider/model/reasoningEffort/workspacePath。
-     * @param title 子会话标题（由 task 描述派生）
-     * @param parentId 父会话 id
-     * @param subagentType 子代理类型 id（自定义 agent 名，或默认通用子代理标识）
-     * @param providerId 覆盖 provider；null 表示继承父会话
-     * @param model 覆盖模型；null 表示继承父会话
-     * @param reasoningEffort 覆盖思考强度；null 表示继承父会话
-     * @param mode 覆盖运行模式；null 表示继承父会话
+     * Creates a sub-agent session, inheriting the parent session's provider/model/reasoningEffort/workspacePath.
+     * @param title Sub-session title (derived from the task description)
+     * @param parentId Parent session id
+     * @param subagentType Sub-agent type id (a custom agent name, or the default generic sub-agent identifier)
+     * @param providerId Overrides the provider; null means inherit from the parent session
+     * @param model Overrides the model; null means inherit from the parent session
+     * @param reasoningEffort Overrides the reasoning effort; null means inherit from the parent session
+     * @param mode Overrides the run mode; null means inherit from the parent session
      */
     fun newSubSessionEntity(
         title: String,
@@ -144,9 +144,9 @@ class SessionUseCase @Inject constructor(
             workspacePath = parent.workspacePath,
             createdAt = now,
             updatedAt = now,
-            // 默认继承父会话 mode：权限引擎按会话 mode 判定写拦截，默认 BUILD 会让 PLAN
-            // 模式下派出的子代理绕过只读限制，反过来其它模式下派出的子代理又会弹授权窗打扰用户。
-            // 自定义子代理可用定义的 mode 覆盖该默认值。
+            // Inherit the parent session's mode by default: the permission engine checks write interception by session mode, and a BUILD default would let sub-agents
+            // dispatched in PLAN mode bypass the read-only restrictions, while sub-agents dispatched in other modes would pop authorization dialogs and bother the user.
+            // A custom sub-agent can override this default with its defined mode.
             mode = mode?.name ?: parent.mode,
             providerId = providerId ?: parent.providerId,
             model = model ?: parent.model,
@@ -180,7 +180,7 @@ class SessionUseCase @Inject constructor(
         val s = chatSessionDao.getById(sessionId) ?: return
         val newMode = runCatching { AgentMode.valueOf(mode) }.getOrNull() ?: return
         val currentMode = runCatching { AgentMode.valueOf(s.mode) }.getOrNull()
-        // 用户手动进入 PLAN 时同样记下进入前的模式，退出 PLAN 时恢复（与 AI 自切保持同一套语义）。
+        // When the user manually enters PLAN, likewise record the previous mode and restore it on exit (same semantics as the AI's own switching).
         val modeBeforePlan = when {
             newMode == AgentMode.PLAN && currentMode != AgentMode.PLAN -> currentMode?.name
             newMode == AgentMode.PLAN -> s.modeBeforePlan

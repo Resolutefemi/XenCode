@@ -1,135 +1,135 @@
-# AI 供应商与模型
+# AI Vendors & Models
 
-XenCode 自身不提供模型，需先接入一个模型服务。入口在「设置 → AI 供应商」。
+XenCode does not provide models itself — connect a model service first. The entry point is "Settings → AI Vendors".
 
-## 添加一个供应商
+## Adding a vendor
 
-点右上角 + 从底部弹出添加面板：
+Tap + at the top-right to open the add panel from the bottom:
 
-- 第一项是**自定义供应商**（从空白手动配置）。
-- 下面是内置官方预设，选中后自动填入名称、上游格式与 Base URL，进编辑页补上 API Key 即可使用，各项也可手动修改。
+- The first entry is **Custom Vendor** (configured manually from scratch).
+- Below are built-in official presets; picking one auto-fills the name, upstream format and Base URL — just add the API Key on the edit page and it works. Every field can still be edited manually.
 
-预设列表随版本更新，以实际显示为准。
+The preset list changes between versions; what is shown on screen prevails.
 
-自定义时填以下四项：
+For custom setup, fill in these four fields:
 
-- **名称**：易识别的别名，例如「我的中转」。列表按名称自动匹配品牌图标。
-- **上游格式**：`OpenAI` / `Anthropic` / `Gemini` 三选一，决定请求协议。第三方中转站一般选 `OpenAI`。
-- **API Key**：密钥，形如 `sk-xxx`。粘贴时多带的空格或换行会在保存时自动清理。
-- **Base URL**：API 根地址。留空会按上游格式自动填官方地址；用第三方中转时填中转服务的地址，带不带 `/v1` 都可以。
+- **Name**: an easily recognizable alias, e.g. "My relay". The list auto-matches a brand icon by name.
+- **Upstream format**: pick one of `OpenAI` / `Anthropic` / `Gemini`; it decides the request protocol. Third-party relays usually pick `OpenAI`.
+- **API Key**: your key, like `sk-xxx`. Extra spaces or newlines pasted along are cleaned automatically on save.
+- **Base URL**: the API root. Leave it empty to auto-fill the official address for the upstream format; with a third-party relay, enter the relay service's address — with or without `/v1` both work.
 
-配好后切到「模型」标签拉取模型，即可回主页开始对话。
+Once configured, switch to the "Models" tab to fetch models, then head back to the home page and start chatting.
 
-## 管理供应商列表
+## Managing the vendor list
 
-列表每行显示名称、上游格式、模型数量和启用状态。
+Each row shows the name, upstream format, model count and enabled status.
 
-- 点一行进入编辑页。
-- **左滑一行**露出红色删除按钮。
-- **长按名称或上游格式区域拖动**调整顺序，重启后保持。
+- Tap a row to open its edit page.
+- **Swipe a row left** to reveal the red delete button.
+- **Long-press and drag the name or upstream format area** to reorder; the order survives restart.
 
-## 多 Key 模式
+## Multi-key mode
 
-::: tip 版本说明
-多 Key 模式从 1.11.0 起提供。
+::: tip Version note
+Multi-key mode is available since 1.11.0.
 :::
 
-如果持有同一服务的多个密钥，可在编辑页的「选项」里打开**多 Key 模式**：密钥不可用时自动切到下一个并**重发本次请求**。打开后单 Key 输入框隐藏，密钥统一在「多 Key 管理」页维护（原本填的那个会成为列表第一项）。
+If you hold several keys for the same service, turn on **Multi-Key Mode** under "Options" on the edit page: when a key becomes unavailable it switches to the next one and **resends this request**. Once on, the single-key input hides and keys are managed on the "Multi-Key Management" page (the key you had entered becomes the first entry).
 
-管理页分三块：
+The management page has three sections:
 
-**Key 列表**：每条 Key 是一张可折叠卡片，折叠时显示序号与掩码预览，点击展开后可编辑该条 Key 并设置**调度权重**（默认 `1`，最大 `1,000,000`；`≤ 0` 表示保留但不参与调度）。左滑删除，长按卡片头部拖动排序（重启后保持），眼睛图标切换明文/掩码。权重只影响**轮询**策略——数值越大，新会话分到该 Key 的比例越高（按权重平滑分配，如 `1:3` 约为 1 比 3）。
+**Key list**: every key is a collapsible card — collapsed it shows the index and a masked preview; tap to expand, edit that key and set its **scheduling weight** (default `1`, max `1,000,000`; `≤ 0` keeps the key but excludes it from scheduling). Swipe left to delete, long-press the card header and drag to reorder (survives restart), and the eye icon toggles plaintext/masked. Weight only affects the **round-robin** strategy — the higher the value, the more new sessions land on that key (smooth weighted distribution, e.g. `1:3` is roughly a one-to-three split).
 
-**取用策略**：
+**Pickup strategy**:
 
-- `顺序`：始终用靠前的 Key，失败达到阈值才切下一个。
-- `轮询`：新会话按权重比例轮流起步，用于均衡多个 Key 的额度消耗。
+- `Sequential`: always use the front-most key; switch to the next only after failures reach the threshold.
+- `Round robin`: new sessions start from keys in turn, weighted by each key's weight, to spread quota consumption across keys.
 
-为保住服务端 Prompt 缓存，**单会话内默认保持同一个 Key**，只在当前 Key 不可用时才切。
+To preserve the server-side prompt cache, **a single session keeps the same key by default**; it switches only when the current key becomes unavailable.
 
-**失败切换**：
+**Failover**:
 
-- `自动切换状态码`：命中这些 HTTP 状态码时立即切换并重发，默认 `401,402,403,429`；留空使用默认值，也可按需增删（逗号分隔）。
-- `冷却时长`：被切走的 Key 隔多久重新参与候选，默认 5 分钟，也可设为不冷却。
+- `Auto-switch status codes`: on these HTTP status codes it switches immediately and resends; default `401,402,403,429`. Leave empty for the default, or add/remove as needed (comma-separated).
+- `Cooldown`: how long a switched-away key waits before rejoining the candidates; default 5 minutes, and it can also be set to no cooldown.
 
-一次请求依次尝试列表里的 Key，全部失败才报错（提示「N 个 Key 均失败」）。流式回复若已开始输出则不再重发（避免重复输出），只切换后续请求用的 Key；触发切换时聊天区出现「已切换到第 N/M 个 Key」提示。
+A request tries the keys in the list one by one and only errors out when all have failed (message: "N keys all failed"). A streaming reply that has already started outputting is not resent (to avoid duplicated output); only the key used by later requests switches, and when a switch triggers, the chat area shows "Switched to key N/M".
 
-鉴权失败、权限不足、限流、余额或额度用尽视为「密钥不可用」，会触发切换；服务器 5xx、超时、网络不可达换 Key 也无法解决，仍走原有网络重试。若所有 Key 都在冷却中，会直接报错提示稍后重试。
+Auth failure, insufficient permission, rate limiting, or exhausted balance/quota count as "key unavailable" and trigger a switch; server 5xx, timeouts and unreachable networks cannot be fixed by switching keys, so they still go through the regular network retries. If every key is cooling down, it errors out right away and asks you to retry later.
 
-App 重启后回到第一个 Key，冷却记录清空。
+After an app restart it returns to the first key, and cooldown records are cleared.
 
-## 选项
+## Options
 
-编辑页的「选项」分组里还有：
+The "Options" group on the edit page also has:
 
-- **完整 URL**：开启后 Base URL 即完整请求地址，不再自动拼接默认路径。
-- **新版协议端点**：上游格式为 OpenAI 时可开启「Response API (新版)」，Gemini 时可开启「Interactions API (新版)」。默认关闭，确认服务支持对应新协议时再开。
+- **Full URL**: when on, the Base URL is the complete request address and no default path is appended.
+- **New protocol endpoints**: with upstream format OpenAI you can enable "Response API (new)"; with Gemini, "Interactions API (new)". Off by default — turn on only after confirming the service supports the new protocol.
 
-### 自定义请求头
+### Custom request headers
 
-给该供应商的所有请求追加 Header，完全覆盖同名默认头（如填 `User-Agent` 就替换掉默认 UA）。仅少数中转网关需要。值里可用的占位符：
+Appends headers to all requests of this vendor, fully overriding same-named defaults (e.g. setting `User-Agent` replaces the default UA). Only a few relay gateways need this. Placeholders available in values:
 
 ::: v-pre
-| 占位符 | 说明 |
+| Placeholder | Description |
 | :--- | :--- |
-| `{{SESSION_ID}}` | 当前会话 id |
-| `{{API_KEY}}` | 本次实际取用的 Key |
+| `{{SESSION_ID}}` | Current session id |
+| `{{API_KEY}}` | The key actually used this time |
 :::
 
-### 自定义面板脚本
+### Custom dashboard scripts
 
-让供应商在输入框上方显示余额或用量卡片。脚本放在 `~/.xencode/scripts/` 下，支持 Python、Bash、Node，可在编辑页点「运行测试」看输出。
+Show a balance or usage card above the input box for this vendor. Scripts live under `~/.xencode/scripts/`, support Python, Bash and Node, and can be tested from the edit page via "Run test".
 
-脚本参数以 `AICODE_KEY_<KEY>` 环境变量注入（KEY 转大写，仅保留字母、数字与下划线）。值里可用的占位符：
+Script arguments are injected as `AICODE_KEY_<KEY>` environment variables (KEY upper-cased, keeping only letters, digits and underscores). Placeholders available in values:
 
 ::: v-pre
-| 占位符 | 说明 |
+| Placeholder | Description |
 | :--- | :--- |
-| `{{PROVIDER_API_KEY}}` | 当前生效的 API Key |
-| `{{PROVIDER_ID}}` | 供应商记录 ID |
-| `{{PROVIDER_NAME}}` | 供应商名称 |
-| `{{PROVIDER_TYPE}}` | 上游格式（OPENAI / ANTHROPIC / GEMINI） |
-| `{{BASE_URL}}` | 供应商 Base URL |
-| `{{DEFAULT_MODEL}}` | 默认模型 |
-| `{{SELECTED_MODEL}}` | 当前选中的模型 |
-| `{{MODEL}}` | 实际生效的模型（优先选中，其次默认） |
+| `{{PROVIDER_API_KEY}}` | The API key currently in effect |
+| `{{PROVIDER_ID}}` | Vendor record ID |
+| `{{PROVIDER_NAME}}` | Vendor name |
+| `{{PROVIDER_TYPE}}` | Upstream format (OPENAI / ANTHROPIC / GEMINI) |
+| `{{BASE_URL}}` | Vendor Base URL |
+| `{{DEFAULT_MODEL}}` | Default model |
+| `{{SELECTED_MODEL}}` | Currently selected model |
+| `{{MODEL}}` | The model actually in effect (selected first, then default) |
 :::
 
-脚本能读到的环境变量（Token、会话状态、工作区、供应商等）与卡片 JSON 结构，见[自定义面板](/advanced/dashboard-cards)。
+For the environment variables readable by scripts (tokens, session state, workspace, vendors, etc.) and the card JSON structure, see [Custom dashboard cards](/advanced/dashboard-cards).
 
-## 模型管理
+## Model management
 
-切到编辑页的「模型」标签页。
+Switch to the "Models" tab of the edit page.
 
-**拉取模型**：点「拉取模型」从服务端同步可用列表，结果按品牌分组、可搜索。每个模型旁有 `Image`（支持图片输入）、`Tools`（支持工具调用）标签，`↑` 后是上下文长度、`↓` 后是最大输出。弹窗右上角「全部添加」可一键把新模型批量加入当前供应商。
+**Fetch models**: tap "Fetch models" to sync the available list from the server; results are grouped by brand and searchable. Each model carries `Image` (image input supported) and `Tools` (tool calls supported) tags, with `↑` followed by the context length and `↓` by the max output. "Add all" at the top-right of the dialog batch-adds the new models to the current vendor in one tap.
 
-拉取成功后会自动对齐本地列表：远端已不存在的模型会从列表移除（拉取失败或返回空列表时不动本地列表），手动添加但不在远端结果里的模型也会被移除。不希望如此可在[偏好设置](/guide/general)里关掉「拉取模型后自动移除无效模型」。
+A successful fetch automatically reconciles the local list: models the remote no longer offers are removed (a failed fetch or empty list leaves the local list untouched), and manually added models missing from the remote results are removed too. To opt out, turn off "Auto-remove stale models after fetching" in [Preferences](/guide/general).
 
-**批量操作与多选**：模型列表非空时，编辑页顶栏右侧出现多选按钮，点击进入批量选择模式：
-- **全选 / 取消全选**：一键勾选全部模型或清空。
-- **批量测试**：对选中模型依次发起连通性测试。
-- **批量删除**：二次确认后批量删除。
-- 点左上角返回箭头或按返回键退出。
+**Batch operations & multi-select**: when the model list is not empty, a multi-select button appears at the right of the edit page top bar — tap it to enter batch selection mode:
+- **Select all / deselect all**: check every model or clear the selection in one tap.
+- **Batch test**: run connectivity tests on the selected models one by one.
+- **Batch delete**: delete in bulk after a second confirmation.
+- Tap the back arrow at the top-left or press Back to exit.
 
-**手动添加**：中转站模型名有时拉不全，可点 + 手动输入。编辑弹窗里可自定义该模型：
+**Manual add**: relay model lists are sometimes incomplete — tap + and type it in. In the edit dialog you can customize the model:
 
-- **总上下文窗口**：输入与输出合计的容量，影响何时触发上下文自动压缩。
-- **输入窗口**：模型可接收的最大输入长度，与总上下文窗口独立设置。
-- **输出窗口**：单次回复的最大长度。
-- **价格**：输入 / 输出 / 缓存读取 / 缓存写入四档，单位是美元每百万 token，用于费用统计。
-- **能力开关**：图片输入、图片输出、工具调用、推理能力。
+- **Total context window**: combined input and output capacity; affects when automatic context compression triggers.
+- **Input window**: the maximum input length the model accepts; set independently of the total context window.
+- **Output window**: the maximum length of a single reply.
+- **Pricing**: input / output / cache-read / cache-write tiers, in USD per million tokens; used for cost statistics.
+- **Capability toggles**: image input, image output, tool calls, reasoning.
 
-窗口值需填写有效的正整数，也可留空使用自动识别值；填写 0、负数、小数或超出范围的整数时会显示提示，且无法保存。编辑已有模型时，只改价格不会改变原有的总上下文、输入和输出窗口。
+Window values must be valid positive integers, or be left empty to use the auto-detected value; entering 0, negatives, decimals or out-of-range integers shows a warning and blocks saving. When editing an existing model, changing only the price leaves the existing total-context, input and output windows untouched.
 
-手动填的值优先；未填的会回退到自动识别结果，自定义设置始终对应当前供应商下的原模型名。自动识别优先匹配完整名称，再尝试忽略大小写；仍未找到时尝试去掉 `-thinking`、`-preview`、`-high` 这类常见后缀，并尝试去掉供应商品牌前缀。上述尝试均失败后，才去掉最后一个 `-` 及其后面的部分匹配一次，不会反复截短名称。
+Manually entered values win; empty ones fall back to auto-detection, and custom settings always attach to the original model name under the current vendor. Auto-detection first matches the full name, then tries ignoring case; if still not found it strips common suffixes like `-thinking`, `-preview`, `-high` and tries dropping the vendor brand prefix. Only after all of those fail does it cut at the last `-` and everything after it for one more match — it never truncates the name repeatedly.
 
-**测试**：每个模型行有「测试」按钮，发一次真实请求验证连通性，结果显示在行下方。
+**Test**: every model row has a "Test" button that sends one real request to verify connectivity, with the result shown below the row.
 
-**排序**：长按模型名称区域拖动调整顺序，保存后立即生效（模型选择弹窗与默认模型列表都按此顺序），重启后保持。
+**Reorder**: long-press and drag the model name area to reorder; it takes effect immediately on save (both the model picker and the default model list follow this order) and survives restart.
 
-**删除**：模型行左滑删除。若删掉的模型正在被使用（当前选中模型、新会话默认模型、识图 / 生图 / 压缩 / 标题总结等专用模型，或某历史会话绑定的模型），相关选择自动回退到默认模型。
+**Delete**: swipe a model row left to delete. If the deleted model is in use (the currently selected model, the new-session default, a dedicated model for image recognition / generation / compression / title summarization, or a model bound to a historical session), the related selections fall back to the default model automatically.
 
-## 思考强度
+## Thinking effort
 
-聊天输入框上的思考强度按钮决定模型的推理档位。能识别模型支持的档位时只列出这几档；识别不出（模型无档位信息，或中转站改了模型名）则列出全部档位——`关闭` / `极低` / `低` / `中` / `高` / `极高` / `最高`，由你判断。选择会记住，下次新会话使用该模型时沿用。
+The thinking-effort button on the chat input box sets the model's reasoning tier. When the model's supported tiers can be detected, only those are listed; otherwise (no tier info on the model, or the relay renamed it) all tiers are listed — `Off` / `Lowest` / `Low` / `Medium` / `High` / `Highest` / `Max` — and you decide. The choice is remembered and carried over the next time a new session uses that model.
 

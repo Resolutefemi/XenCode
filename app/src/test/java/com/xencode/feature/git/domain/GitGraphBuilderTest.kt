@@ -10,18 +10,18 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 /**
- * 提交拓扑图的解析与泳道布局（[GitGraphBuilder]）。纯 JVM 逻辑，无 Android 依赖：
- * - parseGraphCommits：`git log --pretty=format:%H%x1f...` 输出 → [GraphCommit] 列表
- * - buildGraph：提交列表 + refs 映射 + hasMore → [GitGraph]（refs 过滤 + 泳道布局）
+ * Parsing and swim-lane layout of the commit topology graph ([GitGraphBuilder]). Pure JVM logic, no Android dependencies:
+ * - parseGraphCommits: `git log --pretty=format:%H%x1f...` output → [GraphCommit] list
+ * - buildGraph: commit list + refs map + hasMore → [GitGraph] (refs filtering + lane layout)
  */
 class GitGraphBuilderTest {
 
-    // ── parseGraphCommits：字段解析 ──────────────────────────────
+    // ── parseGraphCommits: field parsing ──────────────────────────────
 
     @Test
     fun parsesFullLine_allFieldsIncludingBody() {
-        // body 取第 7 段。注意 %b 多行正文会被按行拆散（逐行解析），此处用单行正文验证字段完整
-        val raw = "a1b2c3d4e5f6\u001fa1b2c3d\u001fAlice\u001f2 days ago\u001ffix: 问题\u001fp1p2p3 q1q2q3\u001f正文第一行"
+        // body is the 7th segment. Note that a multi-line %b body gets split per line (parsed line by line); a single-line body is used here to verify fields are complete
+        val raw = "a1b2c3d4e5f6\u001fa1b2c3d\u001fAlice\u001f2 days ago\u001ffix: issue\u001fp1p2p3 q1q2q3\u001ffirst body line"
         val commits = GitGraphBuilder.parseGraphCommits(raw)
         assertEquals(1, commits.size)
         assertEquals(
@@ -30,9 +30,9 @@ class GitGraphBuilderTest {
                 shortHash = "a1b2c3d",
                 author = "Alice",
                 date = "2 days ago",
-                message = "fix: 问题",
+                message = "fix: issue",
                 parents = listOf("p1p2p3", "q1q2q3"),
-                body = "正文第一行"
+                body = "first body line"
             ),
             commits[0]
         )
@@ -40,8 +40,8 @@ class GitGraphBuilderTest {
 
     @Test
     fun parsesLine_withoutBody_bodyEmpty() {
-        // 6 段（无 %b），body 缺省为空串
-        val raw = "a1b2c3d4e5f6\u001fa1b2c3d\u001fAlice\u001f2 days ago\u001ffix: 问题\u001fr1r2r3"
+        // 6 segments (no %b); body defaults to an empty string
+        val raw = "a1b2c3d4e5f6\u001fa1b2c3d\u001fAlice\u001f2 days ago\u001ffix: issue\u001fr1r2r3"
         val commits = GitGraphBuilder.parseGraphCommits(raw)
         assertEquals(1, commits.size)
         assertEquals("", commits[0].body)
@@ -50,7 +50,7 @@ class GitGraphBuilderTest {
 
     @Test
     fun parsesLine_withbodySegment_keepsBody() {
-        // 第 7 段存在且含 |，不应影响其他字段
+        // The 7th segment exists and contains |, which must not affect other fields
         val raw = "a1b2c3d4e5f6\u001fa1b2c3d\u001fAlice\u001f2 days ago\u001ffix\u001f\u001fbody | with pipe"
         val commits = GitGraphBuilder.parseGraphCommits(raw)
         assertEquals("body | with pipe", commits[0].body)
@@ -58,7 +58,7 @@ class GitGraphBuilderTest {
 
     @Test
     fun parsesLine_withoutParents_parentsEmpty() {
-        // %P 为空（根提交）→ parents 空列表
+        // %P empty (root commit) → empty parents list
         val raw = "a1b2c3d4e5f6\u001fa1b2c3d\u001fAlice\u001f2 days ago\u001ffix\u001f"
         val commits = GitGraphBuilder.parseGraphCommits(raw)
         assertEquals(1, commits.size)
@@ -68,7 +68,7 @@ class GitGraphBuilderTest {
 
     @Test
     fun parsesMultipleLines_removesCarriageReturn() {
-        // git 输出经终端通道可能带 \r\n，逐行须去掉尾部 \r
+        // git output through the terminal channel may carry \r\n; strip the trailing \r per line
         val raw = "a1b2c3\u001fa1b2c3\u001fAlice\u001f2 days ago\u001ffix: 1\u001f\r\n" +
             "d4e5f6\u001fd4e5f6\u001fBob\u001f3 days ago\u001ffeat: 2\u001fr0r0r0\r\n"
         val commits = GitGraphBuilder.parseGraphCommits(raw)
@@ -79,18 +79,18 @@ class GitGraphBuilderTest {
 
     @Test
     fun parentsSeparatedByMultipleSpaces_filteredToHashList() {
-        // 父列表内部可能有多余空格（正常单空格，防御性过滤）
+        // The parent list may contain extra internal spaces (normally a single space; defensive filtering)
         val raw = "a1b2c3\u001fa1b2c3\u001fAlice\u001f2 days ago\u001fmerge\u001fp1  p2  \u001f"
         val commits = GitGraphBuilder.parseGraphCommits(raw)
         assertEquals(listOf("p1", "p2"), commits[0].parents)
         assertTrue(commits[0].isMerge)
     }
 
-    // ── parseGraphCommits：容错 ─────────────────────────────────
+    // ── parseGraphCommits: fault tolerance ─────────────────────────────────
 
     @Test
     fun shortLine_lessThan6Segments_returnsNull() {
-        // 5 段（缺 %P）→ 整行丢弃
+        // 5 segments (missing %P) → drop the whole line
         val raw = "a1b2c3\u001fa1b2c3\u001fAlice\u001f2 days ago\u001ffix"
         assertEquals(0, GitGraphBuilder.parseGraphCommits(raw).size)
     }
@@ -107,12 +107,12 @@ class GitGraphBuilderTest {
         assertTrue(GitGraphBuilder.parseGraphCommits("").isEmpty())
     }
 
-    // ── parseGraphCommits：历史 bug 回归（提交信息含 '|'） ────────
+    // ── parseGraphCommits: historical bug regression (commit message containing '|') ────────
 
     @Test
     fun messageContainingPipe_doesNotSplitParents() {
-        // 回归：提交信息含 '|' 曾导致 parents 被误拆成假父（幽灵泳道），
-        // 分隔符必须是 0x1f 而非 '|'。这里 parents 应完整保留为两个真实父哈希。
+        // Regression: a commit message containing '|' once caused parents to be mis-split into phantom parents (ghost lanes);
+        // the delimiter must be 0x1f, not '|'. Here parents must stay intact as the two real parent hashes.
         val raw = "m1m2m3\u001fm1m2m3\u001fAlice\u001f2 days ago\u001ffix: merge | conflict\u001fp1p2p3 p4p5p6\u001f"
         val commits = GitGraphBuilder.parseGraphCommits(raw)
         assertEquals(1, commits.size)
@@ -122,21 +122,21 @@ class GitGraphBuilderTest {
 
     @Test
     fun messageContainingPipe_simpleCommit_staysSingleParent() {
-        // 信息含 | 的普通提交不得被误判为 merge（parent 只有一个）
+        // A plain commit whose message contains | must not be misjudged as a merge (only one parent)
         val raw = "a1b2c3\u001fa1b2c3\u001fAlice\u001f2 days ago\u001fupdate a | b\u001fr0r0r0\u001f"
         val commits = GitGraphBuilder.parseGraphCommits(raw)
         assertEquals(listOf("r0r0r0"), commits[0].parents)
         assertFalse(commits[0].isMerge)
     }
 
-    // ── buildGraph：空输入 ──────────────────────────────────────
+    // ── buildGraph: empty input ──────────────────────────────────────
 
     @Test
     fun emptyCommits_returnsEmptyGraph() {
         assertEquals(GitGraph.EMPTY, GitGraphBuilder.buildGraph(emptyList(), emptyMap(), hasMore = false))
     }
 
-    // ── buildGraph：refs 过滤 ───────────────────────────────────
+    // ── buildGraph: refs filtering ───────────────────────────────────
 
     @Test
     fun refs_filteredToLoadedCommitHashes() {
@@ -168,7 +168,7 @@ class GitGraphBuilderTest {
         assertFalse(GitGraphBuilder.buildGraph(listOf(loaded), emptyMap(), hasMore = false).hasMore)
     }
 
-    // ── buildGraph：泳道布局 ────────────────────────────────────
+    // ── buildGraph: lane layout ────────────────────────────────────
 
     @Test
     fun simpleChain_computesSingleLane() {
@@ -191,7 +191,7 @@ class GitGraphBuilderTest {
 
     @Test
     fun fork_branchComputesCrossEdge() {
-        // 两个子提交指向同一父（分叉）：第二个子提交应占新泳道并向父跨列
+        // Two child commits pointing at the same parent (a fork): the second child takes a new lane and crosses columns to the parent
         val c1 = GraphCommit("c1c1c1", "c1c1c1", "Alice", "d", "branch A", parents = listOf("r0r0r0"))
         val c2 = GraphCommit("c2c2c2", "c2c2c2", "Bob", "d", "branch B", parents = listOf("r0r0r0"))
         val root = GraphCommit("r0r0r0", "r0r0r0", "Dan", "d", "root", parents = emptyList())
@@ -209,7 +209,7 @@ class GitGraphBuilderTest {
 
     @Test
     fun mergeCommit_computesMergeInEdge() {
-        // 合并提交：第二父占新泳道，产生 isMergeIn 入边
+        // Merge commit: the second parent takes a new lane, producing an isMergeIn incoming edge
         val merge = GraphCommit("m1m1m1", "m1m1m1", "Alice", "d", "Merge", parents = listOf("p1p1p1", "p2p2p2"))
         val p1 = GraphCommit("p1p1p1", "p1p1p1", "Bob", "d", "feat x", parents = listOf("r0r0r0"))
         val p2 = GraphCommit("p2p2p2", "p2p2p2", "Carol", "d", "feat y", parents = listOf("r0r0r0"))
@@ -218,7 +218,7 @@ class GitGraphBuilderTest {
         assertTrue(graph.commits[0].isMerge)
         assertEquals(mapOf("m1m1m1" to 0, "p1p1p1" to 0, "p2p2p2" to 1, "r0r0r0" to 0), graph.lanes)
         assertEquals(4, graph.edges.size)
-        // 第二父的入边：fromLane=当前列 0，toLane=父列 1，lane=父列 1，isMergeIn=true
+        // Incoming edge of the second parent: fromLane=current column 0, toLane=parent column 1, lane=parent column 1, isMergeIn=true
         assertTrue(graph.edges.any { it.isMergeIn && it.fromLane == 0 && it.toLane == 1 && it.lane == 1 })
         assertEquals(1, graph.maxLane)
     }

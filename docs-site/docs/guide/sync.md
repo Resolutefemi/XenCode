@@ -1,67 +1,67 @@
-# 工作区同步
+# Workspace Sync
 
-把手机上的工作区目录同步到远程服务器。入口在「设置 → 运行环境 → 连接与同步」，页面底部有四个标签页。
+Sync workspace directories on your phone to a remote server. The entry point is under "Settings → Runtime → Connection & Sync"; the page has four tabs at the bottom.
 
-::: tip 本页与「容器与镜像」的分工
-本页只负责**连接通道和文件同步**。如果你想让 AI 直接把远程服务器当执行环境（命令、文件、终端都在服务器上运行），那是另一项功能，见[远程 SSH 模式](/guide/remote-ssh)——它会复用这里建好的 SFTP 通道。
+::: tip How this page divides work with "Containers & Images"
+This page only covers **connection channels and file sync**. If you want the AI to use the remote server directly as its execution environment (commands, files, and terminal all running on the server), that is a separate feature — see [Remote SSH Mode](/guide/remote-ssh), which reuses the SFTP channel set up here.
 :::
 
-## 连接配置
+## Connection Configuration
 
-点右上角 + 新建一个连接通道：
+Tap + in the top-right corner to create a connection channel:
 
-- **协议类型**：`SFTP`（默认端口 22）或 `FTP`（默认端口 21）。
-- **连接名称**：别名。
-- **主机地址**：IP 或域名。
-- **端口 / 用户名 / 认证方式**：必填。认证方式可以选择**密码**，或选择**密钥**（从「SSH 密钥」页已添加的私钥中选择；加密私钥的口令在密钥编辑页里填，连接这里不再重复填）。
-- **测试连通性**：保存前可先测试。
+- **Protocol type**: `SFTP` (default port 22) or `FTP` (default port 21).
+- **Connection name**: An alias.
+- **Host address**: IP or domain name.
+- **Port / Username / Auth method**: Required. The auth method is either **Password** or **Key** (choose from private keys already added on the "SSH Keys" page; the passphrase of an encrypted private key is entered on the key editing page and is not asked for again here).
+- **Test connectivity**: You can test before saving.
 
-### SSH 密钥与主机指纹
+### SSH Keys and Host Fingerprints
 
-点顶栏的钥匙图标进入，底部两个标签页：
+Tap the key icon in the top bar to open it; there are two tabs at the bottom:
 
-**密钥**：管理登录用的私钥。点右上角 + 有两种添加方式：**从文件导入**（从文件选择器选私钥文件）或**粘贴密钥**（进入与编辑页相同的表单，粘贴私钥内容并填名称、口令，名称留空自动命名）。私钥会加密复制到私有目录并解析出公钥指纹，加密的私钥会标注「需口令」。点某条密钥进入编辑页：可改名称和口令（加密私钥的 passphrase），私钥内容只读（默认隐藏，点右侧眼睛可查看）。口令在密钥上设置，连接选用该密钥时会自动带上。左滑删除。
+**Keys**: Manage the private keys used for login. Tap + in the top-right corner for two ways to add one: **Import from file** (pick a private key file in the file picker) or **Paste key** (opens the same form as the editing page — paste the private key content and fill in the name and passphrase; leave the name empty for automatic naming). Private keys are copied encrypted into a private directory and their public key fingerprint is extracted; encrypted private keys are labeled "passphrase required". Tap a key to open its editing page: you can change the name and passphrase (the passphrase of the encrypted private key); the private key content is read-only (hidden by default — tap the eye on the right to view it). The passphrase is set on the key itself and is supplied automatically when a connection uses that key. Swipe left to delete.
 
-**指纹**：管理已信任的服务器主机指纹。首次连接某台服务器时会弹窗显示密钥类型和 `SHA256:` 指纹，确认「信任并连接」后保存下来，之后直接放行。如果服务器指纹变了会再次要求确认——这是防中间人攻击的机制，指纹突然变化要当心。左滑删除后下次连接重新确认。
+**Fingerprints**: Manage trusted server host fingerprints. The first time you connect to a server, a dialog shows the key type and `SHA256:` fingerprint; confirming "Trust and connect" saves it, and later connections are allowed straight through. If the server fingerprint changes, confirmation is requested again — this is the man-in-the-middle defense, so be careful when a fingerprint suddenly changes. After swiping left to delete, the next connection asks for confirmation again.
 
-## 挂载目录
+## Mounted Directories
 
-连接通道只解决「能否连接」，还需要建立「哪个本地工作区对应哪个远程目录」的映射。点右上角 + ：
+A connection channel only answers "can we connect"; you also need a mapping of which local workspace corresponds to which remote directory. Tap + in the top-right corner:
 
-- **关联连接通道**：下拉选一个已建好的连接。
-- **远程目标目录**：右侧文件夹图标可以打开远程目录浏览器逐级点选。
-- **映射到本地工作区**：下拉选一个本地工作区（需要先在侧边栏创建）。
-- **应用启动时自动连接**：打开后会跟随当前工作区——App 启动或切换工作区时，自动连接映射到当前工作区的挂载并监听本地改动，同时断开其它工作区的挂载。连接失败会按退避间隔一直重试，关掉开关才停。
+- **Linked connection channel**: Pick an existing connection from the dropdown.
+- **Remote target directory**: The folder icon on the right opens a remote directory browser so you can drill down and pick one.
+- **Map to local workspace**: Pick a local workspace from the dropdown (create one in the sidebar first).
+- **Auto-connect on app start**: When enabled, it follows the current workspace — on app launch or workspace switch, mounts mapped to the current workspace connect automatically and start watching for local changes, while other workspaces' mounts are disconnected. Failed connections keep retrying at backoff intervals until the toggle is turned off.
 
-保存时如果已存在相同的「通道 + 远程目录 + 工作区」组合，会提示挂载已存在并拦截。
+When saving, if the same "channel + remote directory + workspace" combination already exists, the app reports that the mount already exists and blocks it.
 
-连接成功后卡片上有几个操作：断开连接、上传全部 / 同步全部、下载全部、连接并同步。列表行左滑可删除。
+Once connected, the card offers several actions: Disconnect, Upload all / Sync all, Download all, and Connect and sync. Swipe a list row left to delete it.
 
-::: danger 同步是单向的
-自动同步只把**连接后的本地改动推到远程**（监听本地文件的增删改），远程目录的变化**不会**自动拉下来。连接时不会自动上传已有文件，需要时请手动点「上传全部」。
+::: danger Sync is one-way
+Automatic sync only **pushes local changes made after connecting to the remote** (it watches local file additions, deletions, and edits); changes on the remote side are **not** pulled down automatically. Existing files are not uploaded on connect — tap "Upload all" manually when needed.
 
-需要把远程文件拉到本地时手动点「下载全部」，但要注意这是**全量覆盖式**拉取：会覆盖本地同名文件（不删除本地多出来的文件），本地未保存的修改可能被覆盖。使用前请确认清楚。
+To pull remote files down to local, tap "Download all" manually — but note this is a **full-overwrite** pull: local files with the same names are overwritten (extra local files are not deleted), and unsaved local changes may be lost. Be sure that is what you want before using it.
 :::
 
-连接超时是 15 秒，主机不可达时会快速报错而不是一直等。已连接的挂载每 15 秒探活一次，断线时卡片显示「重连中」，并按 5 秒、10 秒、20 秒、40 秒、60 秒的间隔自动重连，成功后恢复同步。
+The connection timeout is 15 seconds, so an unreachable host fails fast instead of hanging. Connected mounts are probed every 15 seconds; on disconnect the card shows "Reconnecting" and reconnects automatically at 5s, 10s, 20s, 40s, and 60s intervals, resuming sync once reconnected.
 
-## 内置 FTP 服务端
+## Built-in FTP Server
 
-在手机上开启一个 FTP 服务，便于用电脑管理手机上的项目。
+Run an FTP server on your phone so you can manage its projects from a computer.
 
-手机和电脑要连同一个 WiFi。开启后界面会显示 FTP 地址（如 `ftp://192.168.1.100:2121`，点地址可复制），在电脑的文件资源管理器或 FileZilla 里访问即可，能管理 `projects/` 下的全部项目。
+The phone and the computer must be on the same WiFi. Once enabled, the screen shows the FTP address (e.g. `ftp://192.168.1.100:2121` — tap the address to copy it). Open it from your computer's file explorer or FileZilla to manage everything under `projects/`.
 
-可配置的参数有监听端口、登录用户名、登录密码、是否允许匿名访问、是否开机自启，改完点底部「保存配置」。
+Configurable options include the listen port, login username, login password, whether anonymous access is allowed, and whether to start on boot; tap "Save config" at the bottom after making changes.
 
-::: warning 注意安全
-允许匿名访问意味着同一网络下的任何设备都能读写你的项目文件。在公共 WiFi 下请勿开启匿名访问，使用完毕后建议关闭服务。
+::: warning Security note
+Allowing anonymous access means any device on the same network can read and write your project files. Do not enable anonymous access on public WiFi, and turn the server off once you are done.
 :::
 
-## 同步设置
+## Sync Settings
 
-- **遵循 .gitignore 规则**：打开后自动读取项目根目录的 `.gitignore` 过滤要同步的文件。
-- **单次最大同步队列数量**：防止一次性改动大量文件时导致服务端请求过载或网络拥塞，超出的操作会排队分批执行。
+- **Follow .gitignore rules**: When enabled, the `.gitignore` in the project root is read automatically to filter which files get synced.
+- **Max sync queue size per round**: Prevents server request overload or network congestion when a large number of files change at once; excess operations are queued and executed in batches.
 
-另外同步引擎始终会忽略常见的构建和缓存目录（`node_modules`、`.git`、`build`、`dist` 等），无需手动配置。
+The sync engine also always ignores common build and cache directories (`node_modules`, `.git`, `build`, `dist`, etc.), so no manual configuration is needed.
 
-改完点底部「保存设置」生效。
+Tap "Save settings" at the bottom to apply your changes.

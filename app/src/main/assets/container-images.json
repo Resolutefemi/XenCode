@@ -1,7 +1,7 @@
 {
   "sources": {
     "official": {
-      "name": { "zh": "官方源", "en": "Official" },
+      "name": { "zh": "Official source", "en": "Official" },
       "distros": {
         "alpine": "https://dl-cdn.alpinelinux.org",
         "ubuntu": "https://cdimage.ubuntu.com",
@@ -9,21 +9,21 @@
       }
     },
     "huawei": {
-      "name": { "zh": "华为云", "en": "Huawei Cloud" },
+      "name": { "zh": "Huawei Cloud", "en": "Huawei Cloud" },
       "distros": {
         "alpine": "https://repo.huaweicloud.com",
         "ubuntu": "https://repo.huaweicloud.com/ubuntu-cdimage"
       }
     },
     "aliyun": {
-      "name": { "zh": "阿里云", "en": "Aliyun" },
+      "name": { "zh": "Aliyun", "en": "Aliyun" },
       "distros": {
         "alpine": "https://mirrors.aliyun.com",
         "ubuntu": "https://mirrors.aliyun.com/ubuntu-cdimage"
       }
     },
     "tencent": {
-      "name": { "zh": "腾讯云", "en": "Tencent Cloud" },
+      "name": { "zh": "Tencent Cloud", "en": "Tencent Cloud" },
       "distros": {
         "alpine": "https://mirrors.cloud.tencent.com",
         "ubuntu": ""
@@ -45,7 +45,7 @@
       "id": "alpine-3.22",
       "name": "Alpine Linux",
       "version": "3.22.5",
-      "description": "Minimal Linux distro, rootfs only a few MB; fast to extract, small footprint"
+      "description": "Minimal Linux distro, rootfs only a few MB; fast to extract, small footprint",
       "sizeBytes": 4000000,
       "distro": "alpine",
       "path": "alpine/v3.22/releases/{abi}/alpine-minirootfs-3.22.5-{abi}.tar.gz",
@@ -55,7 +55,7 @@
       "id": "alpine-3.23",
       "name": "Alpine Linux",
       "version": "3.23.5",
-      "description": "Minimal Linux distro, rootfs only a few MB; fast to extract, small footprint"
+      "description": "Minimal Linux distro, rootfs only a few MB; fast to extract, small footprint",
       "sizeBytes": 4000000,
       "distro": "alpine",
       "path": "alpine/v3.23/releases/{abi}/alpine-minirootfs-3.23.5-{abi}.tar.gz",

@@ -49,7 +49,7 @@ class ModelMetadataServiceTest {
         assertEquals(emptyList<String>(), parse("""null"""))
     }
 
-    // ---- 模型 id 匹配：原名精确 → 忽略大小写 → 兜底剥 vendor 前缀 ----
+    // ---- Model id matching: exact original name → case-insensitive → fallback strips the vendor prefix ----
 
     private val catalog = ModelMetadataService.parseCatalog(
         json.parseToJsonElement(

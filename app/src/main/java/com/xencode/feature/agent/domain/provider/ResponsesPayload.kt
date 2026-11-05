@@ -12,14 +12,14 @@ import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.jsonObject
 
-/** 把模型给出的工具入参 JSON 字符串解析为 JsonObject；为空或非法时回退为空对象。 */
+/** Parse the model's tool-argument JSON string into a JsonObject; falls back to an empty object when blank or invalid. */
 internal fun parseToolArguments(raw: String): JsonObject {
     val trimmed = raw.trim()
     if (trimmed.isEmpty()) return JsonObject(emptyMap())
     return runCatching { Json.parseToJsonElement(trimmed).jsonObject }.getOrElse { JsonObject(emptyMap()) }
 }
 
-/** 工具定义 → Responses 扁平 function 定义；无工具时返回 null（不发 `tools` 字段）。 */
+/** Tool definitions -> flat Responses function definitions; returns null when there are no tools (the `tools` field is omitted). */
 internal fun buildResponsesTools(tools: List<AgentTool>): List<ResponsesToolDefinition>? =
     tools.takeIf { it.isNotEmpty() }?.map { tool ->
         ResponsesToolDefinition(
@@ -30,33 +30,33 @@ internal fun buildResponsesTools(tools: List<AgentTool>): List<ResponsesToolDefi
     }
 
 /**
- * 会话历史 → Responses 的 `input` item 序列。
+ * Session history -> the Responses `input` item sequence.
  *
- * 与 Chat Completions 的三种 role 消息不同，Responses 把工具往返拆成独立 item：
- * 模型的调用是 `function_call`（按 `call_id` 标识），执行结果是 `function_call_output`，
- * 二者不再依附于 assistant 消息与 `role:"tool"` 消息。
+ * Unlike Chat Completions' three role-based message kinds, Responses splits tool round-trips into standalone items:
+ * the model's call is a `function_call` (identified by `call_id`) and the execution result is a `function_call_output`,
+ * neither attached to an assistant message or a `role:"tool"` message.
  *
- * 配对约束与 Chat Completions 一致且同样必须在客户端保证：`function_call_output` 必须能
- * 找到同 `call_id` 的 `function_call`，声明过的 `function_call` 也必须有结果。这里按调用逐个
- * 吸附其结果，顺带处理两类历史脏数据：
- * - 结果乱序落位（如 askUserQuestion 阻塞期间其他工具结果插队）→ 吸附回调用之后；
- * - 孤立结果（前驱调用已被上下文压缩裁掉）→ 丢弃；
- * - 调用无结果（如用户拒绝执行）→ 连调用一起裁掉。
+ * Pairing constraints match Chat Completions and likewise must be guaranteed client-side: every `function_call_output` must
+ * find the `function_call` with the same `call_id`, and every declared `function_call` must have a result. Results are absorbed
+ * per call here, which also handles two kinds of dirty history:
+ * - Results landing out of order (e.g. other tool results jumping ahead while askUserQuestion blocks) -> absorbed back after the call;
+ * - Orphaned results (the preceding call was trimmed by context compression) -> dropped;
+ * - Calls without results (e.g. the user declined execution) -> trimmed together with the call.
  *
- * **同一轮的多个 `function_call` 必须连续写完，再集中写 `function_call_output`**，不能
- * 调用/结果交替：服务端把 `function_call` 归并到相邻的 assistant 消息，中间一旦隔了
- * `function_call_output`（等价于 tool 消息），后续调用就会被当成新的 assistant 轮。对 DeepSeek
- * 思考模式而言，那些凭空多出来的轮没有 reasoning item，于是报
- * 400 The `reasoning_text` in the thinking mode must be passed back to the API。
- * 集中写也与 Chat Completions 的「一条 assistant 带 N 个 tool_calls + N 条 tool 消息」等价。
+ * **A turn's multiple `function_call` items must be written consecutively first, then all `function_call_output` items together**; calls
+ * and results must not alternate: the server merges `function_call` items into the adjacent assistant message, and once a
+ * `function_call_output` (equivalent to a tool message) sits in between, later calls are treated as a new assistant turn. For DeepSeek
+ * thinking mode those extra turns have no reasoning item, producing
+ * 400 The `reasoning_text` in the thinking mode must be passed back to the API.
+ * Grouped writing also matches Chat Completions' "one assistant with N tool_calls + N tool messages".
  *
- * 思考内容只在 [includeReasoningItems] 为真时以独立的 `reasoning` item 回传，紧贴在所属 assistant
- * 内容之前（与模型输出的 item 顺序一致，服务端会归并到相邻的 assistant 消息），思考为空时
- * 发空文本占位。开关存在是因为两家要求相反：
- * - DeepSeek 思考模式下只要请求带了 `tools`，历史每轮 assistant 都必须完整回传思考内容
- *   （即使该轮未实际调用工具），否则 400；它只收明文 `content`，不支持 summary / encrypted_content。
- * - OpenAI 官方的 reasoning item 必须带 `id`/`summary` 与 `encrypted_content`，
- *   只有当存有合法有效密文时才予以回传；若缺失则直接略过，防止只有明文触发服务端 400 拒绝。
+ * Reasoning content is replayed as a standalone `reasoning` item only when [includeReasoningItems] is true, right before the assistant
+ * content it belongs to (matching the model output item order; the server merges it into the adjacent assistant message); when reasoning is
+ * empty, an empty-text placeholder is sent. The switch exists because the two vendors demand opposite things:
+ * - DeepSeek thinking mode: whenever the request carries `tools`, every historical assistant turn must replay its full reasoning
+ *   (even if that turn made no tool calls), or 400; it only accepts plaintext `content` and does not support summary / encrypted_content.
+ * - OpenAI's official reasoning item must carry `id`/`summary` and `encrypted_content`,
+ *   and is replayed only when a valid ciphertext is stored; if missing it is skipped outright, preventing a plaintext-only item from triggering a server 400.
  */
 internal fun buildResponsesInput(
     systemPrompt: String,
@@ -78,8 +78,8 @@ internal fun buildResponsesInput(
             )
 
             is AgentMessage.AssistantMessage -> {
-                // 先把有结果的调用配好对：无结果的调用会被裁掉（如用户拒绝执行），若整轮
-                // 都被裁掉且没有正文，这轮不写任何 item，reasoning 也就无处可挂。
+                // Pair calls with results first: calls without results are trimmed (e.g. the user declined); if the whole
+                // turn is trimmed and has no body, no item is written for it and the reasoning has nowhere to attach.
                 val paired = message.toolCalls.mapNotNull { call ->
                     val resultIndex = (i + 1 until messages.size).firstOrNull { j ->
                         !consumed[j] && (messages[j] as? AgentMessage.ToolResultMessage)?.id == call.id
@@ -87,16 +87,16 @@ internal fun buildResponsesInput(
                     consumed[resultIndex] = true
                     call to (messages[resultIndex] as AgentMessage.ToolResultMessage)
                 }
-                // 思考模式的服务要求上一轮的思考内容原样回传，缺了报 400：
-                // The `reasoning_text` in the thinking mode must be passed back to the API。
+                // Thinking-mode services require the previous turn's reasoning to be replayed verbatim; missing it yields 400:
+                // The `reasoning_text` in the thinking mode must be passed back to the API.
                 val hasBody = message.content.isNotBlank() || paired.isNotEmpty()
                 val encryptedReasoning = decodeResponsesEncryptedReasoning(message.thinkingBlocksJson)
                 if (hasBody) {
                     if (encryptedReasoning != null) {
-                        // 优先回传 OpenAI 官方/通用 Responses 加密快照（含 summary 与 encrypted_content）
+                        // Prefer replaying the OpenAI official/generic Responses encrypted snapshot (with summary and encrypted_content)
                         items.add(encryptedReasoning)
                     } else if (includeReasoningItems) {
-                        // DeepSeek 思考模式：回传明文 reasoning_text
+                        // DeepSeek thinking mode: replay plaintext reasoning_text
                         items.add(
                             mapOf(
                                 "type" to ResponsesItem.REASONING,
@@ -148,9 +148,9 @@ internal fun buildResponsesInput(
 }
 
 /**
- * 从快照 JSON 中反序列化出 OpenAI 官方 Responses 规范的加密 reasoning item。
- * 严格按照 OpenCode / OpenAI 防御规则：只有当包含非空字符串 `encrypted_content` 时才被允许回传；
- * 否则返回 null，绝不发送残缺的 reasoning item 导致服务端抛出 400 错误。
+ * Deserialize an OpenAI official Responses-spec encrypted reasoning item from the snapshot JSON.
+ * Strictly following the OpenCode / OpenAI defensive rules: it may be replayed only when it contains a non-empty `encrypted_content` string;
+ * otherwise return null, never sending a broken reasoning item that makes the server throw a 400.
  */
 internal fun decodeResponsesEncryptedReasoning(thinkingBlocksJson: String?): Map<String, Any?>? {
     if (thinkingBlocksJson.isNullOrBlank()) return null
@@ -177,7 +177,7 @@ internal fun decodeResponsesEncryptedReasoning(thinkingBlocksJson: String?): Map
     }.getOrNull()
 }
 
-/** 用户消息内容：纯文本直接给字符串，带图时拆成 input_text / input_image part 列表。 */
+/** User message content: plain text is given as a string; with images it becomes an input_text / input_image part list. */
 private fun AgentMessage.UserMessage.toResponsesContent(): Any {
     if (images.isEmpty()) return content
     val parts = mutableListOf<Map<String, Any>>()
@@ -188,9 +188,9 @@ private fun AgentMessage.UserMessage.toResponsesContent(): Any {
     return parts
 }
 
-/** 工具结果：纯文本直接给字符串，带图时用 part 列表（Responses 允许 function_call_output 内含图片）。 */
+/** Tool results: plain text is given as a string; with images a part list is used (Responses allows images inside function_call_output). */
 private fun AgentMessage.ToolResultMessage.toResponsesOutput(): Any {
-    // 文件类工具喂模型用精简投影文本，UI/持久化仍走完整 result。
+    // File-type tools feed the model a condensed projection; the UI/persistence still use the full result.
     val modelText = modelResult
         ?: modelToolResultText(toolName, result)
         ?: result

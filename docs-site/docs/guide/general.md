@@ -1,62 +1,62 @@
-# 偏好设置
+# Preferences
 
-「设置 → 通用设置 → 偏好设置」收纳了不针对具体供应商、也不属于特定用途的全局偏好开关。改动即时生效，无需保存。
+"Settings → General → Preferences" gathers the global preference toggles that are neither vendor-specific nor scoped to a particular purpose. Changes take effect immediately—nothing to save.
 
-## 模型
+## Models
 
-**拉取模型后自动移除无效模型**（默认开启）
+**Remove invalid models automatically after fetching** (on by default)
 
-开启时：在[供应商编辑页](/guide/providers)点「拉取模型」，只要服务端成功返回模型列表，本地列表里那些服务端已不再返回的模型就会被自动移除，并弹出提示告知移除了几个。
+When on: on the [vendor edit page](/guide/providers), tap "Fetch Models"—as long as the server returns the model list successfully, models in the local list that the server no longer returns are removed automatically, with a notice telling you how many were removed.
 
-- 请求失败或服务端返回空列表时不会动本地列表，避免网络异常将已添加的模型清空。
-- 手动添加的模型如果恰好不在服务端返回结果里，也会被一并移除。介意这一点可以关掉开关。
-- 关掉后，拉取只负责把新模型列出来供你勾选，不再改动已有列表。
+- If the request fails or the server returns an empty list, the local list is untouched, preventing a network hiccup from wiping out the models you added.
+- Manually added models that happen to be missing from the server's response are removed too. Turn the toggle off if that bothers you.
+- When off, fetching only lists new models for you to check; the existing list is never modified.
 
-**自动压缩阈值**（默认 90%，可填 1-100 的整数）
+**Auto-compression threshold** (default 90%; accepts an integer from 1 to 100)
 
-预计下一次请求用到模型可用输入预算的这个比例时，自动触发上下文压缩（把早期对话摘要成接手摘要）。预算会考虑模型输入上限，并为回复保留空间，因此不一定等于模型标称的总窗口。调大则更晚压缩；调小则更早压缩、但摘要更频繁。即使设为 100%，也不能绕过输入硬限制。
+When the next request is projected to use this percentage of the model's available input budget, context compression is triggered automatically (summarizing earlier conversation into a handoff summary). The budget accounts for the model's input limit and reserves room for the reply, so it isn't necessarily equal to the model's advertised total window. A larger value compresses later; a smaller value compresses earlier but summarizes more often. Even at 100%, the hard input limit cannot be bypassed.
 
-## 会话
+## Sessions
 
-**启动时会话**（默认「新开会话」）
+**Session on startup** (default: "New session")
 
-- **新开会话**：每次打开 App 都从新会话开始。当前工作区如果还留着一个没发过消息的空会话，会直接复用，不会再新建一个。
-- **打开最近会话**：直接进入当前工作区里最近更新的那个会话，接着上次继续。该工作区还没有任何会话时会新建一个。置顶会话不会优先——即使有置顶会话，也仍进入最近更新的那个。
+- **New session**: every app launch starts from a new session. If the current workspace still has an empty session with no messages sent, it is reused rather than creating another one.
+- **Open most recent session**: goes straight into the most recently updated session in the current workspace and continues where you left off. If the workspace has no sessions yet, a new one is created. Pinned sessions get no priority—even with a pinned session, the most recently updated one still opens.
 
-切换工作区时也按同一个偏好处理。
+Workspace switches follow the same preference.
 
-**删除外部工作区聊天记录**（默认关闭）
+**Delete chat history for external workspaces** (off by default)
 
-控制移除「添加本地目录」加进来的外部本地工作区时，聊天记录如何处理。开启后，移除外部本地工作区会一并删除它的会话与消息；关闭则只解除关联、保留聊天记录，之后重新添加同一目录仍可看到历史。
+Controls how chat history is handled when you remove an external local workspace added via "Add local directory". When on, removing an external local workspace also deletes its sessions and messages; when off, it is only unlinked and the chat history is kept, so re-adding the same directory later still shows the history.
 
-应用内置工作区与远程工作区的删除不受该开关影响：删掉它们时，目录与聊天记录都会一并删除。
+Deleting built-in workspaces and remote workspaces is unaffected by this toggle: when you delete those, the directory and the chat history are both deleted.
 
-## 输入
+## Input
 
-**回车键发送消息**（默认关闭）
+**Enter key sends the message** (off by default)
 
-开启后软键盘的回车键变成发送键，按一下即发出；关闭时回车是换行，由发送按钮发出。多行输入时建议保持关闭。
+When on, the soft keyboard's Enter key becomes send—one press and it goes; when off, Enter inserts a newline and the send button does the sending. Keeping it off is recommended for multi-line input.
 
-## 网络
+## Network
 
-两个超时都以秒为单位，在输入框里填数字即可，**填 0 表示不限制**；保存后对之后的请求立即生效，无需重启。
+Both timeouts are in seconds—just enter a number in the input box; **0 means unlimited**. After saving, they apply immediately to subsequent requests, no restart needed.
 
-**首字超时**（默认 300 秒）
+**First-token timeout** (default 300 seconds)
 
-每次请求尝试开始后，等待首个有效内容（正文、思考或工具调用）的最长时间，包含等待服务端响应头的时间。超过即取消本次请求，并按重试次数设置重新尝试；每次重试重新计时。慢启动、长思考的模型可以调大。收到首个有效内容后，此超时不再限制后续回复时长。
+The maximum wait for the first meaningful content (body, thinking, or a tool call) after each request attempt starts, including the time waiting for the server's response headers. When exceeded, the request is canceled and retried per the retry count setting; each retry restarts the timer. Increase it for slow-starting, long-thinking models. Once the first meaningful content arrives, this timeout no longer limits the rest of the reply.
 
-**数据块间隔超时**（默认不限制）
+**Inter-chunk timeout** (unlimited by default)
 
-流式回复过程中，相邻两个响应块之间允许的最长等待。设成具体值后，卡住的连接会更早被断开并重试；网络稳定时保持不限制即可。
+During a streaming reply, the longest allowed wait between two adjacent response chunks. With a concrete value set, stuck connections are cut off and retried earlier; keep it unlimited while your network is stable.
 
-**重试次数**（默认 6）
+**Retry count** (default 6)
 
-应用会定期探测 HTTP/2 连接，发现连接失去响应时断开并按重试设置处理；HTTP/1.1 连接不支持此探测。界面显示「正在重试」时，可能正在等待退避，也可能已发出下一次请求、正在等待内容。
+The app periodically probes HTTP/2 connections and, when one stops responding, drops it and handles it per the retry settings; HTTP/1.1 connections don't support this probe. When the UI shows "Retrying", it may be waiting out the backoff or may have already sent the next request and be waiting for content.
 
-网络请求失败后的指数退避重试次数（不含首次请求，等待从 0.5 秒起步、按 2 倍递增、单次最长 10 秒）。同一次请求即使已输出部分内容后再次断线，网络重试次数也会累计，不会重新计数。填 0 表示失败直接报错、不重试；同时受多 Key 自动切换影响——被归为 Key 失效的失败会先尝试换 Key 重发。
+The number of exponential-backoff retries after a network request fails (excluding the first attempt; waits start at 0.5 seconds, double each time, and are capped at 10 seconds each). Even if a request has already produced partial output before disconnecting again, network retries keep accumulating rather than restarting the count. Enter 0 to fail immediately without retrying. This also interacts with multi-key switching—failures classified as key failures first trigger a switch to another key and a resend.
 
-## 工具
+## Tools
 
-**sendFile 单文件上限**（默认 100MB，可填大于 0 的整数）
+**sendFile per-file limit** (default 100MB; accepts an integer greater than 0)
 
-AI 用 `sendFile` 把文件发到聊天区时，单个文件允许的最大体积。超过上限的文件不会被发送，AI 会收到失败原因。调大可以发更大的文件，但单个文件会先拷贝到应用私有目录再展示，过大可能占用较多存储。
+The maximum size of a single file when the AI sends files to the chat area with `sendFile`. Files over the limit are not sent; the AI receives the failure reason. Raising it allows bigger files, but each file is first copied into the app's private directory before being shown, so very large files may occupy considerable storage.

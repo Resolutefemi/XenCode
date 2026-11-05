@@ -10,10 +10,10 @@ import io.github.rosemoe.sora.langs.textmate.registry.provider.AssetsFileResolve
 import org.eclipse.tm4e.core.registry.IThemeSource
 
 /**
- * TextMate 语法与主题的一次性初始化。
+ * One-time initialization of TextMate grammars and themes.
  *
- * 语法包体积近 1 MB，[GrammarRegistry.loadGrammars] 会全量解析，必须在 IO 线程调用，
- * 不能放 Application.onCreate 或主线程，否则拖慢冷启动 / 卡首帧。
+ * The grammar bundle is nearly 1 MB and [GrammarRegistry.loadGrammars] parses it in full, so it must
+ * run on an IO thread, not in Application.onCreate or the main thread, or it slows cold startup / stalls the first frame.
  */
 object TextMateSetup {
 
@@ -23,13 +23,13 @@ object TextMateSetup {
     @Volatile
     private var initialized = false
 
-    /** 幂等：编辑器页每次打开都会调用，只有首次真正加载。 */
+    /** Idempotent: called every time the editor screen opens, but only the first call actually loads. */
     fun ensureInitialized(context: Context) {
         if (initialized) return
         synchronized(this) {
             if (initialized) return
-            // TextMate 分析是从第一行顺序跑到最后一行的（每行状态依赖上一行），大文件全量跑完要数秒。
-            // 打开该开关后每分析 1000 行就把已得到的着色推给编辑器，首屏不必等全文分析结束。
+            // TextMate analysis runs sequentially from the first line to the last (each line depends on the previous one); a full pass over a large file can take seconds.
+            // With this switch on, the styling obtained so far is pushed to the editor every 1000 analyzed lines, so the first screen need not wait for full analysis.
             AsyncIncrementalAnalyzeManager.setUpdateStylesDuringAnalysis(true)
             FileProviderRegistry.getInstance()
                 .addFileProvider(AssetsFileResolver(context.applicationContext.assets))
@@ -52,18 +52,18 @@ object TextMateSetup {
         }
     }
 
-    /** 切换当前语法主题，须与 Compose 主题深浅一致，否则 token 配色与背景对不上。 */
+    /** Switches the current grammar theme; must match the Compose theme's light/dark mode, otherwise token colors clash with the background. */
     fun applyTheme(dark: Boolean) {
         ThemeRegistry.getInstance().setTheme(if (dark) THEME_DARK else THEME_LIGHT)
     }
 
     /**
-     * 给出 TextMate scopeName，仅覆盖 assets/textmate/languages.json 里实际打包的语法。
-     * 返回 null 表示不高亮、按纯文本显示。
+     * Returns the TextMate scopeName, covering only grammars actually bundled in assets/textmate/languages.json.
+     * Returns null for no highlighting, i.e. plain text display.
      *
-     * 必须在 [ensureInitialized] 之后调用：扩展名映射与 languages.json 是两份独立清单，
-     * 未打包的语法要在这里挡掉——TextMateLanguage.create 对未注册 scope 抛 IllegalArgumentException，
-     * 会直接崩在编辑器构造上。
+     * Must be called after [ensureInitialized]: the extension map and languages.json are two separate
+     * lists, so grammars not bundled must be filtered out here - TextMateLanguage.create throws
+     * IllegalArgumentException for an unregistered scope, crashing right in editor construction.
      */
     fun scopeNameFor(path: String): String? {
         val fileName = path.substringAfterLast('/')

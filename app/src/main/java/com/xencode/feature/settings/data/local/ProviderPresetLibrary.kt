@@ -7,33 +7,33 @@ import kotlinx.coroutines.withContext
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
 
-/** 内置/动态 provider 的展示预设：包含 name/type/baseUrl 及推荐与推广扩展属性。 */
+/** Display presets for built-in/dynamic providers: name/type/baseUrl plus recommended and promotional extras. */
 @Serializable
 data class ProviderPreset(
     val id: String,
     val name: String,
-    /** 协议类型：OPENAI / ANTHROPIC / GEMINI。 */
+    /** Protocol type: OPENAI / ANTHROPIC / GEMINI. */
     val type: String,
-    /** Base URL，选中后自动填充，可在编辑页修改。 */
+    /** Base URL, auto-filled on selection and editable in the edit page. */
     val baseUrl: String,
-    /** 关联的模型 id 列表（可选，选中后导入为可用模型）。 */
+    /** Associated model id list (optional; imported as available models on selection). */
     val models: List<String> = emptyList(),
-    /** 是否推荐/置顶 */
+    /** Whether recommended/pinned */
     val isRecommended: Boolean = false,
-    /** 徽标/标签文案（如「推荐」、「赞助」） */
+    /** Badge/label text (e.g. "Recommended", "Sponsored") */
     val badge: String? = null,
-    /** 供应商官网或推广注册链接 */
+    /** Vendor website or promotional signup link */
     val websiteUrl: String? = null,
-    /** 特性/福利标签列表（如 ["注册送10元"]） */
+    /** Feature/perk tag list (e.g. ["10 USD signup credit"]) */
     val tags: List<String> = emptyList()
 )
 
 /**
- * 官方及自定义 provider 预设库：
- * 采用双轨机制：
- * 1. 启动时由后台异步预热拉取（[refreshFromNetworkIfStale]），写磁盘并更新内存 [cached]；
- * 2. 任何 UI 读取（[loadOfficial]）均同步从「内存 -> 磁盘已下载文件 -> 内置 assets」读取，
- *    绝对不发起网络请求，毫秒级直接返回。
+ * Library of official and custom provider presets:
+ * Two-track mechanism:
+ * 1. At startup a background coroutine warms it up asynchronously ([refreshFromNetworkIfStale]), writing to disk and updating the in-memory [cached];
+ * 2. Any UI read ([loadOfficial]) synchronously resolves from "memory -> downloaded disk file -> bundled assets",
+ *    never issuing a network request, returning in milliseconds.
  */
 object ProviderPresetLibrary {
     const val PROVIDERS_ASSET_FILE_NAME = "providers.json"
@@ -48,8 +48,8 @@ object ProviderPresetLibrary {
     private var refreshAttemptedThisProcess = false
 
     /**
-     * 仅供 App 启动阶段（AIEditorApp）在后台协程异步调用：
-     * 走 RepoDataFetcher 测活拉取最新配置并持久化，失败完全静默。
+     * Only for the App startup phase (AIEditorApp) to call asynchronously in a background coroutine:
+     * Uses RepoDataFetcher to fetch the latest config when reachable and persist it; failures are fully silent.
      */
     suspend fun refreshFromNetworkIfStale(context: Context) = withContext(Dispatchers.IO) {
         if (refreshAttemptedThisProcess) return@withContext
@@ -78,14 +78,14 @@ object ProviderPresetLibrary {
     }
 
     /**
-     * UI 专用快速同步读取：
-     * 顺序：内存缓存 -> 磁盘下载文件 -> assets 内置文件。
-     * 纯本地 IO，绝对不发任何网络请求，秒级返回。
+     * Fast synchronous read for the UI:
+     * Order: memory cache -> downloaded disk file -> bundled assets file.
+     * Pure local IO, absolutely no network requests, returns instantly.
      */
     fun loadOfficial(context: Context): List<ProviderPreset> {
         cached?.let { return it }
 
-        // 1. 尝试直接读取本地磁盘缓存文件（由 RepoDataFetcher 写入）
+        // 1. Try reading the local disk cache file directly (written by RepoDataFetcher)
         val diskContent = RepoDataFetcher(context).readLocalCache(REMOTE_PROVIDERS_PATH)
         if (!diskContent.isNullOrBlank()) {
             val parsed = runCatching {
@@ -101,7 +101,7 @@ object ProviderPresetLibrary {
             }
         }
 
-        // 2. 兜底读取内置 assets（必定存在，必定瞬间返回）
+        // 2. Fallback to the bundled assets (always present, always instant)
         val fallback = loadFromAssets(context)
         cached = fallback
         return fallback

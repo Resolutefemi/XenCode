@@ -51,13 +51,13 @@ class ReadFileTool @Inject constructor(
 
             val startLine = args["start_line"]?.jsonPrimitive?.intOrNull?.coerceAtLeast(1) ?: 1
             val requestedEnd = args["end_line"]?.jsonPrimitive?.intOrNull
-            // 行窗口上界：显式 end_line 与 start_line+MAX_LINES 取较小值，缺省则按 MAX_LINES 上限。
+            // Upper bound of the line window: the smaller of the explicit end_line and start_line+MAX_LINES; MAX_LINES cap when absent.
             val lineCap = startLine + MAX_LINES - 1
             val endCap = if (requestedEnd != null) minOf(requestedEnd, lineCap) else lineCap
 
-            // 逐行流式读取，避免 readText() 整篇进内存导致移动端 OOM；
-            // 只保留 [startLine, endCap] 窗口，并在累计字节超过 MAX_BYTES 时提前停止。
-            // 走 IO 线程：本地 File 读与远程 exec 流的阻塞读写都不应占着调用方线程。
+            // Read line by line in streaming fashion to avoid readText() loading the whole file into memory and causing OOM on mobile;
+            // keep only the [startLine, endCap] window, and stop early once accumulated bytes exceed MAX_BYTES.
+            // Runs on the IO dispatcher: neither local File reads nor blocking reads of remote exec streams should occupy the caller's thread.
             val sb = StringBuilder()
             var totalLines = 0
             var emittedLines = 0
@@ -70,7 +70,7 @@ class ReadFileTool @Inject constructor(
                     totalLines = lineNo
                     if (lineNo < startLine) return@forEach
                     if (lineNo > endCap) {
-                        // 已越过窗口，但仍需继续计数以得到准确 total_lines。
+                        // Past the window, but keep counting to get an accurate total_lines.
                         return@forEach
                     }
                     if (!truncatedByBytes) {
@@ -88,8 +88,8 @@ class ReadFileTool @Inject constructor(
             }
 
             val lastEmittedLine = startLine + emittedLines - 1
-            // 用户想要的窗口末行：给了 end_line 取 min(end_line, EOF)，否则到 EOF。
-            // 我们只发到了 lastEmittedLine，若它落在窗口末行之前，说明被截断、还有内容可读。
+            // The window end line the user wanted: min(end_line, EOF) if end_line was given, otherwise EOF.
+            // We only emitted up to lastEmittedLine; if it falls before the wanted window end, the content was truncated and more remains.
             val wantedEnd = if (requestedEnd != null) minOf(requestedEnd, totalLines) else totalLines
             val truncated = emittedLines > 0 && lastEmittedLine < wantedEnd
             val note = when {
@@ -116,18 +116,18 @@ class ReadFileTool @Inject constructor(
     }
 
     private companion object {
-        /** 单次最多返回的行数，超出截断并提示用 start_line 续读。 */
+        /** Maximum lines returned per call; excess is truncated with a hint to continue reading with start_line. */
         const val MAX_LINES = 2000
-        /** 单次最多返回的字节数（UTF-8，约 200KB），防止超大行撑爆内存/上下文。 */
+        /** Maximum bytes returned per call (UTF-8, ~200KB), preventing oversized lines from blowing up memory/context. */
         const val MAX_BYTES = 200 * 1024
     }
 }
 
 /**
- * 写入整个文件，文件不存在时会自动创建（含父目录）。
+ * Writes an entire file, creating it (and parent directories) automatically if missing.
  *
- * 通过 overwrite 参数吸收了旧 create_file 的「不覆盖已有文件」语义：
- * overwrite=false 且目标已存在时报错，可用于安全地新建文件。
+ * The overwrite parameter absorbs the old create_file's "do not overwrite existing files" semantics:
+ * overwrite=false errors if the target already exists, usable for safely creating new files.
  */
 class WriteFileTool @Inject constructor(
     private val fileAccess: FileAccessProvider
@@ -176,14 +176,14 @@ class WriteFileTool @Inject constructor(
                 return ToolResult.Error("File already exists: $path (overwrite=false)", "FILE_EXISTS")
             }
 
-            // 写前留存旧内容，供生成「旧→新」差异（与 edit_file 同构，UI 据此渲染彩色 diff）。
+            // Keep the old content before writing to generate the "old → new" diff (same shape as edit_file; the UI renders a colored diff from it).
             val oldContent = if (existed) runCatching { fileAccess.readFile(path) }.getOrDefault("") else ""
 
             fileAccess.writeFile(path, content, overwrite = true)
 
-            // 生成统一差异文本：新建文件按「整体新增」呈现（旧内容视为空，避免一行伪删除）；
-            // 覆盖写则计算旧→新的行级增删。LineDiff 为 O(n·m) 内存，超大文件重写时跳过 LCS、
-            // 退化为整体新增，防止移动端因构造 DP 表而 OOM。
+            // Build the unified diff text: newly created files are presented as "all added" (old content treated as empty, avoiding a fake deletion line);
+            // overwrites compute line-level additions/removals from old to new. LineDiff uses O(n·m) memory, so oversized rewrites skip LCS
+            // and degrade to all-added, preventing OOM on mobile from building the DP table.
             val diff = buildWriteDiff(existed, oldContent, content)
             val added = diff.lines().count { it.startsWith("+") }
             val removed = diff.lines().count { it.startsWith("-") }
@@ -215,11 +215,11 @@ class WriteFileTool @Inject constructor(
     }
 
     /**
-     * 构造 write_file 的统一差异文本（每行以 `+`/`-`/` ` 起头）：
-     * - 新建文件：旧内容视为空，整篇按「全部新增」呈现，不跑 LCS；
-     * - 覆盖写且规模可控：计算旧→新的行级 LCS 差异；
-     * - 覆盖写但任一侧行数超过 [MAX_DIFF_LINES]：跳过 O(n·m) 的 LCS（移动端易 OOM），
-     *   退化为整篇「全部新增」，仅展示落盘后的内容。
+     * Builds the unified diff text for write_file (each line starts with `+`/`-`/` `):
+     * - New file: old content treated as empty, the whole file presented as "all added", no LCS;
+     * - Overwrite of manageable size: computes the old → new line-level LCS diff;
+     * - Overwrite where either side exceeds [MAX_DIFF_LINES]: skips the O(n·m) LCS (easily OOM on mobile),
+     *   degrading to "all added" and showing only the content written to disk.
      */
     private fun buildWriteDiff(existed: Boolean, oldContent: String, newContent: String): String {
         val newLines = newContent.split("\n")
@@ -233,7 +233,7 @@ class WriteFileTool @Inject constructor(
     }
 
     private companion object {
-        /** 旧/新任一侧行数超过此值即跳过 LCS：DP 表为 O(n·m) ints，过大会拖垮移动端内存。 */
+        /** Skip LCS when either the old or new side exceeds this many lines: the DP table is O(n·m) ints, too large would overwhelm mobile memory. */
         const val MAX_DIFF_LINES = 2000
     }
 }

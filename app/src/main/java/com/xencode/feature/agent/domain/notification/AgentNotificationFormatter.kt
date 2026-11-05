@@ -9,17 +9,17 @@ import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
 
 /**
- * 把 [PendingNotification] 渲染成两种送达形态：
- * - [buildMessage]：作为 user 消息注入（AI 空闲时立即触发新一轮，或整轮未调用工具时的兜底路径）。
- *   带 [BACKGROUND_NOTIFICATION_PREFIX] 前缀，UI 据此渲染为轻量提示条而非用户气泡。
- * - [buildJsonArray]：搭车形态，作为工具结果 JSON 顶层的 `notifications` 字段，在 AI 忙碌时随本批工具结果送达。
+ * Renders a [PendingNotification] into two delivery shapes:
+ * - [buildMessage]: injected as a user message (immediately triggering a new turn when the AI is idle, or the fallback path when a whole turn used no tools).
+ *   Prefixed with [BACKGROUND_NOTIFICATION_PREFIX] so the UI renders a lightweight notice bar instead of a user bubble.
+ * - [buildJsonArray]: the piggyback shape, as a top-level `notifications` field of the tool-result JSON, delivered with the current tool batch while the AI is busy.
  *
- * 两种形态共用同一份措辞与 XML 结构，保证 AI 无论从哪条路径收到通知，理解方式一致。
+ * Both shapes share the same wording and XML structure, so the AI interprets notifications consistently regardless of the path.
  *
- * 支持五类通知：后台任务完成（`task-notification`）、子代理完成（`subagent-notification`）、
- * 代理间消息（`agent-message`，主会话与子代理双向）、模式切换（`mode-change`）、
- * 用户插话（`user-message`，用户在工作期间插入的消息，属用户输入而非系统事件）。
- * 消息的 `<status>` 取 `message`、模式切换取 `changed`，UI 提示条据此按非失败渲染。
+ * Five notification kinds are supported: background-task completion (`task-notification`), subagent completion (`subagent-notification`),
+ * inter-agent messages (`agent-message`, both directions between the main session and a subagent), mode switch (`mode-change`),
+ * and user interjections (`user-message`, a message the user inserted mid-work — user input, not a system event).
+ * Messages get `<status>` = `message` and mode switches `changed`, so the UI notice bar renders them as non-failures.
  */
 object AgentNotificationFormatter {
 
@@ -30,7 +30,7 @@ object AgentNotificationFormatter {
 
     fun buildMessage(items: List<PendingNotification>): String {
         require(items.isNotEmpty()) { "notification list is empty" }
-        // 全是用户插话时按用户消息渲染（不加系统通知前缀），落库后显示为普通用户气泡。
+        // When everything is user interjections, render as user messages (no system-notice prefix) so they show up as ordinary user bubbles.
         if (items.all { it.kind == AgentNotificationKind.USER_MESSAGE }) {
             return buildUserMessage(items)
         }
@@ -66,8 +66,8 @@ object AgentNotificationFormatter {
     }
 
     /**
-     * 用户插话作为 user 消息落库时的文本（空闲或本轮无工具调用的兜底路径）：
-     * 直接输出用户原文、不加系统通知前缀，使其在对话历史里显示为普通用户消息。
+     * Text used when a user interjection is persisted as a user message (the fallback path when idle or no tool calls this turn):
+     * the user's original text is output directly, without the system-notice prefix, so it appears in the history as a normal user message.
      */
     private fun buildUserMessage(items: List<PendingNotification>): String {
         if (items.size == 1) return items.first().message.orEmpty()
@@ -78,7 +78,7 @@ object AgentNotificationFormatter {
     fun buildJsonArray(items: List<PendingNotification>): JsonArray =
         JsonArray(items.map { it.toJsonObject() })
 
-    /** 单条通知的 XML 块。字段名与 [buildJsonArray] 保持语义一致，供 AI 对照理解。 */
+    /** XML block of a single notification. Field names stay semantically aligned with [buildJsonArray] so the AI can cross-read. */
     private fun PendingNotification.toXmlBlock(): String = buildString {
         val tag = when (kind) {
             AgentNotificationKind.BACKGROUND_TASK -> "task-notification"
@@ -114,7 +114,7 @@ object AgentNotificationFormatter {
         appendLine("  <status>${statusText()}</status>")
         appendLine("  <summary>${summaryText()}</summary>")
         detail?.takeIf { it.isNotBlank() }?.let { appendLine("  <detail>${escapeXml(it)}</detail>") }
-        // 转义尖括号：输出里若含 <status>/<summary> 等字样会污染提示条的正则提取。
+        // Escape angle brackets: literal <status>/<summary> in the output would pollute the notice bar's regex extraction.
         tailOutput?.takeIf { it.isNotBlank() }?.let { appendLine("  <tail-output>${escapeXml(it)}</tail-output>") }
         append("</$tag>")
     }

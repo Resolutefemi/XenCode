@@ -171,21 +171,21 @@ class SkillRepositoryTest {
         try {
             val skillDir = File(temp, "my-skill")
             skillDir.mkdirs()
-            File(skillDir, "SKILL.md").writeText("---\nname: my-skill\n---\n正文")
+            File(skillDir, "SKILL.md").writeText("---\nname: my-skill\n---\nbody")
             File(skillDir, "run.py").writeText("print(1)")
 
-            // 含 SKILL.md 的目录可删
+            // A directory containing SKILL.md can be deleted
             assertTrue(SkillRepository.safeDeleteSkillDir(provider, skillDir.absolutePath))
             assertTrue(!skillDir.exists())
 
-            // 不含指令文件的目录拒绝删除
+            // A directory without an instruction file is refused deletion
             val plainDir = File(temp, "not-a-skill")
             plainDir.mkdirs()
             File(plainDir, "readme.txt").writeText("x")
             assertTrue(!SkillRepository.safeDeleteSkillDir(provider, plainDir.absolutePath))
             assertTrue(plainDir.exists())
 
-            // 不存在的目录返回 false
+            // A missing directory returns false
             assertTrue(!SkillRepository.safeDeleteSkillDir(provider, File(temp, "ghost").absolutePath))
         } finally {
             temp.deleteRecursively()

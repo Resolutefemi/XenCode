@@ -1,6 +1,6 @@
 #!/bin/sh
-# 场景：Kotlin / Android 开发（JDK 17 + Android SDK 36 + build-tools 35.0.0）
-# 依赖 lib/android-sdk.sh 提供的共享安装逻辑。
+# Scenario: Kotlin / Android development (JDK 17 + Android SDK 36 + build-tools 35.0.0)
+# Relies on the shared install logic in lib/android-sdk.sh.
 scenario_name_android() { echo "Kotlin / Android development (JDK + Android SDK)"; }
 
 install_scenario_android() {

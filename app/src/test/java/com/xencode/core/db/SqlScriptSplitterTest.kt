@@ -5,8 +5,8 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 /**
- * [SqlScriptSplitter] 的字面量/注释识别用例：分号只有在语句边界才切分，
- * 字符串字面量、注释内出现分号必须原样保留（旧 `split(";")` 会拦腰截断）。
+ * Literal/comment awareness cases for [SqlScriptSplitter]: a semicolon only splits at statement boundaries,
+ * and semicolons inside string literals or comments must be preserved verbatim (the old `split(";")` would cut mid-statement).
  */
 class SqlScriptSplitterTest {
 
@@ -27,7 +27,7 @@ class SqlScriptSplitterTest {
 
     @Test
     fun base64_like_literal_with_semicolon() {
-        // 当初逼出 char(59) 绕行的场景：字面量内出现分号
+        // The case that once forced a char(59) workaround: a semicolon inside a literal
         val stmts = SqlScriptSplitter.split("UPDATE t SET x = 'data:image/png;base64,AAAA'; SELECT 1;")
         assertEquals(2, stmts.size)
         assertEquals("UPDATE t SET x = 'data:image/png;base64,AAAA'", stmts[0])
@@ -79,7 +79,7 @@ class SqlScriptSplitterTest {
 
     @Test
     fun comment_only_segment_between_real_statements_is_skipped() {
-        // 注释段不算语句，但注释内容仍属于相邻语句的一部分（SQLite 执行时忽略注释）
+        // Comment-only segments don't count as statements, but the comment text still belongs to the adjacent statement (SQLite ignores comments when executing)
         val stmts = SqlScriptSplitter.split("SELECT 1;\n-- just a note;\n\nSELECT 2;")
         assertEquals(2, stmts.size)
         assertEquals("SELECT 1", stmts[0])

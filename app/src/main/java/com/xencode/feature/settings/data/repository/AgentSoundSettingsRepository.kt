@@ -18,9 +18,9 @@ private val Context.agentSoundDataStore by preferencesDataStore(
 )
 
 /**
- * 持久化「agent 完成提示音」开关。默认关闭——需用户在软件权限页手动开启。
- * 开启后，agent 每轮对话完成且 App 不在前台时播放系统通知铃声。DataStore 用法与
- * [KeepaliveSettingsRepository] 一致。
+ * Persists the "agent completion sound" toggle. Disabled by default — the user must enable it manually on the app permissions page.
+ * When enabled, the system notification ringtone plays each time the agent finishes a turn while the app is not in the foreground. DataStore usage matches
+ * [KeepaliveSettingsRepository].
  */
 @Singleton
 class AgentSoundSettingsRepository @Inject constructor(
@@ -30,20 +30,20 @@ class AgentSoundSettingsRepository @Inject constructor(
         val ENABLED_KEY = booleanPreferencesKey("agent_sound_enabled")
     }
 
-    /** 当前持久化的开关流；未设置时回退到 false（默认关闭）。 */
+    /** Flow of the currently persisted toggle; falls back to false when unset (disabled by default). */
     val enabledFlow: Flow<Boolean> = context.agentSoundDataStore.data.map { it[ENABLED_KEY] ?: false }
 
-    /** 写入开关。 */
+    /** Writes the toggle. */
     suspend fun setEnabled(enabled: Boolean) {
         context.agentSoundDataStore.edit { it[ENABLED_KEY] = enabled }
     }
 
-    /** 读取一次当前值（agent 完成时判断是否响铃用）。 */
+    /** Reads the current value once (used to decide whether to ring when the agent finishes). */
     suspend fun isEnabled(): Boolean = enabledFlow.first()
 
-    /** 备份快照：当前提示音开关是否开启。 */
+    /** Backup snapshot: whether the completion sound toggle is on. */
     suspend fun snapshot(): Boolean = enabledFlow.first()
 
-    /** 从备份还原提示音开关。 */
+    /** Restores the completion sound toggle from backup. */
     suspend fun restore(enabled: Boolean) = setEnabled(enabled)
 }

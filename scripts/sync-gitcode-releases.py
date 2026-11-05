@@ -1,31 +1,31 @@
 #!/usr/bin/env python3
-"""把 GitHub 上已有的 Release APK 历史资产同步到 GitCode（幂等可重跑）。
+"""Sync existing Release APK assets from GitHub to GitCode (idempotent, safe to re-run).
 
-用法：
-  GITCODE_TOKEN=<token> python3 scripts/sync-gitcode-releases.py            # 同步保留集合
-  GITCODE_TOKEN=<token> python3 scripts/sync-gitcode-releases.py --all      # 同步 GitHub 全部 Release
+Usage:
+  GITCODE_TOKEN=<token> python3 scripts/sync-gitcode-releases.py            # Sync the keep set
+  GITCODE_TOKEN=<token> python3 scripts/sync-gitcode-releases.py --all      # Sync all GitHub Releases
 
-保留集合（未设 RELEASE_FILTER 时自动推导）：
-  仅最新 KEEP_STABLE 个正式版（默认 3），不包含 RC（GitCode 上 RC 无法标记预发布，
-  且轻量同步即可满足国内下载需求）；--all 可全量同步 GitHub 全部 Release。
+Keep set (auto-derived when RELEASE_FILTER is unset):
+  only the latest KEEP_STABLE stable releases (default 3), excluding RCs (GitCode cannot mark an RC as pre-release,
+  and a lightweight sync already covers downloads from China); --all syncs every GitHub Release.
 
-可选环境变量：
-  GH_REPO         GitHub 仓库，默认 jieapi/xencode
-  GITCODE_OWNER   GitCode 用户名，默认取 GH_REPO 同名
-  GITCODE_REPO    GitCode 仓库名，默认取 GH_REPO 同名
-  GITHUB_TOKEN    GitHub 令牌（可选，提高 API 限额）
-  RELEASE_FILTER  Python 正则，覆盖自动推导，仅同步匹配 tag_name 的 Release
-  KEEP_STABLE     保留的正式版数量，默认 3
+Optional environment variables:
+  GH_REPO         GitHub repository, default jieapi/xencode
+  GITCODE_OWNER   GitCode username, defaults to the same name as GH_REPO
+  GITCODE_REPO    GitCode repository name, defaults to the same name as GH_REPO
+  GITHUB_TOKEN    GitHub token (optional, raises API rate limits)
+  RELEASE_FILTER  Python regex that overrides auto-derivation; only syncs Releases whose tag_name matches
+  KEEP_STABLE     Number of stable releases to keep, default 3
 
-与 Gitee 版的关键差异（GitCode API v5 实测确认）：
-  - 认证：Authorization: Bearer <token>，不支持 access_token query 之外的方式也行（见代码）
-  - 创建 Release：tag 不存在时自动在 target_commitish(main) 上创建，无需等待镜像同步；
-    同 tag 已存在返回 409（幂等复用）
-  - 上传附件：先 GET /releases/{tag}/upload_url?file_name= 取预签名地址，
-    再 PUT 二进制（响应 headers 必须全部带上，参与 OBS 签名校验）
-  - prerelease 标记：API 创建/更新均不生效（网页端才有），GitHub 的 prerelease 状态无法同步
-  - 删除 Release：无独立 API；DELETE /tags/{tag} 会连带删除 release（副作用大），
-    且 GitCode 未公布附件配额限制，故本脚本不做自动清理
+Key differences from the Gitee version (verified against the GitCode API v5):
+  - Auth: Authorization: Bearer <token> works too, not just the access_token query (see code)
+  - Create Release: if the tag does not exist it is created automatically on target_commitish(main), no need to wait for the mirror;
+    an existing tag returns 409 (idempotent reuse)
+  - Upload attachment: first GET /releases/{tag}/upload_url?file_name= for the presigned URL,
+    then PUT the binary (all returned headers must be sent back; they take part in OBS signature verification)
+  - prerelease flag: has no effect via API create/update (web only), so GitHub's prerelease state cannot be synced
+  - Delete Release: no dedicated API; DELETE /tags/{tag} deletes the release too (heavy side effects),
+    and GitCode has published no attachment quota limits, so this script does not clean up automatically
 """
 
 import json
@@ -48,7 +48,7 @@ GITCODE_TOKEN = os.environ.get("GITCODE_TOKEN", "")
 GITHUB_TOKEN = os.environ.get("GITHUB_TOKEN", "")
 RELEASE_FILTER = os.environ.get("RELEASE_FILTER", "")
 KEEP_STABLE = int(os.environ.get("KEEP_STABLE", "3"))
-MAX_ATTACH = 2 * 1024 * 1024 * 1024  # GitCode 未公布上限，2GB 兜底（GitHub 单附件上限）
+MAX_ATTACH = 2 * 1024 * 1024 * 1024  # GitCode has published no limit; 2GB fallback (GitHub per-attachment limit)
 
 GITCODE_API = f"https://api.gitcode.com/api/v5/repos/{GITCODE_OWNER}/{GITCODE_REPO}"
 GH_API = f"https://api.github.com/repos/{GH_REPO}"
@@ -81,7 +81,7 @@ def http_json(url: str, payload: dict | None = None, method: str | None = None,
         )
     with urllib.request.urlopen(req, timeout=timeout) as resp:
         body = resp.read().decode()
-        if not body:  # 部分接口（如 DELETE）成功时返回空响应体
+        if not body:  # Some endpoints (e.g. DELETE) return an empty body on success
             return None
         return json.loads(body)
 
@@ -113,13 +113,13 @@ def download(url: str, dest: str) -> bool:
                 shutil.copyfileobj(resp, f)
             return True
         except Exception as e:
-            print(f"    下载失败（第 {attempt + 1} 次）：{e}")
+            print(f"    Download failed (attempt {attempt + 1}): {e}")
             time.sleep(2 * (attempt + 1))
     return False
 
 
 def upload(release_tag: str, path: str) -> bool:
-    """GitCode 上传附件：GET upload_url 取预签名地址 → PUT 二进制（headers 全带）。"""
+    """GitCode attachment upload: GET upload_url for the presigned URL, then PUT the binary (send all headers)."""
     fname = os.path.basename(path)
     for attempt in range(3):
         try:
@@ -128,7 +128,7 @@ def upload(release_tag: str, path: str) -> bool:
                 {"file_name": fname},
             )
             if not isinstance(up, dict) or "url" not in up:
-                print(f"    获取上传地址失败：{up}")
+                print(f"    Failed to get the upload URL: {up}")
                 time.sleep(2 * (attempt + 1))
                 continue
             url = up["url"]
@@ -140,19 +140,19 @@ def upload(release_tag: str, path: str) -> bool:
                 resp.read()
             return True
         except Exception as e:
-            print(f"    上传失败（第 {attempt + 1} 次）：{e}")
+            print(f"    Upload failed (attempt {attempt + 1}): {e}")
             time.sleep(2 * (attempt + 1))
     return False
 
 
 def list_gitcode_releases() -> list:
-    """GitCode 列表接口；分页参数若被忽略则返回全量，按条数判断退出。"""
+    """GitCode list endpoint; if the pagination params are ignored it returns everything, so stop based on the row count."""
     out = []
     page = 1
     while True:
         batch = gc_get("/releases", {"per_page": 100, "page": page})
         if not isinstance(batch, list):
-            raise RuntimeError(f"GitCode releases 列表返回异常: {batch}")
+            raise RuntimeError(f"GitCode releases list returned unexpected data: {batch}")
         out.extend(batch)
         if len(batch) < 100:
             break
@@ -161,7 +161,7 @@ def list_gitcode_releases() -> list:
 
 
 def derive_keep_set(releases: list) -> set:
-    """自动推导保留集合：仅最新 KEEP_STABLE 个正式版（不含 RC）。"""
+    """Auto-derive the keep set: only the latest KEEP_STABLE stable releases (no RCs)."""
     parsed = [(parse_tag(r["tag_name"]), r["tag_name"]) for r in releases]
     stable = sorted((p for p, _ in parsed if p and not p[3]), reverse=True)
     keep_main = {s[:3] for s in stable[:KEEP_STABLE]}
@@ -170,64 +170,64 @@ def derive_keep_set(releases: list) -> set:
 
 def main() -> int:
     if not GITCODE_TOKEN:
-        print("错误：请通过环境变量提供 GITCODE_TOKEN（GitCode 个人访问令牌）")
+        print("Error: please provide GITCODE_TOKEN via an environment variable (GitCode personal access token)")
         return 1
-    print(f"源: GitHub {GH_REPO} -> 目标: GitCode {GITCODE_OWNER}/{GITCODE_REPO}")
+    print(f"Source: GitHub {GH_REPO} -> Target: GitCode {GITCODE_OWNER}/{GITCODE_REPO}")
 
-    # 验证 GitCode token 与仓库可达，避免把鉴权错误误判成其它问题
+    # Verify the GitCode token and repo are reachable, so auth errors are not misjudged as other problems
     try:
         gc_get("")
     except Exception as e:
-        print(f"错误：无法访问 GitCode 仓库 {GITCODE_OWNER}/{GITCODE_REPO}：{e}")
+        print(f"Error: cannot access the GitCode repo {GITCODE_OWNER}/{GITCODE_REPO}: {e}")
         return 1
 
-    # 拉取 GitHub 全部 releases（分页）
+    # Fetch all GitHub releases (paginated)
     gh_releases = []
     page = 1
     while True:
         batch = gh_get(f"/releases?per_page=100&page={page}")
         if not isinstance(batch, list):
-            raise RuntimeError(f"GitHub releases 列表返回异常: {batch}")
+            raise RuntimeError(f"GitHub releases list returned unexpected data: {batch}")
         gh_releases.extend(batch)
         if len(batch) < 100:
             break
         page += 1
 
-    # 保留集合：RELEASE_FILTER 覆盖时用正则，否则自动推导；--all 全量
+    # Keep set: the regex when RELEASE_FILTER overrides, otherwise auto-derived; --all keeps everything
     if "--all" in sys.argv:
         keep = {r["tag_name"] for r in gh_releases}
-        print("同步模式: 全部 Release")
+        print("Sync mode: all releases")
     elif RELEASE_FILTER:
         pattern = re.compile(RELEASE_FILTER)
         keep = {r["tag_name"] for r in gh_releases if pattern.match(r["tag_name"])}
-        print(f"版本过滤（正则）: {RELEASE_FILTER}")
+        print(f"Tag filter (regex): {RELEASE_FILTER}")
     else:
         keep = derive_keep_set(gh_releases)
-        print(f"保留策略: 仅最新 {KEEP_STABLE} 个正式版（不含 RC）")
+        print(f"Keep policy: only the latest {KEEP_STABLE} stable releases (no RCs)")
     gh_releases = [r for r in gh_releases if r["tag_name"] in keep]
-    print(f"GitHub 上 {len(gh_releases)} 个 Release 需保留")
+    print(f"{len(gh_releases)} GitHub Releases to keep")
 
-    # 拉取 GitCode 已有 releases（幂等对比）
+    # Fetch existing GitCode releases (for idempotent comparison)
     gc_releases = {r["tag_name"]: r for r in list_gitcode_releases()}
-    print(f"GitCode 已有 {len(gc_releases)} 个 Release")
+    print(f"GitCode already has {len(gc_releases)} Releases")
 
     ok = skipped = failed = 0
     tmpdir = tempfile.mkdtemp(prefix="gitcode-sync-")
     try:
-        # 按创建时间升序处理，先旧后新
+        # Process oldest first, by creation time
         for rel in sorted(gh_releases, key=lambda r: r["created_at"]):
             tag = rel["tag_name"]
             existing = gc_releases.get(tag)
             attach_names = set()
             if existing is not None:
-                # GitCode 列表接口直接带 assets（含平台自动生成的源码包，忽略）
+                # The GitCode list endpoint includes assets directly (including platform-generated source packages, ignored)
                 attach_names = {
                     a.get("name") for a in existing.get("assets", [])
                     if a.get("name", "").endswith(".apk")
                 }
-                print(f"[跳过创建] {tag}（已存在，APK 附件 {len(attach_names)} 个）")
+                print(f"[Skip create] {tag} (already exists, {len(attach_names)} APK attachments)")
             else:
-                print(f"[创建] {tag} ...")
+                print(f"[Create] {tag} ...")
                 try:
                     created = gc_post("/releases", {
                         "tag_name": tag,
@@ -238,9 +238,9 @@ def main() -> int:
                     if isinstance(created, dict) and created.get("tag_name"):
                         attach_names = set()
                     else:
-                        raise RuntimeError(f"创建返回异常: {created}")
+                        raise RuntimeError(f"Unexpected create response: {created}")
                 except Exception as e:
-                    print(f"  错误：创建 Release 失败：{e}")
+                    print(f"  Error: failed to create the Release: {e}")
                     failed += 1
                     continue
 
@@ -248,32 +248,32 @@ def main() -> int:
                 name = asset["name"]
                 size = asset["size"]
                 if size > MAX_ATTACH:
-                    print(f"  [跳过] {name}（{size / 1048576:.1f}MB 超过 {MAX_ATTACH // 1048576}MB 上限）")
+                    print(f"  [Skip] {name} ({size / 1048576:.1f}MB exceeds the {MAX_ATTACH // 1048576}MB limit)")
                     skipped += 1
                     continue
                 if name in attach_names:
-                    print(f"  [已存在] {name}")
+                    print(f"  [Exists] {name}")
                     skipped += 1
                     continue
                 dest = os.path.join(tmpdir, name)
-                print(f"  下载 {name}（{size / 1048576:.1f}MB）...")
+                print(f"  Downloading {name} ({size / 1048576:.1f}MB) ...")
                 if not download(asset["browser_download_url"], dest):
-                    print(f"  [失败] {name} 下载失败")
+                    print(f"  [Failed] {name} download failed")
                     failed += 1
                     continue
                 if upload(tag, dest):
-                    print(f"  [成功] {name} -> GitCode Release {tag}")
+                    print(f"  [OK] {name} -> GitCode Release {tag}")
                     ok += 1
                 else:
-                    print(f"  [失败] {name} 上传失败")
+                    print(f"  [Failed] {name} upload failed")
                     failed += 1
                 os.remove(dest)
     finally:
         shutil.rmtree(tmpdir, ignore_errors=True)
 
-    print(f"\n完成：成功 {ok}，跳过 {skipped}，失败 {failed}")
+    print(f"\nDone: {ok} succeeded, {skipped} skipped, {failed} failed")
     if failed:
-        print("有失败项，重跑本脚本即可续传（已成功的会跳过）。")
+        print("Some items failed; re-run this script to resume (already-succeeded items are skipped).")
     return 1 if failed else 0
 
 

@@ -11,11 +11,11 @@ import kotlinx.serialization.json.put
 import kotlinx.serialization.json.putJsonObject
 
 /**
- * 单个 MCP server 的会话客户端：负责握手、列举工具、转发工具调用。
+ * Session client for a single MCP server: handles the handshake, lists tools, and forwards tool calls.
  *
- * 生命周期：[connect] 完成 initialize → notifications/initialized → tools/list 后，
- * [tools] 即为该 server 暴露的工具描述符；[callTool] 把一次调用转成 `tools/call`。
- * 任何一步失败都抛 [McpException]，由上层（McpManager）按 server 粒度兜底，不影响其它 server。
+ * Lifecycle: after [connect] finishes initialize → notifications/initialized → tools/list,
+ * [tools] holds the tool descriptors this server exposes; [callTool] turns one call into `tools/call`.
+ * Any failing step throws [McpException], which the layer above (McpManager) handles per server, leaving other servers unaffected.
  */
 class McpClient(
     val serverName: String,
@@ -31,35 +31,35 @@ class McpClient(
     var tools: List<McpToolDescriptor> = emptyList()
         private set
 
-    /** 完整握手：initialize → initialized 通知 → tools/list。返回拿到的工具数。 */
+    /** Full handshake: initialize → initialized notification → tools/list. Returns the number of tools found. */
     suspend fun connect(): Int {
-        FileLogger.i(TAG, "[$serverName] 开始连接")
+        FileLogger.i(TAG, "[$serverName] connecting")
         initialize()
         transport.notify("notifications/initialized")
         val count = refreshTools()
-        FileLogger.i(TAG, "[$serverName] 握手完成，发现 $count 个工具")
+        FileLogger.i(TAG, "[$serverName] handshake complete, found $count tools")
         return count
     }
 
     private suspend fun initialize() {
         val params = buildJsonObject {
             put("protocolVersion", PROTOCOL_VERSION)
-            putJsonObject("capabilities") { /* 客户端暂不声明额外能力 */ }
+            putJsonObject("capabilities") { /* the client declares no extra capabilities for now */ }
             putJsonObject("clientInfo") {
                 put("name", "ai-code-editor")
                 put("version", "1.0.0")
             }
         }
-        FileLogger.i(TAG, "[$serverName] 发送 initialize（协议 v$PROTOCOL_VERSION）")
+        FileLogger.i(TAG, "[$serverName] sending initialize (protocol v$PROTOCOL_VERSION)")
         val t0 = System.currentTimeMillis()
         transport.request("initialize", params)
-        FileLogger.i(TAG, "[$serverName] initialize 完成（${System.currentTimeMillis() - t0}ms）")
-        // 返回的 serverInfo / capabilities 暂不使用，只要不报错即视为握手成功。
+        FileLogger.i(TAG, "[$serverName] initialize done (${System.currentTimeMillis() - t0}ms)")
+        // The returned serverInfo / capabilities are unused for now; no error means the handshake succeeded.
     }
 
-    /** 重新拉取工具列表（配置变更或手动刷新时调用）。 */
+    /** Re-fetch the tool list (called on config change or manual refresh). */
     suspend fun refreshTools(): Int {
-        FileLogger.i(TAG, "[$serverName] 拉取工具列表 tools/list")
+        FileLogger.i(TAG, "[$serverName] fetching tool list tools/list")
         val t0 = System.currentTimeMillis()
         val response = transport.request("tools/list")
         val result = response.result ?: throw McpException(message = "[$serverName] tools/list returned no result")
@@ -68,14 +68,14 @@ class McpClient(
         }.getOrElse {
             throw McpException(message = "[$serverName] Failed to parse tool list: ${it.message}", cause = it)
         }
-        FileLogger.i(TAG, "[$serverName] tools/list 完成，${tools.size} 个工具（${System.currentTimeMillis() - t0}ms）")
+        FileLogger.i(TAG, "[$serverName] tools/list done, ${tools.size} tools (${System.currentTimeMillis() - t0}ms)")
         return tools.size
     }
 
     /**
-     * 执行一次工具调用，返回扁平化为文本的结果（喂回模型）与是否报错。
-     * MCP 的 `tools/call` 结果是 content 块数组；这里把 text 块拼接，其它类型给出占位描述。
-     * [McpCallResult.isError] 直接取自结果里的 `isError` 字段，避免把文本前缀当判据。
+     * Execute one tool call, returning the text-flattened result (fed back to the model) and whether it errored.
+     * MCP's `tools/call` result is an array of content blocks; text blocks are concatenated, other types get a placeholder description.
+     * [McpCallResult.isError] comes straight from the result's `isError` field, avoiding any text-prefix heuristics.
      */
     suspend fun callTool(toolName: String, arguments: JsonObject): McpCallResult {
         val params = buildJsonObject {
@@ -90,7 +90,7 @@ class McpClient(
         return McpCallResult(text, isError)
     }
 
-    /** 把 content 数组里的块转成纯文本：text 块取 text；其它块给类型占位。 */
+    /** Flatten the content array's blocks to plain text: text blocks contribute their text; other blocks get a type placeholder. */
     private fun flattenContent(content: kotlinx.serialization.json.JsonElement?): String {
         val array = content as? JsonArray ?: return ""
         val sb = StringBuilder()
@@ -110,5 +110,5 @@ class McpClient(
     fun close() = transport.close()
 }
 
-/** 一次 `tools/call` 的结果：扁平化文本 + 是否报错（源自 MCP 结果的 `isError` 字段）。 */
+/** Result of one `tools/call`: flattened text + whether it errored (from the MCP result's `isError` field). */
 data class McpCallResult(val text: String, val isError: Boolean)

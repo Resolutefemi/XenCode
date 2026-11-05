@@ -42,9 +42,9 @@ data class ToolParameter(
     val required: Boolean = true,
     val enum: List<String>? = null,
     /**
-     * 当 [type] 为 [ParameterType.ARRAY] 时，描述数组元素的 JSON Schema（原样并入
-     * function-calling 的 items 字段）。例如元素是对象时传
-     * `{"type":"object","properties":{...},"required":[...]}`。为空则不输出 items。
+     * When [type] is [ParameterType.ARRAY], the JSON Schema describing array elements (merged verbatim into
+     * the items field for function-calling). For example, when elements are objects pass
+     * `{"type":"object","properties":{...},"required":[...]}`. When empty, items is not emitted.
      */
     val itemsSchema: Map<String, Any>? = null
 )
@@ -80,18 +80,18 @@ data class PendingToolPermission(
     val details: String,
     val argsPreview: String,
     /**
-     * 「始终允许」会记忆的模式列表（shell 命令为命令前缀：子命令分发器记 `git pull` 这类带子命令的
-     * 前缀，普通程序记 `cat`/`ls`；非 shell 工具为 `*`）。
-     * 为空表示该调用不可记忆（命令不可静态判定），UI 应禁用「始终允许」、只留单次放行。
-     * 由 [com.xencode.feature.agent.domain.permission.ToolPermissionPolicyEngine] 评估后填入。
+     * Pattern list memorized by "Always allow" (for shell commands, the command prefix: a subcommand dispatcher records prefixes with subcommands like `git pull`,
+     * plain programs record `cat`/`ls`; non-shell tools use `*`).
+     * Empty means this call cannot be memorized (the command cannot be statically judged), and the UI should disable "Always allow" and keep only one-time approval.
+     * Filled in after evaluation by [com.xencode.feature.agent.domain.permission.ToolPermissionPolicyEngine].
      */
     val rememberablePatterns: List<String> = emptyList(),
     val rememberDisabledReason: String? = null,
-    /** 发起该授权请求的会话 id。多会话并行时用于在 UI 上区分弹窗归属、点亮侧边栏等待授权指示。 */
+    /** Session id that raised this permission request. With parallel sessions, used by the UI to attribute the dialog and light up the sidebar's awaiting-permission indicator. */
     val sessionId: String = "",
     /**
-     * 「自主执行」挡位下 AI 命令审查器给出的危险说明（审查拒绝/不确定转人工时填入）；
-     * 非空时弹窗应以醒目样式展示，提醒用户执行后果。
+     * Hazard note from the AI command reviewer under the "autonomous execution" setting (filled when the review rejects or is unsure and defers to the human);
+     * when non-null, the dialog must show it prominently to warn the user of the consequences.
      */
     val reviewNote: String? = null
 )
@@ -128,11 +128,11 @@ abstract class AgentTool {
     }
 
     /**
-     * 生成符合 JSON Schema 的参数描述，用于真正传给大模型的 function-calling 接口
-     * （OpenAI 的 function.parameters / Anthropic 的 input_schema）。
+     * Builds a JSON Schema-compliant parameter description for the function-calling interface actually sent to the LLM
+     * (OpenAI's function.parameters / Anthropic's input_schema).
      *
-     * 设为 open：MCP 等外部工具携带的是任意原始 inputSchema，无法用受限的 [ParameterType]
-     * 枚举表达，需要覆写本方法直接透传服务端 schema。
+     * Open by design: external tools like MCP carry arbitrary raw inputSchemas that cannot be expressed with the restricted [ParameterType]
+     * enum, so they override this method to pass the server-side schema through.
      */
     open fun toJsonSchema(): Map<String, Any> {
         val properties = LinkedHashMap<String, Any>()
@@ -162,19 +162,19 @@ data class ToolCall(
 )
 
 /**
- * 可流式执行的工具：在最终结果产生之前，逐步 emit 过程输出（如命令的逐行 stdout），
- * 让 UI 能实时显示「执行过程」而非只有最终结果。
+ * A tool that can execute in streaming fashion: before the final result, it emits process output step by step (e.g. a command's stdout line by line),
+ * so the UI can show "execution progress" instead of only the final result.
  *
- * 实现类应同时实现 [AgentTool.execute] 作为非流式兜底；工作流优先走 [executeStream]。
+ * Implementations should also implement [AgentTool.execute] as a non-streaming fallback; the workflow prefers [executeStream].
  */
 interface StreamingAgentTool {
     fun executeStream(args: Map<String, JsonElement>, context: com.xencode.feature.agent.domain.model.AgentContext): Flow<ToolStreamEvent>
 }
 
-/** 流式工具执行过程中产生的事件。 */
+/** Events produced during streaming tool execution. */
 sealed class ToolStreamEvent {
-    /** 一段新的过程输出（通常是一行）。 */
+    /** A new chunk of process output (usually one line). */
     data class Progress(val chunk: String) : ToolStreamEvent()
-    /** 执行结束，附最终聚合结果（喂回模型用）。 */
+    /** Execution finished, carrying the final aggregated result (fed back to the model). */
     data class Completed(val result: ToolResult) : ToolStreamEvent()
 }

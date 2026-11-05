@@ -1,184 +1,184 @@
-# 自定义提示词
+# Custom Prompts
 
-XenCode 的系统提示词可以自行修改。默认提示词随 App 内置、升级时自动更新；只需将需要修改或新增的片段放入自定义目录即可覆盖或扩展，无需修改 App 本体。
+XenCode's system prompt can be modified. The default prompts are bundled with the app and update automatically on upgrade; just put the pieces you want to change or add into the custom directory to override or extend them—no need to modify the app itself.
 
-::: tip v1.12.0 起
-本文的片段命名规则（`<两位数字>-<名称>.md`）、按数字新增片段、`.no-builtin` 完全禁用开关与 <span v-pre>`{{AICODE_*}}`</span> 变量自 **v1.12.0** 起支持。更早的版本只能放与默认片段**完全同名**的文件来覆盖，不支持按数字新增、`.no-builtin` 与变量。
+::: tip Since v1.12.0
+The fragment naming rules in this document (`<two-digit number>-<name>.md`), adding fragments by number, the `.no-builtin` full-disable switch, and the <span v-pre>`{{AICODE_*}}`</span> variables are supported since **v1.12.0**. Earlier versions could only override by placing files with **exactly the same name** as the default fragment; adding by number, `.no-builtin`, and variables were not supported.
 :::
 
-## 在 App 里管理
+## Managing in the App
 
-也可以不碰文件系统，直接在 **设置 → 提示词** 里管理：
+You can also leave the filesystem alone and manage everything under **Settings → Prompts**:
 
-- 页面按编号列出**实际生效**的每个片段，右侧徽章标明这份内容来自哪一层：
-  - **项目**：当前工作区的 `.xencode/prompts.custom/`
-  - **全局**：`~/.xencode/prompts.custom/`
-  - **本地**：`~/.xencode/prompts/`（启动时从内置释放的副本）
-  - **内置**：App 自带的 `assets/prompts/`
-- 同一编号只生效优先级最高的一份，优先级 **项目 > 全局 > 本地 > 内置**，其余被遮挡。
-- 点一行编辑它的内容。保存默认写到该编号当前生效的层；「本地/内置」不可写，编辑后默认落到全局层，可在编辑页把作用域切到项目层（有工作区时）。
-- 所有片段都可左滑；项目/全局片段可删除当前覆盖，删掉后自动回退到下一层；本地/内置片段的删除按钮为灰色，不可删除。
-- 右上角「+」可用未占用的编号新增片段。编辑时摘要与正文分开填写；摘要显示在列表和预览页，不会注入 AI。手工编写文件时，开头的 `<!-- 摘要 -->` 同样会被识别为摘要，正文预览会隐藏这段注释。
-- 首次进入会自动弹出使用说明公告，右上角 Info 可随时重看。
+- The page lists every fragment that is **actually in effect**, by number, with a badge on the right indicating which layer the content comes from:
+  - **Project**: the current workspace's `.xencode/prompts.custom/`
+  - **Global**: `~/.xencode/prompts.custom/`
+  - **Local**: `~/.xencode/prompts/` (the copy released from the built-ins at startup)
+  - **Built-in**: the app's bundled `assets/prompts/`
+- For the same number, only the highest-priority copy takes effect—priority is **Project > Global > Local > Built-in**; the rest are shadowed.
+- Tap a row to edit its content. Saves go by default to the layer currently in effect for that number; "Local/Built-in" are not writable, so after editing they land in the Global layer by default, and the edit page lets you switch the scope to the Project layer (when a workspace is open).
+- Every fragment row can be swiped left; Project/Global fragments can have their override deleted, after which the next layer takes over automatically; Local/Built-in fragments have a grayed-out delete button and cannot be deleted.
+- The "+" in the top-right corner adds a fragment under an unused number. When editing, the summary and the body are filled in separately; the summary shows in the list and preview page and is never injected into the AI. When writing files by hand, a leading `<!-- summary -->` comment is likewise recognized as the summary, and the body preview hides this comment.
+- On first entry a usage notice pops up automatically; the Info button in the top-right corner reopens it at any time.
 
-App 里的改动与手工放文件完全等价，两种方式可以混用。
+Changes made in the app are fully equivalent to placing files by hand; the two approaches can be mixed.
 
-## 目录结构
+## Directory Structure
 
-提示词放在 AI 配置目录 `~/.xencode/` 下（本地模式容器内为 `/root/.xencode/`；远程模式为服务器用户 home 下的 `.xencode/`，读写以远端为准）：
+Prompts live under the AI configuration directory `~/.xencode/` (inside the local-mode container it is `/root/.xencode/`; in remote mode it is `.xencode/` under the server user's home, with reads and writes going to the remote side):
 
 ```
 ~/.xencode/
-├── prompts/          默认提示词（App 启动时全量释放，升级自动覆盖）
+├── prompts/          Default prompts (fully released at app startup; overwritten automatically on upgrade)
 │   ├── 00-identity.md
 │   ├── 10-communication.md
-│   ├── ...           顶层是「静态基线」片段，按两位数字前缀排序（内置最后一个为 99-runtime-context.md）
-│   └── agent/        按需注入的片段（不进静态基线，用到时才读取）
-│       ├── plan-mode.md           PLAN 模式提醒
-│       ├── auto-mode.md           AUTO 模式提醒
-│       ├── subagent-base.md       子代理基础运行规范
-│       ├── subagent-context.md    子代理运行期上下文（身份/工作区/时间）
-│       ├── compact-summary.md     长对话上下文压缩
-│       ├── title-generator.md     会话标题生成
-│       └── init.md                /init 命令的指令正文
-├── prompts.custom/   你的自定义片段（覆盖或新增，升级不动这里）
-│   ├── 50-我的安全规则.md
-│   ├── 25-额外要求.md
+│   ├── ...           Top level holds the "static baseline" fragments, sorted by two-digit numeric prefix (the last built-in one is 99-runtime-context.md)
+│   └── agent/        On-demand fragments (not part of the static baseline; read only when used)
+│       ├── plan-mode.md           PLAN mode reminder
+│       ├── auto-mode.md           AUTO mode reminder
+│       ├── subagent-base.md       Subagent base operating rules
+│       ├── subagent-context.md    Subagent runtime context (identity/workspace/time)
+│       ├── compact-summary.md     Long-conversation context compression
+│       ├── title-generator.md     Session title generation
+│       └── init.md                Instruction body of the /init command
+├── prompts.custom/   Your custom fragments (overrides or additions; untouched by upgrades)
+│   ├── 50-my-safety-rules.md
+│   ├── 25-extra-requirements.md
 │   └── agent/
-│       └── plan-mode.md           覆盖按需片段
+│       └── plan-mode.md           Override an on-demand fragment
 ├── skills/
 └── docs/
 ```
 
-片段分两类，命名规则不同：
+Fragments come in two kinds with different naming rules:
 
-- **静态基线**（`prompts/` 顶层）：`<两位数字>-<名称>.md`，数字是它的身份，决定在系统提示词里的位置。
-- **按需片段**（`prompts/agent/`）：没有数字，用到时才读取（如切换模式、压缩上下文、派发子代理、生成标题）。
+- **Static baseline** (top level of `prompts/`): `<two-digit number>-<name>.md`; the number is its identity and determines its place in the system prompt.
+- **On-demand fragments** (`prompts/agent/`): no number; read only when used (e.g. switching modes, compressing context, dispatching subagents, generating titles).
 
-## 命名规则
+## Naming Rules
 
-自定义片段放在 `prompts.custom/`：
+Custom fragments go in `prompts.custom/`:
 
-- **顶层文件**必须是 `<两位数字>-<名称>.md`（如 `05-开头.md`、`50-我的安全规则.md`）。数字即身份：
-  - 数字与某个内置静态基线片段相同（内置数字为 `00`、`10`、`15`、`20`、`30`、`40`、`50`、`60`、`70`、`99`）→ **覆盖**该片段，尾部名称可任意取；
-  - 数字不在上述集合里 → 作为**新增片段**，按数字大小插入基线的对应位置（如 `05-开头.md` 排在 `00` 与 `10` 之间）。
-- 不符合该格式的文件（如 `notes.md`、`2024-备忘.md`）会被忽略。
-- 同一数字有多个文件时只取文件名排最前的那个，其余忽略——请保持数字唯一。
-- **`agent/` 子目录**里的片段没有数字身份，按**精确同名**覆盖（如 `prompts.custom/agent/plan-mode.md`）。
+- **Top-level files** must be `<two-digit number>-<name>.md` (e.g. `05-opening.md`, `50-my-safety-rules.md`). The number is the identity:
+  - A number matching a built-in static baseline fragment (built-in numbers are `00`, `10`, `15`, `20`, `30`, `40`, `50`, `60`, `70`, `99`) → **overrides** that fragment; the trailing name can be anything;
+  - A number not in that set → treated as an **added fragment**, inserted into the corresponding spot in the baseline by number (e.g. `05-opening.md` sits between `00` and `10`).
+- Files that don't match this format (e.g. `notes.md`, `2024-notes.md`) are ignored.
+- When multiple files share a number, only the one that sorts first by filename is used and the rest are ignored—keep numbers unique.
+- Fragments in the **`agent/` subdirectory** have no numeric identity and are overridden by **exact same name** (e.g. `prompts.custom/agent/plan-mode.md`).
 
-## 加载优先级
+## Loading Priority
 
-顶层数字片段（`<两位数字>-<名称>.md`）按四级来源查找，同一编号只生效优先级最高的一份，找到即止：
+Top-level numbered fragments (`<two-digit number>-<name>.md`) are looked up across four layers; for the same number only the highest-priority copy takes effect, and the search stops at the first hit:
 
-1. **项目**：`<工作区>/.xencode/prompts.custom/`（远程模式下是 App 私有目录里对应的项目目录）
-2. **全局**：`~/.xencode/prompts.custom/`
-3. **本地**：`~/.xencode/prompts/<同名文件>` — 启动时释放的副本
-4. **内置**：App 自带的 `assets/prompts/`
+1. **Project**: `<workspace>/.xencode/prompts.custom/` (in remote mode, the matching project directory inside the app's private storage)
+2. **Global**: `~/.xencode/prompts.custom/`
+3. **Local**: `~/.xencode/prompts/<same-name file>` — the copy released at startup
+4. **Built-in**: the app's bundled `assets/prompts/`
 
-`agent/` 下的按需片段（无编号）没有项目层，按「全局自定义（`prompts.custom/agent/xxx.md`）→ 本地 → 内置」三级查找。
+On-demand fragments under `agent/` (unnumbered) have no Project layer and are looked up in three layers: "Global custom (`prompts.custom/agent/xxx.md`) → Local → Built-in".
 
-所以你只需要放想修改或想新增的那几个片段，其余会自动使用默认版本。
+So you only need to place the few fragments you want to modify or add; everything else automatically uses the default version.
 
-## 修改方式
+## How to Modify
 
-1. 在 `~/.xencode/prompts.custom/` 下（没有就手动创建）放入片段：覆盖内置片段用相同数字命名，新增片段用尚未占用的数字命名，子目录片段（如 `agent/plan-mode.md`）对应放到 `prompts.custom/agent/` 下。
-2. 编辑内容。
-3. **保存后即时生效**（无需重启 App）。
+1. Put fragments under `~/.xencode/prompts.custom/` (create it manually if it doesn't exist): to override a built-in fragment, name it with the same number; to add a fragment, use a number not yet taken; subdirectory fragments (e.g. `agent/plan-mode.md`) go to the corresponding place under `prompts.custom/agent/`.
+2. Edit the content.
+3. **Takes effect immediately on save** (no app restart needed).
 
-::: tip 提示词片段即时生效
-自定义提示词片段每次请求都会重新读取，改完直接生效，不用重启 App。注意：技能清单、记忆、子代理清单仍是**新开会话**才刷新。
+::: tip Prompt fragments take effect immediately
+Custom prompt fragments are re-read on every request; changes apply right away, no app restart needed. Note: the skills list, memory, and the subagent list still refresh only when a **new session** starts.
 :::
 
-编辑方式有三种：在终端里用 `vi` / `nano` 直接修改；交由 AI 代写（其文件工具能直接读写这个目录）；或[用文件管理器访问 App 私有目录](/guide/files#工作区文件在手机上的位置)。
+There are three ways to edit: modify files directly with `vi` / `nano` in the terminal; have the AI write them (its file tools can read and write this directory); or [access the app's private directory with a file manager](/guide/files#where-workspace-files-are-stored-on-the-phone).
 
-## 提示词市场
+## Prompt Marketplace
 
-提示词页右上角「**＋ → 提示词市场**」是在线的现成片段目录：提交信息生成、代码审查、发布说明草稿等常用模板，挑中即可一键落盘成本地片段。
+The "**+ → Prompt Marketplace**" in the top-right corner of the prompts page is an online catalog of ready-made fragments: common templates like commit message generation, code review, and release note drafts—pick one and it lands on disk as a local fragment with a single tap.
 
-页面与技能市场一致：列表滚动接近底部自动翻页，右上角可整页刷新；点任意一行弹出**详情底部弹层**（名称、作者、发布时间与版本、描述与模板正文），点**安装**即写入片段，成功后弹提示并关闭弹层，返回列表即见新片段。
+The page works the same as the skill marketplace: the list auto-paginates as you scroll near the bottom, and the top-right corner refreshes the whole page. Tapping any row opens a **detail bottom sheet** (name, author, release time and version, description and template body); tap **Install** to write the fragment—on success a notice appears, the sheet closes, and the new fragment is there when you return to the list.
 
-安装规则：
+Install rules:
 
-- 片段总是写成「下一个空闲编号」的 `NN-标题.md`（编号 01–99，系统提示词按编号排序），**不会覆盖你已有的片段**；01–99 全满时会提示先删除或改造一个现有片段。
-- 有打开的工作区时装入当前项目（`.xencode/prompts.custom/`，可随项目 git 追踪），否则装入全局层（`~/.xencode/prompts.custom/`）。
-- 装好的片段与手工新建的完全等价，可以继续编辑、左滑删除或拖拽排序。
+- Fragments are always written as `NN-Title.md` under the "next free number" (numbers 01–99; the system prompt is sorted by number) and **never overwrite your existing fragments**; when 01–99 are all taken, you're prompted to delete or repurpose an existing fragment first.
+- With a workspace open, it installs into the current project (`.xencode/prompts.custom/`, trackable with the project's git); otherwise it installs into the Global layer (`~/.xencode/prompts.custom/`).
+- Installed fragments are fully equivalent to hand-created ones: keep editing them, swipe left to delete, or drag to reorder.
 
-## 完全禁用内置提示词
+## Fully Disabling Built-in Prompts
 
-在 `prompts.custom/` 下新建一个名为 `.no-builtin` 的文件（内容随意，存在即生效），即可让**主代理**的系统提示词只由你在 `prompts.custom/` 顶层写好的数字片段组成：
+Create a file named `.no-builtin` under `prompts.custom/` (contents don't matter—its mere existence activates it) to make the **main agent's** system prompt consist only of the numbered fragments you write at the top level of `prompts.custom/`:
 
-- 不再注入任何内置片段，也不再自动附加技能清单、子代理清单、记忆、项目规则、工作区与当前时间；
-- 需要哪些动态内容，就在你自己的片段里用下面的变量按需取回；
-- 只作用于主代理，子代理仍按各自定义注入内置片段；
-- `prompts.custom/` 里没有可识别的数字片段时系统提示词会为空，请确保至少有 `NN-xxx.md`。
+- No built-in fragments are injected anymore, and the skills list, subagent list, memory, project rules, workspace, and current time are no longer appended automatically;
+- Whatever dynamic content you need, pull it back on demand with the variables below in your own fragments;
+- It affects the main agent only; subagents still get built-in fragments injected per their own definitions;
+- If `prompts.custom/` contains no recognizable numbered fragments, the system prompt will be empty—make sure there is at least one `NN-xxx.md`.
 
-::: danger 这是"完全接管"
-启用后 AI 的行事规则完全由你写的片段决定，务必自备身份、工具说明与安全边界等内容，否则 AI 会缺少必要上下文。
+::: danger This is a "full takeover"
+Once enabled, the AI's rules of behavior are decided entirely by the fragments you write. Be sure to provide identity, tool descriptions, safety boundaries, and similar content yourself, or the AI will lack necessary context.
 :::
 
-## 可用变量
+## Available Variables
 
-在片段正文里写这些占位符，运行时会替换成真实内容；清单为空时替换为空字符串：
+Write these placeholders in fragment bodies; at runtime they are replaced with real content—empty lists become empty strings:
 
 ::: v-pre
-| 变量 | 替换为 |
+| Variable | Replaced with |
 | --- | --- |
-| `{{AICODE_SKILLS}}` | 可用技能列表（每行一项） |
-| `{{AICODE_SUBAGENTS}}` | 可用子代理列表（每行一项） |
-| `{{AICODE_MEMORY_GLOBAL}}` | 全局记忆列表（每行一项） |
-| `{{AICODE_MEMORY_PROJECT}}` | 项目记忆列表（每行一项） |
-| `{{AICODE_PROJECT_RULES}}` | 项目规则正文（`AGENTS.md` / `CLAUDE.md`） |
-| `{{AICODE_WORKSPACE}}` | 项目根目录（`~/workspace`，未选工作区时为提示文本） |
-| `{{AICODE_ENVIRONMENT}}` | 当前运行环境（本地容器（PRoot） / 远程 SSH 服务器） |
-| `{{AICODE_DATE}}` | 当前日期（`yyyy-MM-dd`） |
-| `{{AICODE_SUBAGENT_NAME}}` | 当前子代理名称（仅子代理提示词渲染时有值） |
+| `{{AICODE_SKILLS}}` | List of available skills (one per line) |
+| `{{AICODE_SUBAGENTS}}` | List of available subagents (one per line) |
+| `{{AICODE_MEMORY_GLOBAL}}` | Global memory list (one per line) |
+| `{{AICODE_MEMORY_PROJECT}}` | Project memory list (one per line) |
+| `{{AICODE_PROJECT_RULES}}` | Body of the project rules (`AGENTS.md` / `CLAUDE.md`) |
+| `{{AICODE_WORKSPACE}}` | Project root directory (`~/workspace`; a hint text when no workspace is selected) |
+| `{{AICODE_ENVIRONMENT}}` | Current runtime environment (local container (PRoot) / remote SSH server) |
+| `{{AICODE_DATE}}` | Current date (`yyyy-MM-dd`) |
+| `{{AICODE_SUBAGENT_NAME}}` | Current subagent name (only set when rendering subagent prompts) |
 :::
 
-::: tip 变量在任意片段处就地展开
-系统提示词里的技能、子代理、记忆、项目规则、工作区与当前时间，默认由内置片段 `99-runtime-context.md` 用这些变量承载；你也可以在自己的片段里写变量，同样会在该处替换成真实内容。想改变这些内容的位置或顺序，编辑或覆盖 `99-runtime-context.md` 即可。
-变量只替换为**纯数据**（列表行、文件正文、路径、日期），像「可用技能：」这样的标题与引导语都写在片段文件里，随片段一起编辑。
+::: tip Variables expand in place in any fragment
+The skills, subagents, memory, project rules, workspace, and current time in the system prompt are carried by these variables in the built-in fragment `99-runtime-context.md` by default; you can also write variables in your own fragments, and they will likewise be replaced with real content at that spot. To change where this content sits or in what order, edit or override `99-runtime-context.md`.
+Variables are replaced with **pure data** (list lines, file bodies, paths, dates); headings and lead-ins like "Available skills:" live in the fragment files themselves and are edited along with the fragment.
 :::
 
-`prompts.custom/` 里没有 `99-runtime-context.md` 的覆盖时，运行期上下文照常由内置版本注入；若你覆盖了它却没写变量，对应内容就不会出现。
+If there is no override of `99-runtime-context.md` in `prompts.custom/`, the runtime context is injected by the built-in version as usual; if you override it but write no variables, the corresponding content won't appear.
 
-其它占位符（如压缩提示词用的 <span v-pre>`{{INSTRUCTION}}`</span>）不受影响。
+Other placeholders (such as <span v-pre>`{{INSTRUCTION}}`</span> used by the compression prompt) are unaffected.
 
-## 升级时的行为
+## Behavior on Upgrade
 
-- `prompts/` 目录每次启动都会被内置版本全量覆盖，所以默认提示词会随 App 升级自动更新。
-- `prompts.custom/` 目录 App 永远不会自动写入或删除，你的自定义在升级后完整保留。
+- The `prompts/` directory is fully overwritten with the built-in version at every startup, so default prompts update automatically when the app upgrades.
+- The app never writes to or deletes the `prompts.custom/` directory; your customizations survive upgrades intact.
 
-::: danger 请勿直接修改 prompts/ 目录
-`prompts/` 目录中的内容在每次启动时都会被全量重置，手动修改的内容在 App 升级或重启后会被覆盖。如需持久自定义，请务必保存在 `prompts.custom/` 目录中。
+::: danger Do not modify the prompts/ directory directly
+Everything in `prompts/` is fully reset at every startup; manual edits will be overwritten when the app upgrades or restarts. For persistent customization, always keep it in `prompts.custom/`.
 :::
 
-## 片段说明
+## Fragment Reference
 
-| 文件名 | 内容 |
+| File | Contents |
 | --- | --- |
-| `00-identity.md` | AI 身份与角色定义 |
-| `10-communication.md` | 沟通与回复风格 |
-| `15-project-rules.md` | 项目规则加载约定（AGENTS.md / CLAUDE.md），详见 [记忆与项目规则](/guide/memory) |
-| `20-coding-discipline.md` | 编码纪律 |
-| `30-comments.md` | 代码注释规范 |
-| `40-approach.md` | 工作方式与流程 |
-| `50-safety.md` | 安全与可信边界 |
-| `60-tools-and-paths.md` | 工具说明与路径约定 |
-| `70-skills-and-mcp.md` | 技能与 MCP 说明 |
-| `99-runtime-context.md` | 运行期上下文：技能、子代理、记忆、项目规则、工作区与当前时间（用变量承载） |
-| `agent/plan-mode.md` | PLAN 模式提醒（按需注入） |
-| `agent/auto-mode.md` | AUTO 模式提醒（按需注入） |
-| `agent/subagent-base.md` | 子代理基础运行规范（按需注入） |
-| `agent/subagent-context.md` | 子代理运行期上下文：身份、工作区与时间（按需注入） |
-| `agent/compact-summary.md` | 长对话上下文压缩的提示词 |
-| `agent/title-generator.md` | 会话标题生成的提示词 |
-| `agent/init.md` | `/init` 命令的指令正文（分析代码库并生成/改进 `AGENTS.md`），可在对话输入框用 `/init` 触发 |
+| `00-identity.md` | AI identity and role definition |
+| `10-communication.md` | Communication and reply style |
+| `15-project-rules.md` | Project rules loading convention (AGENTS.md / CLAUDE.md); see [Memory and project rules](/guide/memory) |
+| `20-coding-discipline.md` | Coding discipline |
+| `30-comments.md` | Code comment guidelines |
+| `40-approach.md` | Working style and process |
+| `50-safety.md` | Safety and trust boundaries |
+| `60-tools-and-paths.md` | Tool descriptions and path conventions |
+| `70-skills-and-mcp.md` | Skills and MCP notes |
+| `99-runtime-context.md` | Runtime context: skills, subagents, memory, project rules, workspace, and current time (carried by variables) |
+| `agent/plan-mode.md` | PLAN mode reminder (injected on demand) |
+| `agent/auto-mode.md` | AUTO mode reminder (injected on demand) |
+| `agent/subagent-base.md` | Subagent base operating rules (injected on demand) |
+| `agent/subagent-context.md` | Subagent runtime context: identity, workspace, and time (injected on demand) |
+| `agent/compact-summary.md` | Prompt for long-conversation context compression |
+| `agent/title-generator.md` | Prompt for session title generation |
+| `agent/init.md` | Instruction body of the `/init` command (analyzes the codebase and generates/improves `AGENTS.md`); can be triggered with `/init` in the chat input box |
 
-## 恢复默认
+## Restoring Defaults
 
-删掉 `~/.xencode/prompts.custom/` 下对应的文件，那个片段就恢复默认版本；删掉整个 `prompts.custom/` 目录则全部恢复（`.no-builtin` 一并删除后内置提示词重新启用）。
+Delete the corresponding file under `~/.xencode/prompts.custom/` and that fragment reverts to the default version; delete the entire `prompts.custom/` directory to restore everything (once `.no-builtin` is deleted along with it, the built-in prompts are re-enabled).
 
-## 注意
+## Notes
 
-- 旧版把 `80-plan-mode.md`、`81-auto-mode.md`、`90-subagent-base.md` 放在 `prompts/` 顶层，**v1.12.0 起**已移到 `prompts/agent/` 且去掉编号；对应的自定义覆盖请改用 `prompts.custom/agent/plan-mode.md` 等路径。
-- `60-tools-and-paths.md` 这类片段会随工具变更而更新。如果你覆盖了它，App 升级后不会自动获得新版工具说明，AI 看到的工具定义可能和实际不一致。需要更新时手动同步，或删掉你的自定义版本让默认版本重新生效。
+- Older versions placed `80-plan-mode.md`, `81-auto-mode.md`, and `90-subagent-base.md` at the top level of `prompts/`; **since v1.12.0** they have moved into `prompts/agent/` and lost their numbers. Update the corresponding custom overrides to paths like `prompts.custom/agent/plan-mode.md`.
+- Fragments like `60-tools-and-paths.md` are updated as tools change. If you override one, you won't automatically receive the new tool descriptions after an app upgrade, and the tool definitions the AI sees may not match reality. When an update is needed, sync manually, or delete your custom version to let the default take effect again.

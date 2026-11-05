@@ -22,7 +22,7 @@ interface AIProviderDao {
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertAllProviders(providers: List<AIProviderEntity>)
 
-    /** 仅更新排序值，避免整行 REPLACE 覆盖并发修改的其它字段。 */
+    /** Updates only the sort order, avoiding a full-row REPLACE that would overwrite other concurrently modified fields. */
     @Query("UPDATE ai_providers SET sortOrder = :sortOrder WHERE id = :id")
     suspend fun updateSortOrder(id: String, sortOrder: Int)
 

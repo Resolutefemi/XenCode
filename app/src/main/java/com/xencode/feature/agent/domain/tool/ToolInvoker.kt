@@ -17,41 +17,41 @@ import kotlinx.serialization.json.longOrNull
 import kotlinx.serialization.json.jsonPrimitive
 import javax.inject.Inject
 
-/** 单个工具一次执行的结果：transport 文本（喂模型）+ 错误标记 + 展示附件/图片。 */
+/** Result of one tool execution: transport text (fed to the model) + error flag + display attachments/images. */
 data class ToolRunResult(
     val raw: String,
     val isError: Boolean,
-    /** 仅 sendFile 等展示型工具：随结果附带的文件卡片元数据，供 UI 渲染，不回放进模型上下文。 */
+    /** Display-only tools like sendFile: file-card metadata attached to the result, rendered by the UI and never fed back into the model context. */
     val attachments: List<AgentAttachment> = emptyList(),
     val images: List<AgentImage> = emptyList()
 )
 
 /**
- * 工具执行组件：workflow 的 [com.xencode.feature.agent.domain.workflow.StatefulAgentWorkflow]
- * 把批内每个工具的执行委托到这里，由本组件统一负责线程调度与结果后处理。
+ * Tool execution component: the workflow's [com.xencode.feature.agent.domain.workflow.StatefulAgentWorkflow]
+ * delegates each tool execution in a batch here, and this component centrally handles thread dispatching and result post-processing.
  *
- * ## 为什么必须统一切 IO（血泪修复）
- * workflow 的收集方（AIAgentViewModel.executeAgentRequestStream）是 `viewModelScope.launch`
- * 无调度器参数，即 `Dispatchers.Main.immediate`。批次执行处 `coroutineScope { async { … } }`
- * 继承该单线程调度器：若不在此统一切 IO，
- * 1. `async` 只是挂在单线程上的挂起点，**并行批次实际是串行**；
- * 2. 工具的阻塞 IO 直接占用主线程——Bash 的 `runCommandSync`（DEVICE_ROOT 下是
- *    `su -c` fork + `Process.waitFor()`）、list 的逐项 `fileAccess.exists/isDirectory`
- *    （ROOT 模式每项一次 fork）、search 的 `runCommandSyncIfReady`；
- * 3. 表现为「AI 并行调用几个工具就整体卡住、多点几下屏幕直接 ANR 被杀（闪退）」。
+ * ## Why IO must be switched here uniformly (a hard-learned fix)
+ * The workflow's collector (AIAgentViewModel.executeAgentRequestStream) is a `viewModelScope.launch`
+ * without a dispatcher, i.e. `Dispatchers.Main.immediate`. The batch executor's `coroutineScope { async { … } }`
+ * inherits that single-threaded dispatcher: without a unified IO switch here,
+ * 1. `async` is just a suspension point on one thread, so **parallel batches actually run serially**;
+ * 2. tools' blocking IO hogs the main thread directly — Bash's `runCommandSync` (under DEVICE_ROOT it is
+ *    `su -c` fork + `Process.waitFor()`), list's per-item `fileAccess.exists/isDirectory`
+ *    (one fork per item in ROOT mode), search's `runCommandSyncIfReady`;
+ * 3. symptoms: "the whole app freezes when the AI calls a few tools in parallel, a few extra taps trigger an ANR kill (crash)".
  *
- * 统一切 IO 后：IO 线程池（默认 64 线程）上真正并行、主线程只负责事件分发。
- * 需要主线程协作的工具（浏览器 WebView、后台终端 sessionManager）自行
- * `withContext(Dispatchers.Main)` 切回，不受本组件影响；工具内部已自切 IO 的
- * （readFile 等）只是一次 no-op 切换。
+ * With a unified IO switch: genuinely parallel on the IO thread pool (64 threads by default), the main thread only dispatches events.
+ * Tools needing main-thread cooperation (the browser WebView, the background terminal sessionManager) switch back with their own
+ * `withContext(Dispatchers.Main)`, unaffected by this component; tools that already switch to IO internally
+ * (readFile etc.) only see a no-op switch.
  *
- * 另外本组件集中承载结果后处理（输出限幅裁剪、附件提取/剥离、异常包装），
- * 使其脱离 workflow 可独立单测。
+ * This component also centralizes result post-processing (output capping/trimming, attachment extraction/stripping, exception wrapping),
+ * making it independently unit-testable outside the workflow.
  */
 class ToolInvoker @Inject constructor(
     private val toolOutputStore: ToolOutputStore
 ) {
-    /** 执行非流式工具。返回可直接进模型上下文的 transport 文本。 */
+    /** Runs a non-streaming tool. Returns the transport text ready to go into the model context. */
     suspend fun runSync(
         tool: AgentTool?,
         toolCall: ToolCall,
@@ -78,9 +78,9 @@ class ToolInvoker @Inject constructor(
     }
 
     /**
-     * 执行流式工具：进度事件经 [onEvent] 回传（累积尾部限幅 [LIVE_TAIL_CHARS] 字符、
-     * [PROGRESS_INTERVAL_MS] 毫秒节流），结束返回最终结果。
-     * [onEvent] 即 workflow 的 `send`——channelFlow 的 send 可从任意线程调用，IO 线程回传安全。
+     * Runs a streaming tool: progress events go back through [onEvent] (accumulated tail capped at [LIVE_TAIL_CHARS] characters,
+     * throttled to one per [PROGRESS_INTERVAL_MS]), and the final result is returned at the end.
+     * [onEvent] is the workflow's `send` — channelFlow's send can be called from any thread, so IO-thread callback is safe.
      */
     suspend fun runStream(
         tool: StreamingAgentTool,
@@ -122,8 +122,8 @@ class ToolInvoker @Inject constructor(
     }
 
     /**
-     * 从 sendFile 工具结果的 `files` 数组提取文件卡片元数据（含宿主本地路径，供 UI 打开文件用）。
-     * 任一文件缺关键字段则整体返回空（与 sendFile 的原子语义一致）。
+     * Extracts file-card metadata from the sendFile tool result's `files` array (including host-local paths, for the UI to open files).
+     * If any file lacks a key field, the whole extraction returns empty (consistent with sendFile's atomic semantics).
      */
     private fun extractAttachments(result: ToolResult): List<AgentAttachment> {
         val data = (result as? ToolResult.Success)?.data as? JsonObject ?: return emptyList()
@@ -146,7 +146,7 @@ class ToolInvoker @Inject constructor(
         return if (attachments.size == files.size) attachments else emptyList()
     }
 
-    /** 从回传给模型的 sendFile 结果中剥离宿主本地路径（模型只应看到容器路径）。 */
+    /** Strips host-local paths from the sendFile result fed back to the model (the model should only see container paths). */
     private fun stripAttachments(result: ToolResult): ToolResult {
         val success = result as? ToolResult.Success ?: return result
         val data = success.data as? JsonObject ?: return result
@@ -162,9 +162,9 @@ class ToolInvoker @Inject constructor(
     }
 
     private companion object {
-        /** 流式工具回传 UI 的累积输出保留字符数（防止超长输出拖慢重组）。 */
+        /** Characters of accumulated output kept for the streaming tool's UI callbacks (so overlong output cannot slow recomposition). */
         const val LIVE_TAIL_CHARS = 4_000
-        /** 流式工具进度事件最小间隔（毫秒）。 */
+        /** Minimum interval between streaming tool progress events (milliseconds). */
         const val PROGRESS_INTERVAL_MS = 250L
     }
 }

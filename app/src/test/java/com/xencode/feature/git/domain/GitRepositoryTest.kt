@@ -22,20 +22,21 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 /**
- * [GitRepository] 的输出解析逻辑（mock 掉 CommandEngine 与 WorkspaceRepository）。
- * 所有用例的 engine 输出均按真实 git 命令输出构造（porcelain / for-each-ref / diff-tree /
- * ls-files / log），聚焦解析：中文路径不转义、分支跟踪信息、refs 组装、分页与提交消息 shell 转义。
- * 纯 JVM，不触 Android API（git 执行本身被 mock）。
+ * [GitRepository] output parsing logic (CommandEngine and WorkspaceRepository mocked out).
+ * Every case's engine output is built to mirror real git command output (porcelain / for-each-ref /
+ * diff-tree / ls-files / log), focusing on parsing: Chinese paths kept unescaped, branch tracking info,
+ * refs assembly, pagination, and commit message shell escaping.
+ * Pure JVM, no Android APIs touched (git execution itself is mocked).
  */
 class GitRepositoryTest {
 
     private val workPath = "/root/workspace"
 
-    /** 构造给定输出的 repo；[exitCode] 非 0 用于覆盖 gitChecked 失败路径。 */
+    /** Builds a repo returning the given output; a non-zero [exitCode] covers the gitChecked failure path. */
     private fun createRepo(output: String, exitCode: Int? = 0): GitRepository {
         val engine = mockk<GitCommandEngine>()
         coEvery { engine.runCommandSyncUnbounded(any(), any(), any()) } answers {
-            // status() 会额外探测 MERGE_HEAD 判断合并状态，该探测须返回空，否则被误判为合并中
+            // status() additionally probes MERGE_HEAD to detect merge state; that probe must return empty or it is misjudged as mid-merge
             if (invocation.args[0].toString().contains("MERGE_HEAD")) CommandResult("", 0)
             else CommandResult(output, exitCode)
         }
@@ -44,7 +45,7 @@ class GitRepositoryTest {
         return GitRepository(engine, workspace)
     }
 
-    // ── status()：porcelain v1 -b 解析 ───────────────────────────
+    // ── status(): porcelain v1 -b parsing ───────────────────────────
 
     @Test
     fun status_parsesBranchTrackingAndChanges() = runTest {
@@ -52,7 +53,7 @@ class GitRepositoryTest {
             "## feature/foo...origin/feature/foo [ahead 2, behind 3]\n" +
                 " M src/Main.kt\n" +
                 "A  src/New.kt\n" +
-                "?? untracked/文件.txt"
+                "?? untracked/file.txt"
         )
         val status = repo.status()
         assertEquals(
@@ -62,7 +63,7 @@ class GitRepositoryTest {
                 behind = 3,
                 staged = listOf(GitFileChange("src/New.kt", "A", staged = true)),
                 unstaged = listOf(GitFileChange("src/Main.kt", "M", staged = false)),
-                untracked = listOf("untracked/文件.txt"),
+                untracked = listOf("untracked/file.txt"),
                 upstream = "origin/feature/foo",
                 isDetached = false
             ),
@@ -92,7 +93,7 @@ class GitRepositoryTest {
 
     @Test
     fun status_chinesePath_keptUnescaped() = runTest {
-        // core.quotepath=false 后中文路径原样输出，不得转义为 \NNN
+        // With core.quotepath=false, Chinese paths are output verbatim and must not be escaped to \NNN
         val repo = createRepo(" M 中文目录/文件.txt\n?? 中文未跟踪.txt\nA  新建/目录/测试.txt")
         val status = repo.status()
         assertEquals(listOf(GitFileChange("中文目录/文件.txt", "M", staged = false)), status.unstaged)
@@ -102,9 +103,9 @@ class GitRepositoryTest {
 
     @Test
     fun status_renamedPath_usesNewPath() = runTest {
-        val repo = createRepo("R  old.txt -> 新目录/新名.txt")
+        val repo = createRepo("R  old.txt -> newdir/renamed.txt")
         val status = repo.status()
-        assertEquals(listOf(GitFileChange("新目录/新名.txt", "R", staged = true)), status.staged)
+        assertEquals(listOf(GitFileChange("newdir/renamed.txt", "R", staged = true)), status.staged)
         assertTrue(status.unstaged.isEmpty())
     }
 
@@ -118,13 +119,13 @@ class GitRepositoryTest {
 
     @Test
     fun status_quotedPath_unquoted() = runTest {
-        // 含空格路径在 porcelain 里带引号，需还原
+        // Paths with spaces are quoted in porcelain and must be unquoted
         val repo = createRepo(" M \"a b.txt\"")
         val status = repo.status()
         assertEquals(listOf(GitFileChange("a b.txt", "M", staged = false)), status.unstaged)
     }
 
-    // ── branches() / loadAllRefs()：for-each-ref 解析 ────────────
+    // ── branches() / loadAllRefs(): for-each-ref parsing ────────────
 
     @Test
     fun loadAllRefs_parsesBranchesRemotesAndTags() = runTest {
@@ -148,7 +149,7 @@ class GitRepositoryTest {
             "main",
             refs.refsByCommit.getValue("7f2a1b3c4d5e")[0].name
         )
-        // 同一 hash 上的本地分支与标签都保留，HEAD 标记只落在本地分支
+        // Both the local branch and the tag on the same hash are kept; the HEAD marker lands only on the local branch
         val refsOnHash = refs.refsByCommit.getValue("7f2a1b3c4d5e")
         assertEquals(
             listOf(
@@ -163,7 +164,7 @@ class GitRepositoryTest {
 
     @Test
     fun loadAllRefs_tagsReversedByRefname() = runTest {
-        // for-each-ref 按 refname 升序输出 v0.9 在前，解析后须反转为 [v1.0, v0.9]
+        // for-each-ref outputs v0.9 first in refname ascending order; after parsing it must be reversed to [v1.0, v0.9]
         val repo = createRepo(
             "v0.9\u001f1a2b3c4d5e6f\u001f\u001frefs/tags/v0.9\u001f\u001f\n" +
                 "v1.0\u001f7f2a1b3c4d5e\u001f\u001frefs/tags/v1.0\u001f\u001f"
@@ -196,19 +197,19 @@ class GitRepositoryTest {
         assertEquals(listOf("main", "origin/main"), repo.branches().map { it.name })
     }
 
-    // ── log(limit)：%x1f 分隔解析 ────────────────────────────────
+    // ── log(limit): %x1f-separated parsing ────────────────────────────────
 
     @Test
     fun log_parsesFields() = runTest {
         val repo = createRepo(
-            "a1b2c3d4\u001fa1b2c3\u001fAlice\u001f2 days ago\u001ffix: 问题\n" +
-                "e5f6a7b8\u001fe5f6a7\u001fBob\u001f3 days ago\u001ffeat: 新功能"
+            "a1b2c3d4\u001fa1b2c3\u001fAlice\u001f2 days ago\u001ffix: issue\n" +
+                "e5f6a7b8\u001fe5f6a7\u001fBob\u001f3 days ago\u001ffeat: new feature"
         )
         val commits = repo.log(limit = 50)
         assertEquals(
             listOf(
-                GitCommit("a1b2c3d4", "a1b2c3", "Alice", "2 days ago", "fix: 问题"),
-                GitCommit("e5f6a7b8", "e5f6a7", "Bob", "3 days ago", "feat: 新功能")
+                GitCommit("a1b2c3d4", "a1b2c3", "Alice", "2 days ago", "fix: issue"),
+                GitCommit("e5f6a7b8", "e5f6a7", "Bob", "3 days ago", "feat: new feature")
             ),
             commits
         )
@@ -216,7 +217,7 @@ class GitRepositoryTest {
 
     @Test
     fun log_messageWithPipe_keptWhole() = runTest {
-        // 提交信息含 '|'：分隔符是 0x1f，message 应完整保留
+        // Commit message containing '|': the delimiter is 0x1f, so the message must be kept whole
         val repo = createRepo("a1b2c3d4\u001fa1b2c3\u001fAlice\u001f2 days ago\u001ffix: merge | conflict")
         val commits = repo.log(limit = 50)
         assertEquals("fix: merge | conflict", commits.single().message)
@@ -234,12 +235,12 @@ class GitRepositoryTest {
 
     @Test
     fun log_shortLine_skipped() = runTest {
-        // 不足 5 段（缺 message）的行整行丢弃
+        // Lines with fewer than 5 segments (missing message) are dropped entirely
         val repo = createRepo("a1b2c3d4\u001fa1b2c3\u001fAlice\u001f2 days ago")
         assertTrue(repo.log(limit = 50).isEmpty())
     }
 
-    // ── commitFiles(hash)：diff-tree --name-status 解析 ──────────
+    // ── commitFiles(hash): diff-tree --name-status parsing ──────────
 
     @Test
     fun commitFiles_parsesNameStatus() = runTest {
@@ -247,7 +248,7 @@ class GitRepositoryTest {
             "M\tapp/src/Main.kt\n" +
                 "A\tapp/src/New.kt\n" +
                 "D\tapp/src/Old.kt\n" +
-                "A\t中文/文件.txt"
+                "A\tdocs/file.txt"
         )
         val files = repo.commitFiles("a1b2c3d4")
         assertEquals(
@@ -255,7 +256,7 @@ class GitRepositoryTest {
                 GitFileChange("app/src/Main.kt", "M", staged = false),
                 GitFileChange("app/src/New.kt", "A", staged = false),
                 GitFileChange("app/src/Old.kt", "D", staged = false),
-                GitFileChange("中文/文件.txt", "A", staged = false)
+                GitFileChange("docs/file.txt", "A", staged = false)
             ),
             files
         )
@@ -270,23 +271,23 @@ class GitRepositoryTest {
 
     @Test
     fun commitFiles_noTabLines_skipped() = runTest {
-        // fatal 行/空白行无 tab，跳过 → 空列表（提交无改动或命令失败）
+        // fatal lines / blank lines have no tab and are skipped → empty list (commit has no changes or the command failed)
         val repo = createRepo("fatal: ambiguous argument 'x': unknown revision or path not in the working tree.\n")
         assertTrue(repo.commitFiles("badhash").isEmpty())
     }
 
-    // ── untrackedFilesIn(dir)：ls-files --others 解析 ────────────
+    // ── untrackedFilesIn(dir): ls-files --others parsing ────────────
 
     @Test
     fun untrackedFilesIn_parsesLines() = runTest {
         val repo = createRepo(
             "newDir/1.txt\n" +
                 "newDir/2.txt\n" +
-                "中文/新文件.txt\n" +
+                "docs/new-file.txt\n" +
                 "\n"
         )
         val files = repo.untrackedFilesIn("newDir")
-        assertEquals(listOf("newDir/1.txt", "newDir/2.txt", "中文/新文件.txt"), files)
+        assertEquals(listOf("newDir/1.txt", "newDir/2.txt", "docs/new-file.txt"), files)
     }
 
     @Test
@@ -295,7 +296,7 @@ class GitRepositoryTest {
         assertTrue(createRepo("fatal: not a git repository").untrackedFilesIn("dir").isEmpty())
     }
 
-    // ── graph() / graphAppend()：log + refs → GitGraph ───────────
+    // ── graph() / graphAppend(): log + refs → GitGraph ───────────
 
     @Test
     fun graph_blankOutput_returnsEmptyGraph() = runTest {
@@ -308,28 +309,28 @@ class GitRepositoryTest {
     @Test
     fun graph_parsesCommitsAndFiltersRefs() = runTest {
         val repo = createRepo(
-            "aaaa1111\u001faaaa1111\u001fAlice\u001f2 days ago\u001ffix: 修复 | 分号\u001fbbbb2222\u001f正文单行\n" +
+            "aaaa1111\u001faaaa1111\u001fAlice\u001f2 days ago\u001ffix: table | semicolons\u001fbbbb2222\u001fsingle-line body\n" +
                 "bbbb2222\u001fbbbb2222\u001fBob\u001f3 days ago\u001ffeat: init\u001f"
         )
         val refs = mapOf(
             "aaaa1111" to listOf(GitGraphRef("main", isBranch = true, isCurrent = true, isRemote = false)),
-            // 未加载的 hash 应被过滤掉
+            // Hashes that were not loaded should be filtered out
             "zzzz9999" to listOf(GitGraphRef("other", isBranch = true, isCurrent = false, isRemote = false))
         )
         val graph = repo.graph(limit = 100, refs = refs)
         assertEquals(2, graph.commits.size)
         assertEquals("aaaa1111", graph.commits[0].hash)
-        assertEquals("正文单行", graph.commits[0].body)
+        assertEquals("single-line body", graph.commits[0].body)
         assertEquals(listOf("bbbb2222"), graph.commits[0].parents)
         assertEquals(setOf("aaaa1111"), graph.refs.keys)
         assertFalse(graph.hasMore)
-        // 泳道：单链全在 0 列
+        // Lanes: a single chain stays in column 0
         assertEquals(mapOf("aaaa1111" to 0, "bbbb2222" to 0), graph.lanes)
     }
 
     @Test
     fun graph_smallBatch_hasMoreTrue() = runTest {
-        // 返回条数达到 limit → 还有更旧提交可加载
+        // Returned count reaches the limit → older commits remain to load
         val repo = createRepo("aaaa1111\u001faaaa1111\u001fAlice\u001f2 days ago\u001ffix\u001f")
         assertTrue(repo.graph(limit = 1).hasMore)
     }
@@ -339,7 +340,7 @@ class GitRepositoryTest {
         val existing = listOf(
             GraphCommit("aaaa1111", "aaaa1111", "Alice", "d", "newer", parents = listOf("bbbb2222"))
         )
-        // 模拟极端情况下新批次仍含已加载提交（--skip 理论上避免，防御性去重）
+        // Simulates the extreme case where a new batch still contains already-loaded commits (--skip avoids this in theory; defensive dedup)
         val repo = createRepo(
             "aaaa1111\u001faaaa1111\u001fAlice\u001f2 days ago\u001fnewer\u001fbbbb2222\u001f\n" +
                 "bbbb2222\u001fbbbb2222\u001fBob\u001f3 days ago\u001folder\u001f"
@@ -350,7 +351,7 @@ class GitRepositoryTest {
 
     @Test
     fun graphAppend_existingNonEmpty_logFatal_buildsFromExisting() = runTest {
-        // 追加批次失败时保留已加载的提交重算布局，不降级为 EMPTY
+        // When the appended batch fails, keep the loaded commits and recompute the layout; do not degrade to EMPTY
         val existing = listOf(
             GraphCommit("aaaa1111", "aaaa1111", "Alice", "d", "newer", parents = emptyList())
         )
@@ -386,7 +387,7 @@ class GitRepositoryTest {
         assertEquals(1, graph.maxLane)
     }
 
-    // ── commit()：消息 shell 转义与失败路径 ───────────────────────
+    // ── commit(): message shell escaping and failure paths ───────────────────────
 
     @Test
     fun commit_messageWithPipe_shellSingleQuoted() = runTest {
@@ -397,9 +398,9 @@ class GitRepositoryTest {
         coEvery { engine.runCommandSyncUnbounded(capture(slot), any(), any()) } returns CommandResult("", 0)
         val repo = GitRepository(engine, workspace)
 
-        repo.commit("fix: 表格 | 分号; 括号(1)")
-        // '|' 是 shell 管道符，整条消息必须单引号包裹传递
-        assertEquals("git -c core.quotepath=false commit -m 'fix: 表格 | 分号; 括号(1)'", slot.captured)
+        repo.commit("fix: table | semicolon; parens(1)")
+        // '|' is a shell pipe, so the whole message must be passed single-quoted
+        assertEquals("git -c core.quotepath=false commit -m 'fix: table | semicolon; parens(1)'", slot.captured)
     }
 
     @Test
@@ -412,16 +413,16 @@ class GitRepositoryTest {
         val repo = GitRepository(engine, workspace)
 
         repo.commit("it's fixed")
-        // 内嵌单引号关闭-转义-重开：it'\''s fixed
+        // Embedded single quote closes-escapes-reopens: it'\''s fixed
         assertEquals("git -c core.quotepath=false commit -m 'it'\\''s fixed'", slot.captured)
     }
 
     @Test
     fun commit_nonZeroExit_throwsGitCommandFailureException() = runTest {
-        val repo = createRepo("fatal: 提交失败", exitCode = 1)
+        val repo = createRepo("fatal: commit failed", exitCode = 1)
         val e = runCatching { repo.commit("msg") }.exceptionOrNull()
         assertTrue(e is GitCommandFailureException)
-        assertEquals("fatal: 提交失败", (e as GitCommandFailureException).output)
+        assertEquals("fatal: commit failed", (e as GitCommandFailureException).output)
     }
 
     @Test

@@ -17,11 +17,11 @@ import javax.inject.Inject
 import javax.inject.Singleton
 
 /**
- * git 凭据的文件实现（真源 = `filesDir/xencode/git-credentials`，容器内 `/root/.xencode/git-credentials`）。
+ * File-backed implementation of git credentials (source of truth = `filesDir/xencode/git-credentials`, i.e. `/root/.xencode/git-credentials` inside the container).
  *
- * 文件采用 git-credential-store 标准格式：每行 `https://user:token@host`，每主机一条（保存同主机覆盖旧值），
- * 由容器/远程服务器的 `credential.helper=store` 直接读取，UI 与 git 共用同一份。
- * 内存以 StateFlow 缓存，写操作（save/delete）原子落盘后刷新。
+ * The file uses the standard git-credential-store format: one `https://user:token@host` line per host (saving the same host overwrites the old value),
+ * read directly by the container/remote server's `credential.helper=store`; the UI and git share the same copy.
+ * Cached in memory as a StateFlow; write operations (save/delete) flush after an atomic write to disk.
  */
 @Singleton
 class FileCredentialRepository @Inject constructor(
@@ -55,21 +55,21 @@ class FileCredentialRepository @Inject constructor(
             GitCredential(id = host, host = host, username = credential.username.trim(), token = credential.token)
         writeFile(updated)
         _credentials.value = updated
-        FileLogger.i(TAG, "保存凭据 host=$host user=${credential.username}")
+        FileLogger.i(TAG, "Saved credential host=$host user=${credential.username}")
     }
 
     override suspend fun delete(id: String) = mutex.withLock {
         val updated = _credentials.value.filterNot { it.id == id }
         writeFile(updated)
         _credentials.value = updated
-        FileLogger.i(TAG, "删除凭据 id=$id")
+        FileLogger.i(TAG, "Deleted credential id=$id")
     }
 
-    /** 解析 git-credentials 文件；格式异常的行跳过。 */
+    /** Parses the git-credentials file; lines with malformed formats are skipped. */
     private fun parse(file: File): List<GitCredential> {
         if (!file.isFile) return emptyList()
         return runCatching {
-            // 文件内容为「base64 后整体反转」的编码串；解码失败（旧版明文）时按原文处理。
+            // The file content is an encoded string ("base64 then fully reversed"); on decode failure (legacy plaintext) treat it as raw text.
             val content = tryDecode(file.readText()) ?: file.readText()
             content.lines().mapNotNull { line ->
                 val trimmed = line.trim()
@@ -88,12 +88,12 @@ class FileCredentialRepository @Inject constructor(
                 else GitCredential(id = host, host = host, username = username, token = token)
             }
         }.getOrElse {
-            FileLogger.w(TAG, "解析 git-credentials 失败: ${it.message}")
+            FileLogger.w(TAG, "Failed to parse git-credentials: ${it.message}")
             emptyList()
         }
     }
 
-    /** 按 git-credentials 格式写文件（先写 .tmp 再 rename，避免 git 读到半截文件）。 */
+    /** Writes the file in git-credentials format (.tmp then rename, so git never reads a half-written file). */
     private fun writeFile(list: List<GitCredential>) {
         val sb = StringBuilder()
         list.sortedBy { it.host }.forEach { c ->
@@ -115,21 +115,21 @@ class FileCredentialRepository @Inject constructor(
 
     private fun enc(part: String): String = URLEncoder.encode(part, "UTF-8")
 
-    /** 编码：base64 后整体反转，使文件不是可直接回显的明文（属混淆，非加密）。 */
+    /** Encoding: base64 then fully reversed, so the file isn't directly readable plaintext (obfuscation, not encryption). */
     private fun encode(plain: String): String =
         Base64.encodeToString(plain.toByteArray(Charsets.UTF_8), Base64.NO_WRAP).reversed()
 
-    /** 解码编码串；不是本格式（如旧版明文）时返回 null。 */
+    /** Decodes an encoded string; returns null when it isn't in this format (e.g. legacy plaintext). */
     private fun tryDecode(text: String): String? = runCatching {
         String(Base64.decode(text.reversed(), Base64.DEFAULT), Charsets.UTF_8)
     }.getOrNull()
 
-    /** 把旧版明文凭据文件迁移为编码格式（幂等）。 */
+    /** Migrates the legacy plaintext credentials file to the encoded format (idempotent). */
     suspend fun migrateToEncoded() = mutex.withLock {
         if (!credentialsFile.isFile) return@withLock
         val raw = runCatching { credentialsFile.readText() }.getOrNull() ?: return@withLock
         if (tryDecode(raw) != null) return@withLock
         writeFile(_credentials.value)
-        FileLogger.i(TAG, "已将明文 git 凭据迁移为编码格式")
+        FileLogger.i(TAG, "Migrated plaintext git credentials to the encoded format")
     }
 }

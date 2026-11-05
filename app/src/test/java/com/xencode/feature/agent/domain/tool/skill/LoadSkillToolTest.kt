@@ -13,10 +13,10 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 /**
- * [LoadSkillTool] 的参数校验与仓库委托行为。
+ * [LoadSkillTool] argument validation and repository delegation behavior.
  *
- * 覆盖 10-18 真机崩溃的入口：AI 调 loadSkill(re-analyze) 后进程死亡——
- * 根因在执行链（全量扫描），工具层保证参数与错误路径行为不回归。
+ * Covers the entry point of the 10-18 on-device crash: the process died after AI called loadSkill(re-analyze) —
+ * the root cause was in the execution chain (full scan); the tool layer guarantees no regression in argument and error-path behavior.
  */
 class LoadSkillToolTest {
 
@@ -28,13 +28,13 @@ class LoadSkillToolTest {
 
     @Test
     fun execute_returnsInstructionsFromRepository() = runBlocking {
-        every { repository.loadInstructions("re-analyze") } returns "技能正文"
+        every { repository.loadInstructions("re-analyze") } returns "skill body"
 
         val result = tool.execute(args("re-analyze"))
 
         assertTrue(result is ToolResult.Success)
         assertEquals(
-            "技能正文",
+            "skill body",
             ((result as ToolResult.Success).data as JsonPrimitive).content
         )
     }
@@ -59,7 +59,7 @@ class LoadSkillToolTest {
     fun execute_unknownSkillListsAvailableOnes() = runBlocking {
         every { repository.loadInstructions("nope") } returns null
         every { repository.listSkills() } returns listOf(
-            Skill(name = "re-analyze", description = "逆向分析", instructions = "x")
+            Skill(name = "re-analyze", description = "reverse analysis", instructions = "x")
         )
 
         val result = tool.execute(args("nope"))
@@ -72,7 +72,7 @@ class LoadSkillToolTest {
 
     @Test
     fun execute_passesNameThrough() = runBlocking {
-        every { repository.loadInstructions(any()) } returns "正文"
+        every { repository.loadInstructions(any()) } returns "body"
 
         val result = tool.execute(args("Re-Analyze"))
 

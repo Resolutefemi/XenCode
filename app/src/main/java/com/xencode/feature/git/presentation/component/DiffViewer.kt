@@ -60,8 +60,8 @@ import androidx.compose.ui.res.stringResource
 import com.xencode.R
 
 /**
- * diff 视图所需的数据。由 [com.xencode.feature.git.presentation.GitViewModel] 在后台线程
- * 用 [LineDiff] 计算 + Highlights 着色后填充，UI 直接渲染。
+ * Data needed by the diff view. Filled in on a background thread by
+ * [com.xencode.feature.git.presentation.GitViewModel] using [LineDiff] + Highlights coloring; the UI just renders it.
  */
 data class DiffData(
     val filePath: String,
@@ -75,8 +75,8 @@ data class DiffData(
 )
 
 /**
- * 一行 diff 的完整渲染数据：类型 + 文本 + 高亮 + 旧/新行号。
- * 行号在 ViewModel 计算 diff 时一并算好，避免 LazyColumn 懒加载下 UI 层维护可变计数。
+ * Full render data for one diff line: type + text + highlight + old/new line numbers.
+ * Line numbers are computed alongside the diff in the ViewModel, sparing the UI layer mutable counters under LazyColumn lazy loading.
  */
 data class DiffRow(
     val type: LineDiff.LineType,
@@ -183,7 +183,7 @@ private fun DiffContent(diffData: DiffData, padding: androidx.compose.foundation
         val chars = maxOf(3, maxLineNum.toString().length)
         (chars * 8 + 8).dp
     }
-    // 横向滚动只有一个实例（外层 Box），LazyColumn 宽度取最宽行的实测宽度，整列同步滚动。
+    // Only one horizontal scroll instance (the outer Box); the LazyColumn takes the measured width of the widest line, so the whole column scrolls together.
     val hScroll = rememberScrollState()
     val textMeasurer = rememberTextMeasurer()
     val contentStyle = MaterialTheme.typography.bodySmall.copy(fontFamily = FontFamily.Monospace)
@@ -377,9 +377,9 @@ private fun LargeFileHint(diffData: DiffData, padding: androidx.compose.foundati
 }
 
 /**
- * 对一段文本做语法高亮，返回带 SpanStyle 的 AnnotatedString。
- * language 为 null 时返回 null（调用方降级为纯文本）。
- * darkMode 决定语法主题，须与当前 UI 主题一致，否则深色背景下 token 颜色不可见。
+ * Syntax-highlights a piece of text, returning an AnnotatedString with SpanStyles.
+ * Returns null when language is null (the caller degrades to plain text).
+ * darkMode picks the syntax theme and must match the current UI theme, or token colors become invisible on a dark background.
  */
 fun highlightCode(code: String, language: SyntaxLanguage?, darkMode: Boolean): AnnotatedString? {
     if (language == null || code.isBlank()) return null
@@ -406,7 +406,7 @@ fun highlightCode(code: String, language: SyntaxLanguage?, darkMode: Boolean): A
 }
 
 /**
- * 按文件扩展名推断语法语言。未识别返回 null（降级纯文本）。
+ * Infers the syntax language from the file extension. Returns null when unrecognized (degrades to plain text).
  */
 fun inferSyntaxLanguage(filePath: String): SyntaxLanguage? {
     val ext = filePath.substringAfterLast('.', "").lowercase()

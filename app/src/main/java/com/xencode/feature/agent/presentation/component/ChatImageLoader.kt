@@ -15,10 +15,10 @@ import kotlinx.coroutines.withContext
 private const val TAG = "ChatImageLoader"
 
 /**
- * 聊天区图片加载器：把 [ImageSource] 落成位图交给全屏查看器。全项目只有这一份解码策略。
+ * Chat image loader: materializes an [ImageSource] into a bitmap for the fullscreen viewer. This is the project's single decoding strategy.
  *
- * [ImageSource.ContainerPath] 经 [FileAccessProvider.copyToLocal] 落到宿主文件 —— 本地 PRoot 模式
- * 只是路径映射、不产生拷贝；远程 SSH 模式会把文件 base64 拉回来写进临时文件。
+ * [ImageSource.ContainerPath] lands as a host file via [FileAccessProvider.copyToLocal] — in local PRoot mode it is
+ * just a path mapping with no copy; in remote SSH mode the file is pulled back as base64 and written to a temp file.
  */
 internal fun chatImageLoader(
     fileAccess: FileAccessProvider,
@@ -38,7 +38,7 @@ internal fun chatImageLoader(
                     decodeSampledBitmap(Base64.getDecoder().decode(source.data), maxEdge, maxPixels)
             }
         } catch (e: Exception) {
-            FileLogger.w(TAG, "图片加载失败: $source", e)
+            FileLogger.w(TAG, "Image loading failed: $source", e)
             null
         }
     }
@@ -50,10 +50,10 @@ private fun decodeExistingFile(file: File, maxEdge: Int, maxPixels: Long): Image
 }
 
 /**
- * 待发送图片附件的查看请求。
+ * Viewer request for an image attachment pending send.
  *
- * `localPath` 优先、base64 兜底：`decodeByteArray` 要完整 byte[] 常驻，加上本来就压在内存里的
- * base64 字符串（UTF-16 实占两倍），一张 5MB 的图瞬时要多吃十几 MB；从磁盘解码没这份开销。
+ * `localPath` first, base64 as fallback: `decodeByteArray` needs the full byte[] resident, and on top of that the base64
+ * string already held in memory (actually twice as large as UTF-16), a 5MB image can transiently cost a dozen-plus MB extra; decoding from disk has no such overhead.
  */
 internal fun PendingUploadAttachment.toViewerRequest(): ImageViewerRequest = ImageViewerRequest(
     sources = listOfNotNull(
@@ -64,10 +64,10 @@ internal fun PendingUploadAttachment.toViewerRequest(): ImageViewerRequest = Ima
 )
 
 /**
- * 已发送附件的查看请求。
+ * Viewer request for a sent attachment.
  *
- * 带上 `containerPath` 兜底：远程模式下 `sendFile` 记的 `localPath` 来自 `createTempFile` +
- * `deleteOnExit`，进程重启或缓存被清掉后文件就没了，这时得能退回容器路径重新拉一次。
+ * Includes `containerPath` as a fallback: in remote mode the `localPath` recorded by `sendFile` comes from `createTempFile` +
+ * `deleteOnExit`, so the file is gone once the process restarts or the cache is cleared; in that case we must fall back to the container path and pull it again.
  */
 internal fun AgentAttachment.toViewerRequest(): ImageViewerRequest = ImageViewerRequest(
     sources = listOfNotNull(
@@ -78,10 +78,10 @@ internal fun AgentAttachment.toViewerRequest(): ImageViewerRequest = ImageViewer
 )
 
 /**
- * Markdown 内嵌图片的查看请求：link 就是 AI 视角的容器路径。
+ * Viewer request for an inline Markdown image: the link is the container path from the AI's perspective.
  *
- * 库把 alt 直接交给 Image 当 contentDescription，不经过 transformer，所以这里拿不到它，
- * 退而取路径末段的文件名当标题。
+ * The library hands alt straight to Image as contentDescription without going through the transformer, so it is unavailable here;
+ * fall back to the file name at the end of the path as the title.
  */
 internal fun markdownViewerRequest(link: String): ImageViewerRequest = ImageViewerRequest(
     sources = listOf(ImageSource.ContainerPath(link)),

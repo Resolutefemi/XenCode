@@ -5,8 +5,8 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 /**
- * 日志媒体脱敏（[AILogger]）：请求/响应体里的图片 base64 必须在写盘前被替换为占位符，
- * 尤其要覆盖 OpenAI `image_url.url` 这种嵌套 data URL——旧的全文正则对它是漏网的。
+ * Log media redaction ([AILogger]): image base64 in request/response bodies must be replaced with a placeholder before hitting disk,
+ * especially for nested data URLs like OpenAI's `image_url.url` — the old whole-text regex missed those.
  */
 class AILoggerRedactTest {
 
@@ -37,7 +37,7 @@ class AILoggerRedactTest {
 
         val out = AILogger.redactToJson(body)
 
-        assertFalse("内嵌图片 base64 未被脱敏", out.contains(data))
+        assertFalse("embedded image base64 was not redacted", out.contains(data))
         assertTrue(out.contains("[base64 omitted:"))
         assertTrue(out.contains("\"detail\": \"auto\""))
     }
@@ -51,7 +51,7 @@ class AILoggerRedactTest {
 
         val out = AILogger.redactToJson(body)
 
-        assertFalse("source.data 的 base64 未被脱敏", out.contains(data))
+        assertFalse("base64 in source.data was not redacted", out.contains(data))
         assertTrue(out.contains("[base64 omitted:"))
     }
 
@@ -67,10 +67,10 @@ class AILoggerRedactTest {
 
     @Test
     fun keepsNormalTextIntact() {
-        val out = AILogger.redactToJson(mapOf("text" to "hello world，这是一段正常文本，不应被改动。"))
+        val out = AILogger.redactToJson(mapOf("text" to "hello world, this is normal text and must not be modified."))
 
         assertTrue(out.contains("hello world"))
-        assertTrue(out.contains("正常文本"))
+        assertTrue(out.contains("normal text"))
         assertFalse(out.contains("base64 omitted"))
     }
 

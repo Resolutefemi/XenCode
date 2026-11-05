@@ -33,9 +33,9 @@ import retrofit2.Callback
 import retrofit2.Response
 
 /**
- * OpenAI 适配器（[OpenAIAdapter]）：Chat Completions 请求构造 / 响应映射、Responses API 载荷与
- * 解析、SSE 流式聚合。底层 payload/accumulator 纯函数由 ResponsesPayloadTest /
- * ResponsesStreamAccumulatorTest 覆盖，这里侧重 adapter 的组装与分发逻辑。
+ * OpenAI adapter ([OpenAIAdapter]): Chat Completions request construction / response mapping, Responses API payload and
+ * parsing, and SSE stream aggregation. The underlying payload/accumulator pure functions are covered by ResponsesPayloadTest /
+ * ResponsesStreamAccumulatorTest; the focus here is the adapter's assembly and dispatch logic.
  */
 class OpenAIAdapterTest {
 
@@ -79,7 +79,7 @@ class OpenAIAdapterTest {
     private fun toolCall(id: String, name: String, arguments: String): OpenAIToolCall =
         OpenAIToolCall(id = id, function = OpenAIFunctionCall(name = name, arguments = arguments))
 
-    // ── Chat Completions 非流式：请求构造 ──────────────────────────────
+    // ── Chat Completions non-streaming: request construction ──────────────────────────────
 
     @Test
     fun complete_buildsRequestWithSystemPromptToolsAndDefaults() = runTest {
@@ -89,29 +89,29 @@ class OpenAIAdapterTest {
 
         val tool = mockk<AgentTool>(relaxed = true)
         every { tool.name } returns "readFile"
-        every { tool.description } returns "读取文件"
+        every { tool.description } returns "read a file"
         every { tool.toJsonSchema() } returns mapOf("type" to "object", "properties" to emptyMap<String, Any>())
 
         val adapter = adapter(api)
         adapter.temperature = null
         val result = adapter.complete(
-            "你是助手",
-            listOf(AgentMessage.UserMessage(content = "你好")),
+            "You are an assistant",
+            listOf(AgentMessage.UserMessage(content = "hello")),
             tools = listOf(tool)
         )
 
         val req = reqSlot.captured
         assertEquals("gpt-4-turbo", req.model)
-        assertNull(req.temperature) // null 不带 temperature
+        assertNull(req.temperature) // null sends no temperature
         assertEquals(2, req.messages.size)
         assertEquals("system", req.messages[0].role)
-        assertEquals("你是助手", req.messages[0].content)
+        assertEquals("You are an assistant", req.messages[0].content)
         assertEquals("user", req.messages[1].role)
         assertEquals(1, req.tools?.size)
         assertEquals("readFile", req.tools?.get(0)?.function?.name)
         assertEquals("auto", req.tool_choice)
         assertEquals(false, req.stream)
-        assertNull(req.prompt_cache_key) // 默认关闭
+        assertNull(req.prompt_cache_key) // off by default
         assertEquals("ok", result.content)
         assertEquals("stop", result.stopReason)
         assertEquals(10, result.inputTokens)
@@ -199,7 +199,7 @@ class OpenAIAdapterTest {
         assertEquals("https://custom.example/v1/chat/completions", urlSlot.captured)
     }
 
-    // ── Chat Completions：响应映射 ─────────────────────────────────────
+    // ── Chat Completions: response mapping ─────────────────────────────────────
 
     @Test
     fun complete_mapsToolCallsAndReasoning() = runTest {
@@ -240,14 +240,14 @@ class OpenAIAdapterTest {
         val api = api()
         coEvery { api.createChatCompletion(any(), any(), any(), any()) } returns response(
             content = listOf(
-                mapOf("type" to "text", "text" to "正文"),
+                mapOf("type" to "text", "text" to "body text"),
                 mapOf("type" to "image_url", "image_url" to "data:image/png;base64,iVBORw0KGgoAAA")
             )
         )
 
         val result = adapter(api).complete("", emptyList())
 
-        assertTrue(result.content.contains("正文"))
+        assertTrue(result.content.contains("body text"))
         assertTrue(result.content.contains("Image omitted"))
         assertTrue(!result.content.contains("iVBORw0KGgo"))
     }
@@ -272,7 +272,7 @@ class OpenAIAdapterTest {
         assertEquals("QUJD", result.images.single().base64Data)
     }
 
-    // ── Chat Completions：历史消息清洗 ─────────────────────────────────
+    // ── Chat Completions: history message cleanup ─────────────────────────────────
 
     @Test
     fun complete_replaysAssistantToolCallsWithReasoning() = runTest {
@@ -284,22 +284,22 @@ class OpenAIAdapterTest {
             "",
             listOf(
                 AgentMessage.AssistantMessage(
-                    content = "准备调用",
+                    content = "about to call",
                     toolCalls = listOf(ToolCall("call_1", "readFile", JsonObject(emptyMap()))),
-                    reasoning = "上一轮思考"
+                    reasoning = "last turn's thinking"
                 ),
-                AgentMessage.ToolResultMessage(id = "call_1", toolName = "readFile", result = "内容")
+                AgentMessage.ToolResultMessage(id = "call_1", toolName = "readFile", result = "content")
             )
         )
 
         val msgs = reqSlot.captured.messages
         val assistant = msgs.first { it.role == "assistant" }
-        assertEquals("准备调用", assistant.content)
-        assertEquals("上一轮思考", assistant.reasoning_content) // DeepSeek 必须回传
+        assertEquals("about to call", assistant.content)
+        assertEquals("last turn's thinking", assistant.reasoning_content) // DeepSeek requires it to be replayed
         assertEquals(1, assistant.tool_calls?.size)
         val toolMsg = msgs.first { it.role == "tool" }
         assertEquals("call_1", toolMsg.tool_call_id)
-        assertEquals("内容", toolMsg.content)
+        assertEquals("content", toolMsg.content)
     }
 
     @Test
@@ -311,12 +311,12 @@ class OpenAIAdapterTest {
         adapter(api).complete(
             "",
             listOf(
-                AgentMessage.UserMessage(content = "你好"),
-                AgentMessage.ToolResultMessage(id = "orphan", toolName = "readFile", result = "无前驱")
+                AgentMessage.UserMessage(content = "hello"),
+                AgentMessage.ToolResultMessage(id = "orphan", toolName = "readFile", result = "no predecessor")
             )
         )
 
-        // 孤立 tool 消息被跳过，不会带 role=tool 的消息
+        // Orphan tool messages are skipped; no role=tool message is emitted
         assertTrue(reqSlot.captured.messages.none { it.role == "tool" })
     }
 
@@ -341,7 +341,7 @@ class OpenAIAdapterTest {
         )
 
         val assistant = reqSlot.captured.messages.first { it.role == "assistant" }
-        // 未执行的 c2 被裁剪，c1 保留
+        // The unexecuted c2 is pruned; c1 is kept
         assertEquals(listOf("c1"), assistant.tool_calls?.map { it.id })
         assertEquals(1, reqSlot.captured.messages.count { it.role == "tool" })
     }
@@ -356,17 +356,17 @@ class OpenAIAdapterTest {
             "",
             listOf(
                 AgentMessage.AssistantMessage(
-                    content = "调用",
+                    content = "calling",
                     toolCalls = listOf(ToolCall("c1", "list", JsonObject(emptyMap())))
                 ),
-                AgentMessage.UserMessage(content = "插队消息"),
-                AgentMessage.ToolResultMessage(id = "c1", toolName = "list", result = "结果")
+                AgentMessage.UserMessage(content = "cut-in message"),
+                AgentMessage.ToolResultMessage(id = "c1", toolName = "list", result = "result")
             )
         )
 
         val msgs = reqSlot.captured.messages
         val assistantIdx = msgs.indexOfFirst { it.role == "assistant" }
-        // 结果被吸附回 assistant 之后、插队消息之前
+        // The result is pulled back to right after the assistant, before the cut-in message
         assertEquals("tool", msgs[assistantIdx + 1].role)
         assertEquals("c1", msgs[assistantIdx + 1].tool_call_id)
     }
@@ -385,7 +385,7 @@ class OpenAIAdapterTest {
                     add("content", com.google.gson.JsonArray().apply {
                         add(com.google.gson.JsonObject().apply {
                             addProperty("type", "output_text")
-                            addProperty("text", "回复内容")
+                            addProperty("text", "reply content")
                         })
                     })
                 })
@@ -406,7 +406,7 @@ class OpenAIAdapterTest {
         }
 
         val adapter = adapter(api).apply { useResponseApi = true }
-        val result = adapter.complete("系统提示", listOf(AgentMessage.UserMessage(content = "hi")), reasoningEffort = "high")
+        val result = adapter.complete("system prompt", listOf(AgentMessage.UserMessage(content = "hi")), reasoningEffort = "high")
 
         val req = reqSlot.captured
         assertEquals("gpt-4-turbo", req["model"])
@@ -416,12 +416,12 @@ class OpenAIAdapterTest {
         assertEquals("high", reasoning["effort"])
         assertEquals("auto", reasoning["summary"])
 
-        assertEquals("回复内容", result.content)
+        assertEquals("reply content", result.content)
         assertEquals(1, result.toolCalls.size)
         assertEquals("fc_1", result.toolCalls[0].id)
         assertEquals("readFile", result.toolCalls[0].name)
         assertEquals(JsonPrimitive("/a"), result.toolCalls[0].arguments["path"])
-        assertEquals("tool_calls", result.stopReason) // 响应含 function_call，优先按工具调用结束
+        assertEquals("tool_calls", result.stopReason) // The response contains function_call, so it ends as a tool call by precedence
         assertEquals(100, result.inputTokens)
         assertEquals(50, result.outputTokens)
         assertEquals(40, result.cachedInputTokens)
@@ -443,7 +443,7 @@ class OpenAIAdapterTest {
         assertEquals("length", result.stopReason)
     }
 
-    // ── Chat Completions 流式 ─────────────────────────────────────────
+    // ── Chat Completions streaming ─────────────────────────────────────────
 
     private fun sseCall(vararg lines: String): Call<ResponseBody> {
         val body = (lines.joinToString("\n") + "\n").toResponseBody(null)
@@ -461,8 +461,8 @@ class OpenAIAdapterTest {
     fun streamChat_collectsTextAndFinal() = runTest {
         val api = api()
         every { api.streamChatCompletion(any(), any(), any(), any()) } returns sseCall(
-            "data: {\"choices\":[{\"delta\":{\"content\":\"你\"},\"finish_reason\":null}]}",
-            "data: {\"choices\":[{\"delta\":{\"content\":\"好\"},\"finish_reason\":null}]}",
+            "data: {\"choices\":[{\"delta\":{\"content\":\"hel\"},\"finish_reason\":null}]}",
+            "data: {\"choices\":[{\"delta\":{\"content\":\"lo\"},\"finish_reason\":null}]}",
             "data: {\"choices\":[{\"delta\":{},\"finish_reason\":\"stop\"}]}",
             "data: {\"usage\":{\"prompt_tokens\":12,\"completion_tokens\":6,\"prompt_tokens_details\":{\"cached_tokens\":4}}}",
             "data: [DONE]"
@@ -471,9 +471,9 @@ class OpenAIAdapterTest {
         val chunks = adapter(api).completeStream("", emptyList()).toList()
 
         val text = chunks.filterIsInstance<AIStreamChunk.TextDelta>().joinToString("") { it.text }
-        assertEquals("你好", text)
+        assertEquals("hello", text)
         val final = chunks.filterIsInstance<AIStreamChunk.Final>().single()
-        assertEquals("你好", final.response.content)
+        assertEquals("hello", final.response.content)
         assertEquals("stop", final.response.stopReason)
         assertEquals(12, final.response.inputTokens)
         assertEquals(6, final.response.outputTokens)
@@ -542,15 +542,15 @@ class OpenAIAdapterTest {
     fun streamChat_midStreamError_doesNotAbortWholeStream() = runTest {
         val api = api()
         every { api.streamChatCompletion(any(), any(), any(), any()) } returns sseCall(
-            "data: {\"choices\":[{\"delta\":{\"content\":\"前\"},\"finish_reason\":null}]}",
-            "data: {\"bogus\": true}", // 无 choices → 跳过
-            "data: {\"choices\":[{\"delta\":{\"content\":\"后\"},\"finish_reason\":\"stop\"}]}",
+            "data: {\"choices\":[{\"delta\":{\"content\":\"first \"},\"finish_reason\":null}]}",
+            "data: {\"bogus\": true}", // No choices -> skipped
+            "data: {\"choices\":[{\"delta\":{\"content\":\"part\"},\"finish_reason\":\"stop\"}]}",
             "data: [DONE]"
         )
 
         val chunks = adapter(api).completeStream("", emptyList()).toList()
 
         val text = chunks.filterIsInstance<AIStreamChunk.TextDelta>().joinToString("") { it.text }
-        assertEquals("前后", text)
+        assertEquals("first part", text)
     }
 }

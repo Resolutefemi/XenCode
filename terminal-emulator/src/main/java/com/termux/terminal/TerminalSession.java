@@ -167,11 +167,11 @@ public final class TerminalSession extends TerminalOutput {
             try {
                 sub = ((LocalBackendHolder) mBackend).open(columns, rows);
             } catch (RuntimeException e) {
-                mClient.logError(LOG_TAG, "PTY 子进程创建失败: " + e.getMessage());
+                mClient.logError(LOG_TAG, "PTY subprocess creation failed: " + e.getMessage());
                 throw e;
             }
             mShellPid = sub.getPid();
-            mClient.logInfo(LOG_TAG, "PTY 子进程已启动: pid=" + mShellPid + " size=" + columns + "x" + rows);
+            mClient.logInfo(LOG_TAG, "PTY subprocess started: pid=" + mShellPid + " size=" + columns + "x" + rows);
             startPumpThreads("pid=" + mShellPid);
             new Thread("TermSessionWaiter[pid=" + mShellPid + "]") {
                 @Override
@@ -183,7 +183,7 @@ public final class TerminalSession extends TerminalOutput {
         } else {
             // Remote stream backend: no pid; waiter just blocks on the backend's stream end.
             mShellPid = -2;
-            mClient.logInfo(LOG_TAG, "远程会话已启动: size=" + columns + "x" + rows);
+            mClient.logInfo(LOG_TAG, "Remote session started: size=" + columns + "x" + rows);
             startPumpThreads("remote");
             new Thread("TermSessionWaiter[remote]") {
                 @Override
@@ -207,16 +207,16 @@ public final class TerminalSession extends TerminalOutput {
                     while (true) {
                         int read = termIn.read(buffer);
                         if (read == -1) {
-                            // 子进程一启动就退出（如 execve 失败）时这里会立刻拿到 EOF。
-                            // 记一行，免得终端空白时无法判断 proot 到底有没有跑起来。
-                            mClient.logInfo(LOG_TAG, "PTY 输入流结束(EOF)，子进程已退出 pid=" + mShellPid);
+                            // If the subprocess exits right after startup (e.g. execve failed), EOF arrives here immediately.
+                            // Log a line so a blank terminal can be told apart from proot never having started.
+                            mClient.logInfo(LOG_TAG, "PTY input stream ended (EOF); subprocess exited, pid=" + mShellPid);
                             return;
                         }
                         if (!mProcessToTerminalIOQueue.write(buffer, 0, read)) return;
                         mMainThreadHandler.sendEmptyMessage(MSG_NEW_INPUT);
                     }
                 } catch (Exception e) {
-                    mClient.logWarn(LOG_TAG, "PTY 读取异常(pid=" + mShellPid + "): " + e);
+                    mClient.logWarn(LOG_TAG, "PTY read error (pid=" + mShellPid + "): " + e);
                 }
             }
         }.start();
@@ -233,7 +233,7 @@ public final class TerminalSession extends TerminalOutput {
                         termOut.flush();
                     }
                 } catch (Exception e) {
-                    mClient.logWarn(LOG_TAG, "PTY 写入异常(pid=" + mShellPid + "): " + e);
+                    mClient.logWarn(LOG_TAG, "PTY write error (pid=" + mShellPid + "): " + e);
                 }
             }
         }.start();
@@ -391,7 +391,7 @@ public final class TerminalSession extends TerminalOutput {
 
             if (msg.what == MSG_PROCESS_EXITED) {
                 int exitCode = (Integer) msg.obj;
-                mClient.logInfo(LOG_TAG, "PTY 子进程退出: pid=" + mShellPid + " exit=" + exitCode);
+                mClient.logInfo(LOG_TAG, "PTY subprocess exited: pid=" + mShellPid + " exit=" + exitCode);
                 cleanupResources(exitCode);
 
                 String exitDescription = "\r\n[Process completed";

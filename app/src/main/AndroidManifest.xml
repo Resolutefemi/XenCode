@@ -24,9 +24,10 @@
         android:usesCleartextTraffic="true"
         android:localeConfig="@xml/locales_config">
 
-        <!-- configChanges 自行接管旋转与窗口尺寸变化：Compose 会跟着新 Configuration 重组，
-             不重建 Activity 才能保住终端 TerminalView、编辑器未保存内容与聊天列表位置。
-             故意不含 locale —— 语言切换仍走 MainActivity 里的 recreate 路径。 -->
+        <!-- configChanges lets the app handle rotation and window size changes itself: Compose recomposes with the new
+             Configuration, and only by not recreating the Activity can the terminal TerminalView, unsaved editor content,
+             and chat list position be preserved.
+             locale is deliberately excluded — language switching still goes through the recreate path in MainActivity. -->
         <activity
             android:name=".MainActivity"
             android:exported="true"
@@ -39,7 +40,7 @@
             </intent-filter>
         </activity>
 
-        <!-- 未捕获异常时由 AIEditorApp 的全局 handler 拉起，全屏展示崩溃详情供复制反馈。独立进程运行，避免被主进程崩溃影响或引发 Application 业务逻辑重跑。 -->
+        <!-- Launched by AIEditorApp's global handler on uncaught exceptions; shows crash details full-screen for copy-paste feedback. Runs in a separate process to avoid being affected by the main process crash or re-running Application business logic. -->
         <activity
             android:name=".CrashActivity"
             android:process=":crash"
@@ -74,8 +75,8 @@
             android:exported="false"
             android:foregroundServiceType="dataSync" />
 
-        <!-- Shizuku：用于以 adb shell 身份执行命令（UserService）。
-             permission 声明为 INTERACT_ACROSS_USERS_FULL 是官方要求，防止普通应用访问该 provider。 -->
+        <!-- Shizuku: used to execute commands as the adb shell user (UserService).
+             Declaring the permission as INTERACT_ACROSS_USERS_FULL is an official requirement, preventing ordinary apps from accessing this provider. -->
         <provider
             android:name="rikka.shizuku.ShizukuProvider"
             android:authorities="${applicationId}.shizuku"

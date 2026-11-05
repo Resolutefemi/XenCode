@@ -61,7 +61,7 @@
   },
   {
     "id": "zai",
-    "name": "Z.AI (智谱)",
+    "name": "Z.AI (Zhipu)",
     "type": "OPENAI",
     "baseUrl": "https://open.bigmodel.cn/api/paas/v4",
     "isRecommended": false,
@@ -98,7 +98,7 @@
     "badge": null,
     "websiteUrl": "https://platform.xiaomimimo.com?ref=66QSUD",
     "tags": [
-      "注册送10元"
+      "¥10 sign-up credit"
     ]
   }
 ]

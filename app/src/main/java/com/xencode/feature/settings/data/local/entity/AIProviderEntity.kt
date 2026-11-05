@@ -9,56 +9,56 @@ data class AIProviderEntity(
     @PrimaryKey val id: String,
     val name: String,
     val type: String,
-    /** 明文 Room，与 git token 同口径；后续统一加密时一并处理。 */
+    /** Stored in plaintext in Room, same policy as the git token; to be handled together when encryption is unified later. */
     val apiKey: String,
-    /** 多 Key 模式开关；关闭时只用 [apiKey]。 */
+    /** Multi-key mode toggle; when disabled only [apiKey] is used. */
     val multiKeyEnabled: Boolean = false,
-    /** 多 Key 候选列表，以换行分隔持久化（同 [models]）。 */
+    /** Multi-key candidate list, persisted newline-delimited (same as [models]). */
     val apiKeys: String = "",
-    /** 多 Key 取用策略：SEQUENTIAL / ROUND_ROBIN。 */
+    /** Multi-key selection strategy: SEQUENTIAL / ROUND_ROBIN. */
     val keyRotationStrategy: String = "SEQUENTIAL",
-    /** 已废弃：「连续失败达阈值才切」的旧阈值，保留列以兼容旧数据库（SQLite 3.18 无 DROP COLUMN）。 */
+    /** Deprecated: old "switch only after consecutive failures reach the threshold" threshold; column kept for legacy DB compatibility (SQLite 3.18 has no DROP COLUMN). */
     val keyFailoverThreshold: Int = 2,
-    /** 被切走的 Key 冷却分钟数；0 表示不冷却。 */
+    /** Cooldown in minutes for a key that was switched away; 0 means no cooldown. */
     val keyCooldownMinutes: Int = 5,
-    /** 命中即触发多 Key 自动切换的 HTTP 状态码，以逗号分隔持久化；空串表示用默认值。 */
+    /** HTTP status codes that trigger automatic multi-key switching, persisted comma-delimited; empty string means use the default. */
     val keySwitchStatusCodes: String = "",
     val baseUrl: String,
     val defaultModel: String,
-    /** 可用模型列表，以换行分隔持久化。 */
+    /** List of available models, persisted newline-delimited. */
     val models: String = "",
-    /** 当前选中模型；为空时回退到 defaultModel。 */
+    /** Currently selected model; falls back to defaultModel when empty. */
     val selectedModel: String = "",
     val isEnabled: Boolean = true,
     val useFullUrl: Boolean = false,
     val useResponseApi: Boolean = false,
-    /** Anthropic 显式缓存断点（cache_control）。仅 ANTHROPIC 类型使用，默认开启。 */
+    /** Anthropic explicit cache breakpoints (cache_control). Only used by the ANTHROPIC type, enabled by default. */
     val anthropicCacheBreakpoints: Boolean = true,
-    /** Chat Completion 路径发送 prompt_cache_key（shard 路由）。仅 OPENAI 类型使用，默认关闭（官方 API 不接受该字段）。 */
+    /** Sends prompt_cache_key on the Chat Completion path (shard routing). Only used by the OPENAI type, disabled by default (the official API rejects this field). */
     val openaiChatCacheKey: Boolean = false,
-    /** 自定义面板脚本路径。列名沿用历史命名以兼容已发布数据库。 */
+    /** Custom dashboard script path. Column name keeps the historical name for compatibility with released databases. */
     @ColumnInfo(name = "balanceScriptPath")
     val dashboardScriptPath: String = "",
-    /** 自定义面板自动刷新间隔（分钟）。默认 5 分钟。列名沿用历史命名以兼容已发布数据库。 */
+    /** Custom dashboard auto-refresh interval in minutes. Defaults to 5 minutes. Column name keeps the historical name for compatibility with released databases. */
     @ColumnInfo(name = "balanceRefreshInterval")
     val dashboardRefreshInterval: Int = 5,
     /**
-     * 已废弃：被 [customHeaders] 取代的 UA 覆盖列。保留字段以兼容旧数据库——
-     * 迁移 40 加的物理列无法删除（SQLite 3.18 无 DROP COLUMN），实体缺列会让 Room
-     * 迁移后的 schema 校验失败（列集合精确比较，多一列即崩）。
+     * Deprecated: UA override column superseded by [customHeaders]. Field kept for legacy DB compatibility —
+     * the physical column added by migration 40 cannot be dropped (SQLite 3.18 has no DROP COLUMN), and a missing
+     * entity column would make Room fail post-migration schema validation (exact column-set comparison; any extra column crashes).
      */
     val userAgent: String = "",
-    /** 自定义请求头（JSON 编码的 Map<Header 名, 值>，空为 ""），完全覆盖同名默认头。 */
+    /** Custom request headers (JSON-encoded Map<header name, value>, "" when empty), fully overriding same-named default headers. */
     val customHeaders: String = "",
-    /** 提供商列表排序序号，越小越靠前；新建时分配 max+1。 */
+    /** Sort order in the provider list; smaller values come first; new entries get max+1. */
     val sortOrder: Int = 0,
-    /** 单独为该提供商配置代理（关闭时跟随全局代理设置）。 */
+    /** Per-provider proxy configuration (follows the global proxy settings when disabled). */
     val proxyEnabled: Boolean = false,
     val proxyType: String = "HTTP",
     val proxyHost: String = "",
     val proxyPort: Int = 0,
     val proxyUsername: String = "",
     val proxyPassword: String = "",
-    /** 自定义面板 (DIY) 脚本参数（JSON 编码的 Map<String, String>，空为 ""）。 */
+    /** Custom dashboard (DIY) script parameters (JSON-encoded Map<String, String>, "" when empty). */
     val scriptParams: String = ""
 )

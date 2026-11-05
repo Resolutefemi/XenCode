@@ -63,18 +63,18 @@ import dev.snipme.highlights.model.SyntaxThemes
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
-// 代码块与行内代码共用字体。系统等宽（FontFamily.Monospace）缺下标字形且不回落，
-// 内置 JetBrains Mono NL 经资源加载可走系统 fallback，能显示 ₀-₉ 等下标/上标字符。
+// Code blocks and inline code share this font. The system monospace (FontFamily.Monospace) lacks subscript glyphs and does not fall back,
+// while the bundled JetBrains Mono NL loaded from resources can go through system fallback and display subscript/superscript characters like ₀-₉.
 private val CodeFontFamily = FontFamily(Font(R.font.jetbrains_mono_nl))
 
-/** 流式解析节流的基准增量（字符）：与文本长度成正比放大（每 256 字 +1）。
- *  打字机快照约 24ms 一帧，低速吐字时一批只差几个字（视觉仍逐字）；高速追赶时一批最多
- *  8+len/256 字（长文末尾视觉无感），把全篇 preprocess+parse 的执行频率压到原来的 1/3~1/10。 */
+/** Base increment (in characters) for streaming parse throttling: scaled up proportionally with text length (+1 per 256 chars).
+ *  Typewriter snapshots advance about every 24ms; at low output speed a batch differs by only a few characters (still looks character-by-character); when catching up at high speed a batch is at most
+ *  8+len/256 characters (imperceptible at the end of long text), cutting how often the full preprocess+parse runs to 1/3~1/10 of before. */
 private const val STREAMING_PARSE_MIN_BASE = 8
 
 internal class MarkdownRenderCache(
-    // 200 条：长会话几百条消息来回滚动时，80 条容量会导致 LRU 抖动（刚滑过的消息再次进入
-    // 视口就 miss、全篇重解析）。单条 AST+状态几 KB~几十 KB，200 条的内存占用可接受。
+    // 200 entries: when scrolling back and forth over hundreds of messages in a long session, an 80-entry capacity causes LRU thrashing (a message just scrolled past
+    // misses again on re-entering the viewport and gets fully re-parsed). A single AST+state is a few KB to tens of KB, so 200 entries is an acceptable memory footprint.
     private val maxEntries: Int = 200
 ) {
     private val parsedStates = object : LinkedHashMap<String, MarkdownParseState.Success>(
@@ -91,9 +91,9 @@ internal class MarkdownRenderCache(
         parsedStates[text] ?: parsedStates[text.trim()]
 
     /**
-     * 在缓存中寻找是 [text] 前缀的最长解析态。
-     * 流式转落库交接瞬间，全文可能比上一帧打字机内容多出尾部字符，直接拿最长前缀 AST 兜底，
-     * 确保首帧以排版好的 Markdown 呈现，彻底消灭裸纯文本（- **xxx**）闪现。
+     * Finds the longest cached parse state that is a prefix of [text].
+     * At the streaming-to-persisted handoff instant, the full text may have tail characters beyond the last typewriter frame; fall back to the longest prefix AST,
+     * ensuring the first frame shows fully typeset Markdown and completely eliminating raw plain text (- **xxx**) flashes.
      */
     fun getBestPrefix(text: String): MarkdownParseState.Success? {
         val exact = get(text)
@@ -132,24 +132,24 @@ internal fun MarkdownContent(
     modifier: Modifier = Modifier,
     cache: MarkdownRenderCache? = null,
     compact: Boolean = false,
-    /** 解析未完成（Loading）时显示的内容；为 null 时回退显示原文纯文本（聊天流式场景）。 */
+    /** Content shown while parsing is in progress (Loading); when null, falls back to showing the raw plain text (chat streaming scenario). */
     loading: (@Composable () -> Unit)? = null,
-    /** 长文本虚拟化渲染：正文改用 LazyColumn 逐块渲染（调用方需配合 heightIn 等有限高度约束
-     *  才能触发懒加载），避免超大 md 一次性全量组合/测量造成的卡顿。 */
+    /** Virtualized rendering for long text: the body renders block by block via LazyColumn (the caller must supply a bounded height constraint such as heightIn
+     *   to trigger lazy loading), avoiding the jank of composing/measuring a huge md all at once. */
     lazyScroll: Boolean = false,
-    /** 调用方流式打字中（打字机文本每 ~24ms 推进一次）：解析输入按增量阈值节流——攒够
-     *  [STREAMING_PARSE_MIN_BASE] + 长度/256 个字符才重新 preprocess+parse，其余帧渲染沿用
-     *  上一次成功结果（内容只增不跳，最多滞后一批字符）。同时流式中间快照不写入 [cache]：
-     *  每 24ms 一条会把 LRU 灌满、把历史消息的解析结果全部挤出，滚回历史时条条全篇重解析，
-     *  那正是滑动聊天记录时组合尖峰（单帧 15ms+）与掉帧的来源。 */
+    /** The caller is mid-streaming (typewriter text advances every ~24ms): parse input is throttled by an increment threshold — batch up
+     *  [STREAMING_PARSE_MIN_BASE] + length/256 characters before re-running preprocess+parse; other frames keep rendering
+     *  the last successful result (content only grows, never jumps, at most one batch of characters behind). Meanwhile streaming intermediate snapshots are not written to [cache]:
+     *  one every 24ms would flood the LRU and evict every historical message's parse result; scrolling back to history would re-parse each one in full,
+     *  which is exactly the source of composition spikes (15ms+ per frame) and dropped frames while scrolling chat history. */
     streaming: Boolean = false
 ) {
     val isDark = MaterialTheme.colorScheme.background.luminance() < 0.5f
     val semantic = MaterialTheme.semanticColors
 
     // markdownColor / markdownTypography / markdownPadding / markdownDimens / markdownComponents
-    // 都是库提供的 @Composable 工厂函数（内部自带 remember 记忆化），不能也无需再套一层
-    // remember（套了会报 “@Composable invocations can only happen from ...”）。直接调用即可。
+    // are all @Composable factory functions provided by the library (with their own internal remember memoization); wrapping them in another layer of
+    // remember is impossible and unnecessary (doing so errors with "@Composable invocations can only happen from ..."). Just call them directly.
     val mdColors = markdownColor(
         text = color,
         codeBackground = semantic.mutedSurface,
@@ -159,7 +159,7 @@ internal fun MarkdownContent(
     )
 
     val typography = MaterialTheme.typography
-    // compact：正文、列表用 bodySmall，标题降一档，用于思考气泡等次要文本区域
+    // compact: body and lists use bodySmall, headings drop one tier; used for secondary text areas like the reasoning bubble
     val body = if (compact) typography.bodySmall else typography.bodyMedium
     val bodyLineHeight = if (compact) 18.sp else 20.sp
     val codeSize = if (compact) 12.sp else 13.sp
@@ -196,9 +196,9 @@ internal fun MarkdownContent(
         Highlights.Builder().theme(SyntaxThemes.atom(darkMode = isDark))
     }
 
-    // 流式节流：打字机每 ~24ms 推进的新文本先攒批——增量不足阈值时沿用上次提交解析的文本，
-    // preprocess 与 Markdown 解析都不重跑；文本缩短/替换（非增长）立即透传，防闪烁。
-    // settle（streaming 变 false）后本分支不再命中，最终全文必然完整解析一次。
+    // Streaming throttle: new typewriter text arriving every ~24ms is batched first — while the increment is below the threshold, keep the text last submitted for parsing,
+    // and neither preprocess nor Markdown parsing re-runs; text shrinking/replacement (not growth) passes through immediately to prevent flicker.
+    // Once settled (streaming becomes false) this branch no longer hits, so the final full text is always fully parsed once.
     var lastParsedText by remember { mutableStateOf<String?>(null) }
     val parseText: String = if (!streaming) {
         text
@@ -217,9 +217,9 @@ internal fun MarkdownContent(
         MathImageTransformer(baseTransformer, body.fontSize.value)
     }
 
-    // 后台预热本条消息里的所有 LaTeX 公式：在 item 首次组合时就把 measure+render 摆到后台算好
-    // 写缓存，等快速 fling 掠过时主线程 getOrMeasure 直接命中、不再同步 build drawable（实测单
-    // 次高达 113ms，是 fling 抽搐的直接根因）。
+    // Prewarm every LaTeX formula in this message on a background thread: compute measure+render ahead of time when the item first composes
+    // and write the cache, so during a fast fling the main-thread getOrMeasure hits directly instead of synchronously building the drawable (measured at up to 113ms
+    // per call — the direct root cause of fling stutter).
     val density = LocalDensity.current
     val textSizePx = with(density) { body.fontSize.toPx() }
     val colorArgb = color.toArgb()
@@ -233,20 +233,20 @@ internal fun MarkdownContent(
     androidx.compose.runtime.CompositionLocalProvider(
         androidx.compose.material3.LocalContentColor provides color
     ) {
-        // rememberMarkdownState 必须无条件参与组合：若缓存命中就走 if 分支跳过它，其内部
-        // remember 状态会被 dispose；下一帧文本变化（流式增长/停顿后恢复）缓存 miss 重建时
-        // 初始状态是 Loading，会闪现原始 md 文本（解析/未解析反复横跳的根因）。
-        // 缓存只作为渲染加速：解析结果与当前文本一致时直接用；不一致但缓存命中当前文本时
-        // 用缓存；否则进入 Loading。注意：本库 rememberMarkdownState 在文本变化时会把
-        // state 无条件置为 Loading（retainState 参数在此版本不生效），Loading 分支若回退
-        // 显示原文纯文本，流式场景下每次文本变化都会闪现「最新文本的裸文本」（底部字在闪）。
-        // 因此 Loading 期间优先渲染最近一次成功解析的结果（旧文本的完整 md 排版），解析
-        // 完成后再平滑切到新文本，内容只增不跳。
+        // rememberMarkdownState must participate in composition unconditionally: if a cache hit skipped it via an if branch, its internal
+        // remember state would be disposed; on the next text change (streaming growth/resume after a pause) the cache-miss rebuild starts
+        // in Loading and flashes raw md text (the root cause of parsed/unparsed flip-flopping).
+        // The cache is only a rendering accelerator: use the parse result directly when it matches the current text; when it does not match but the cache
+        // hits the current text, use the cache; otherwise enter Loading. Note: this library's rememberMarkdownState unconditionally sets
+        // state to Loading on text change (the retainState parameter has no effect in this version); if the Loading branch fell back to
+        // showing the raw plain text, every text change during streaming would flash the latest text as bare text (characters flickering at the bottom).
+        // So during Loading, prefer rendering the most recent successful parse (the old text's fully typeset md); once parsing
+        // completes, switch smoothly to the new text — content only grows, never jumps.
         val mdState = rememberMarkdownState(content = processed, retainState = true)
         val parseState by mdState.state.collectAsState()
         val cachedState = cache?.get(processed)
         val prefixFallback = cache?.getBestPrefix(processed)
-        // 委托属性不能智能转换，先取局部快照再判断
+        // Delegated properties cannot be smart-cast; take a local snapshot first, then check
         val currentState = parseState
         val parsedState: MarkdownParseState = when {
             currentState is MarkdownParseState.Success && currentState.content == processed -> currentState
@@ -254,17 +254,17 @@ internal fun MarkdownContent(
             else -> currentState
         }
 
-        // 最近一次成功解析的结果：Loading 期间的渲染兜底（初始首帧即用前缀缓存，杜绝纯文本裸奔）
+        // Most recent successful parse: the rendering fallback during Loading (the very first frame already uses the prefix cache, no bare plain text)
         var lastSuccessState by remember { mutableStateOf<MarkdownParseState.Success?>(prefixFallback) }
         if (parsedState is MarkdownParseState.Success) {
             lastSuccessState = parsedState
-            // 同步写入缓存：让同轮次接力的落库消息首帧即可命中，避免 LaunchedEffect 异步延迟导致的裸纯文本闪烁。
-            // 流式中间快照不写：每 ~24ms 一条会把 LRU 灌满、挤出历史消息的解析结果（滚回历史条条重解析）；
-            // settle 后的最终全文（streaming=false）才落缓存，供落库消息与后续滚动命中。
+            // Write the cache synchronously: the persisted message taking over in the same turn hits on its first frame, avoiding bare-plain-text flicker caused by LaunchedEffect's async delay.
+            // Streaming intermediate snapshots are not written: one every ~24ms would flood the LRU and evict historical messages' parse results (scrolling back re-parses each one);
+            // only the final full text after settle (streaming=false) lands in the cache, serving persisted messages and later scrolls.
             if (!streaming) cache?.put(parsedState)
         }
 
-        // Success 渲染当前结果；Loading 优先渲染本组件或前缀缓存的成功结果（杜绝裸纯文本闪现）；Error 回退原文
+        // Success renders the current result; Loading prefers this component's or the prefix cache's successful result (no bare plain-text flash); Error falls back to the raw text
         val renderState: MarkdownParseState.Success? = when (parsedState) {
             is MarkdownParseState.Success -> parsedState
             is MarkdownParseState.Loading -> lastSuccessState ?: prefixFallback
@@ -272,9 +272,9 @@ internal fun MarkdownContent(
         }
 
         if (renderState != null) {
-            // 长文本用 LazyColumn 逐块渲染时，animations（文本尺寸动画等）不适用，属预期。
-            // 下面三个对象（successRenderer / mdComponents / mdAnimations）均 remember：不缓存的话
-            // 每次重组都新建 lambda 实例，令下游 Markdown 无法 skip。
+            // When long text renders block by block via LazyColumn, animations (text size animation etc.) do not apply — expected.
+            // The three objects below (successRenderer / mdComponents / mdAnimations) are all remembered: uncached,
+            // every recomposition would create new lambda instances and stop the downstream Markdown from skipping.
             val successRenderer: @Composable (
                 state: MarkdownParseState.Success,
                 components: MarkdownComponents,
@@ -291,10 +291,10 @@ internal fun MarkdownContent(
                 }
             }
 
-            // markdownComponents 是 @Composable（内部自带记忆化），不能套 remember，直接调用。
+            // markdownComponents is @Composable (with its own internal memoization); it cannot be wrapped in remember — call it directly.
             val mdComponents = markdownComponents(
-                // 外层 SelectionContainer（MessageBubbles）统一负责选区；超长助手消息已由
-                // AIChatPanel 拆成多条有界 item，不存在超长单 item 的选区树/交互失效问题。
+                // The outer SelectionContainer (MessageBubbles) owns selection uniformly; overlong assistant messages are already
+                // split by AIChatPanel into multiple bounded items, so there is no selection-tree/interaction breakage from a single overlong item.
                 codeFence = {
                     MarkdownCodeFence(
                         content = it.content,
@@ -311,7 +311,7 @@ internal fun MarkdownContent(
                         SafeMarkdownHighlightedCode(code, language, style, highlightsBuilder, showHeader = true)
                     }
                 },
-                // 库默认 maxLines=1 + Ellipsis，单元格长文会被截断；这里放开为完整多行显示。
+                // The library defaults to maxLines=1 + Ellipsis, truncating long cell text; here it is relaxed to full multi-line display.
                 table = {
                     MarkdownTable(
                         content = it.content,
@@ -348,7 +348,7 @@ internal fun MarkdownContent(
                 typography = mdTypography,
                 padding = mdPadding,
                 dimens = mdDimens,
-                // 关闭段落文本的 animateContentSize：快速流式更新下它会持续追赶目标高度，反而弹性抖动。
+                // Disable animateContentSize on paragraph text: under rapid streaming updates it keeps chasing the target height, causing bouncy jitter instead.
                 animations = markdownAnimations(animateTextSize = { this }),
                 imageTransformer = mathTransformer,
                 components = mdComponents,
@@ -367,18 +367,18 @@ internal fun MarkdownContent(
 }
 
 /**
- * 代码块高亮渲染：等价于库的 `MarkdownHighlightedCode`，但在把高亮区间写进 AnnotatedString
- * 之前先校验范围。highlights 引擎对部分内容会给出 start > end 的区间，库原实现直接调用
- * addStyle，AnnotatedString.Range 构造随即抛 "Reversed range is not supported"；该计算跑在
- * 库自己的后台协程里（produceState + Dispatchers.Default），异常直达线程默认处理器，
- * 调用方 try/catch 拦不住，表现为聊天页闪退。越界（end > code.length）同样会导致崩溃，
- * 一并丢弃。
+ * Code block highlight rendering: equivalent to the library's `MarkdownHighlightedCode`, but validates ranges before
+ * writing highlight spans into the AnnotatedString. The highlights engine emits start > end ranges for some content; the library's original implementation calls
+ * addStyle directly, and the AnnotatedString.Range constructor immediately throws "Reversed range is not supported"; the computation runs in
+ * the library's own background coroutine (produceState + Dispatchers.Default), so the exception goes straight to the thread's default handler —
+ * the caller's try/catch cannot intercept it, manifesting as a chat-page crash. Out-of-bounds (end > code.length) likewise crashes,
+ * so those are dropped as well.
  */
 /**
- * 代码高亮结果的进程级缓存。高亮本身跑在 Dispatchers.Default（不卡主线程），但无跨视口
- * 缓存时 item 每次重进视口都会重跑高亮，完成后又触发一次主线程重组（从纯文本切到
- * 高亮文本）。fling 快速滚过大量代码块时这会挤满 Default 线程并制造密集重组。命中缓存
- * 时直接同步拿到结果作为 produceState 初值，既不重算也不闪纯文本。key 含 isDark（主题影响颜色）。
+ * Process-wide cache of code highlight results. Highlighting itself runs on Dispatchers.Default (never blocks the main thread), but without a
+ * cross-viewport cache, every item re-entry re-runs highlighting and then triggers another main-thread recomposition (switching from plain text to
+ * highlighted text). Flinging fast over many code blocks floods the Default thread and creates dense recompositions. On a cache hit
+ * the result is available synchronously as the produceState initial value — no recompute, no plain-text flash. The key includes isDark (theme affects colors).
  */
 private object CodeHighlightCache {
     private data class Key(val code: String, val language: String?, val dark: Boolean)
@@ -441,7 +441,7 @@ private fun buildHighlightedText(
     language: String?,
     highlightsBuilder: Highlights.Builder,
 ): AnnotatedString {
-    // 高亮引擎本身也可能抛错（语言解析等），失败时退回纯文本，不让它影响消息渲染。
+    // The highlight engine itself may also throw (language parsing etc.); on failure fall back to plain text and never let it affect message rendering.
     val highlights = runCatching {
         val syntaxLanguage = language?.let { SyntaxLanguage.getByName(it) }
         highlightsBuilder.code(code)

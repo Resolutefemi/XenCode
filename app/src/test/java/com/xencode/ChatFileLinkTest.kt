@@ -5,13 +5,13 @@ import org.junit.Assert.assertNull
 import org.junit.Test
 
 /**
- * 聊天区 Markdown 链接目标的「文件路径 vs 网址」判定与行号拆分（[asChatFilePath] / [splitPathAndLine]）。
+ * "File path vs URL" classification and line-number splitting for Markdown link targets in the chat area ([asChatFilePath] / [splitPathAndLine]).
  *
- * 不覆盖 `file://`：其解码走 android.net.Uri，JVM 单测下被桩成默认返回值。
+ * `file://` is not covered: its decoding goes through android.net.Uri, which is stubbed to default values in JVM unit tests.
  */
 class ChatFileLinkTest {
 
-    // ---------- asChatFilePath：判定为文件路径 ----------
+    // ---------- asChatFilePath: classified as file path ----------
 
     @Test
     fun bare_file_name_with_line_is_file_path() {
@@ -28,7 +28,7 @@ class ChatFileLinkTest {
         assertEquals("/etc/apk/repositories", asChatFilePath("/etc/apk/repositories"))
     }
 
-    // ---------- asChatFilePath：判定为网址 ----------
+    // ---------- asChatFilePath: classified as URL ----------
 
     @Test
     fun web_urls_go_to_browser() {

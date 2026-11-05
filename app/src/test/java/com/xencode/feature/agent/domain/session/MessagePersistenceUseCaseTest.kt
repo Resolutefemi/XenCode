@@ -6,20 +6,20 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 /**
- * 验证落库前的内容净化与按字节限长：剥离内嵌 base64 图片 data URL、超长内容按 UTF-8 字节截断，
- * 防止超大字段撑爆单行触发 SQLite CursorWindow 崩溃。
+ * Verifies pre-persistence content sanitization and byte-based length caps: stripping inline base64 image data URLs and truncating oversized content by UTF-8 bytes,
+ * keeping huge fields from blowing up a row and crashing SQLite's CursorWindow.
  */
 class MessagePersistenceUseCaseTest {
 
     @Test
     fun sanitizeContent_stripsInlineBase64Image() {
-        val input = "这是回复。看图：![截图](data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==) 结束。"
+        val input = "Here is the reply. See the image: ![screenshot](data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==) End."
 
         val result = MessagePersistenceUseCase.sanitizeContent(input)
 
         assertTrue(result.contains("Image omitted"))
         assertFalse(result.contains("iVBORw0KGgo"))
-        assertTrue(result.contains("这是回复"))
+        assertTrue(result.contains("Here is the reply"))
     }
 
     @Test
@@ -45,7 +45,7 @@ class MessagePersistenceUseCaseTest {
 
     @Test
     fun sanitizeContent_boundsBytesForMultibyteText() {
-        // 中文单字符 3 字节：字符数上限约束不住真实占用，必须按字节截断。
+        // A single CJK character is 3 bytes: a character-count cap cannot bound the real footprint; truncation must go by bytes.
         val oversized = "汉".repeat(100_000)
 
         val result = MessagePersistenceUseCase.sanitizeContent(oversized)
@@ -57,7 +57,7 @@ class MessagePersistenceUseCaseTest {
 
     @Test
     fun sanitizeContent_keepsNormalTextUnchanged() {
-        val normal = "普通消息，不需要处理。".repeat(10)
+        val normal = "ordinary message, nothing to handle.".repeat(10)
 
         assertEquals(normal, MessagePersistenceUseCase.sanitizeContent(normal))
     }

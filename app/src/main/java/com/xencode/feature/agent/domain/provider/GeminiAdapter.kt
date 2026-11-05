@@ -39,22 +39,22 @@ class GeminiAdapter @Inject constructor(
     override var streamIdleTimeoutMs: Long = 0L
     override var maxNetworkRetries: Int = MAX_NETWORK_RETRIES
 
-    /** 自定义请求头：占位符替换后写出，完全覆盖同名默认头。 */
+    /** Custom request headers: written out after placeholder substitution, fully overriding same-named default headers. */
     override var customHeaders: Map<String, String> = emptyMap()
 
-    // Gemini 发 generationConfig.maxOutputTokens（模型元数据的输出上限）；为 null 时不发该参数，用服务端默认。
+    // Gemini sends generationConfig.maxOutputTokens (the model metadata output limit); when null the parameter is omitted and the server default applies.
     override var maxOutputTokens: Int? = null
 
-    // 原生 generateContent 不发 generationConfig.temperature：Gemini 2.0 起服务端默认就是 1.0，与推荐值一致。
+    // Native generateContent omits generationConfig.temperature: from Gemini 2.0 on, the server default is already 1.0, matching the recommended value.
     override var temperature: Float? = null
 
     private fun extraHeaders(): Map<String, String> =
         resolveCustomHeaders(customHeaders, logSessionId, apiKey)
 
     /**
-     * Interactions API 的目标端点。与 generateContent 的两点不同：
-     * 模型名在请求体里（故没有「baseUrl 末尾是模型名」那种特例），流式与非流式**同一个端点**，
-     * 靠 `?alt=sse` + 请求体 `stream: true` 切换。useFullUrl 时直接用用户填的完整 baseUrl。
+     * Target endpoint of the Interactions API. Two differences from generateContent:
+     * the model name goes in the request body (so there is no "baseUrl ends with the model name" special case), and streaming and non-streaming use **the same endpoint**,
+     * toggled by `?alt=sse` + request body `stream: true`. With useFullUrl the user's full baseUrl is used as-is.
      */
     private fun resolveInteractionsUrl(stream: Boolean): String {
         if (useFullUrl) return baseUrl
@@ -110,10 +110,10 @@ class GeminiAdapter @Inject constructor(
         var finishReason: String? = null
         var partsSnapshot: String? = null
 
-        // 非流式响应的字段类型偶有出入（内容安全拦截时 candidates 缺失或为空、finishReason/text 可能为
-        // JSON null），Gson 的 getAsJsonArray/getAsJsonObject/asString 对这些情况会直接抛异常。
-        // 与流式路径（:208-218）对齐：每个字段用 takeIf { !it.isJsonNull } 守卫，整段 runCatching 兜底，
-        // 坏响应返回带 stopReason 的明确结果交由上层处理，而非把解析异常抛给用户。
+        // Non-streaming response field types occasionally vary (candidates missing or empty on a
+        // content-safety block, finishReason/text possibly JSON null); Gson's getAsJsonArray/getAsJsonObject/asString throw outright in those cases.
+        // Aligned with the streaming path (:208-218): every field guarded by takeIf { !it.isJsonNull } and the whole block wrapped in runCatching,
+        // so a bad response yields an explicit result with a stopReason for upper layers instead of throwing a parse error at the user.
         val parseFailure = runCatching {
             val candidates = response.get("candidates")?.takeIf { it.isJsonArray }?.asJsonArray
             candidates?.firstOrNull()?.takeIf { it.isJsonObject }?.asJsonObject?.let { candidate ->
@@ -131,7 +131,7 @@ class GeminiAdapter @Inject constructor(
                     if (part.has("functionCall")) {
                         val fnCall = part.get("functionCall")?.takeIf { it.isJsonObject }?.asJsonObject
                         val name = fnCall?.get("name")?.takeIf { !it.isJsonNull }?.asString ?: ""
-                        // 并行调用时服务端会给 id；缺失才退回用函数名（同名工具调两次会撞 id）。
+                        // The server supplies an id for parallel calls; fall back to the function name only when missing (calling the same tool twice would collide).
                         val callId = fnCall?.get("id")?.takeIf { !it.isJsonNull }?.asString?.takeIf { it.isNotBlank() } ?: name
                         val argsStr = fnCall?.get("args")?.takeIf { it.isJsonObject }?.asJsonObject?.toString() ?: "{}"
                         val argsJson = parseArgs(argsStr)
@@ -141,8 +141,8 @@ class GeminiAdapter @Inject constructor(
                 partsSnapshot = snapshotOf(parts)
             }
 
-            // 内容安全拦截：candidates 为空但 promptFeedback 给出 blockReason（SAFETY / PROHIBITED_CONTENT
-            // 等），把它作为 stopReason 上抛，上层据此按「中止」展示原因，而不是静默返回空白正文。
+            // Content-safety block: candidates empty but promptFeedback carries a blockReason (SAFETY / PROHIBITED_CONTENT
+            // etc.); surface it as the stopReason so upper layers show why it aborted instead of silently returning a blank body.
             if (finishReason == null && (candidates == null || candidates.size() == 0)) {
                 response.get("promptFeedback")?.takeIf { it.isJsonObject }?.asJsonObject
                     ?.get("blockReason")?.takeIf { !it.isJsonNull }?.asString
@@ -152,13 +152,13 @@ class GeminiAdapter @Inject constructor(
 
         val usageMetadata = response.get("usageMetadata")?.takeIf { it.isJsonObject }?.asJsonObject
         val inputTokens = usageMetadata?.get("promptTokenCount")?.takeIf { !it.isJsonNull }?.asInt ?: 0
-        // candidatesTokenCount 不含思考 token，而思考按输出价计费，故两者相加才是真实输出量。
+        // candidatesTokenCount excludes thinking tokens, which are billed at the output rate, so the two added together are the true output.
         val outputTokens = (usageMetadata?.get("candidatesTokenCount")?.takeIf { !it.isJsonNull }?.asInt ?: 0) +
             (usageMetadata?.get("thoughtsTokenCount")?.takeIf { !it.isJsonNull }?.asInt ?: 0)
         val cachedInputTokens = usageMetadata?.get("cachedContentTokenCount")?.takeIf { !it.isJsonNull }?.asInt ?: 0
 
-        // 响应结构损坏（解析过程抛异常）且没有可展示的正文/原因：返回明确的中止结果而非崩溃，
-        // stopReason=failed 命中 isAborted，上层会展示错误文案。
+        // Response structure broken (parsing threw) with no displayable body/reason: return an explicit abort result instead of crashing;
+        // stopReason=failed matches isAborted and upper layers will show an error message.
         val aborted = parseFailure != null && finishReason == null
         return AIResponse(
             content = contentText,
@@ -218,11 +218,11 @@ class GeminiAdapter @Inject constructor(
                 val budget = StreamBudget()
                 val toolCalls = mutableListOf<ToolCall>()
                 val images = mutableListOf<AgentImage>()
-                // model 轮的 parts 原样快照：文本分片按段合并，functionCall 与 thoughtSignature 原样保留。
+                // Verbatim snapshot of the model turn's parts: text shards merged per segment, functionCall and thoughtSignature kept as-is.
                 val snapshotParts = mutableListOf<JsonObject>()
                 var currentFinishReason: String? = null
-                // 未等到 finishReason 就到了流尾（对端 EOF / 代理提前断开 / 网络切换）；
-                // 已有正文时降级交付而不是整轮失败，详见 [logStreamTruncated]。
+                // Stream hit end-of-stream before finishReason arrived (peer EOF / proxy dropped early / network switch);
+                // if some text exists, deliver it degraded instead of failing the whole turn; see [logStreamTruncated].
                 var truncatedByNetwork = false
                 var sseLines = 0
                 var streamInputTokens = 0
@@ -239,9 +239,9 @@ class GeminiAdapter @Inject constructor(
                     }
                     try {
                         val reader = rb.charStream().buffered()
-                        // 收到 finishReason 即 break 正常结束；readLine() 返回 null 说明它还没到、
-                        // 连接就没了。只有正文还没收到时才抛异常让重试/日志接管；已经吐了字就降级交付
-                        // （标记截断输出，由 Agent 循环自动续写），避免整轮失败、已流出内容全部作废。
+                        // Breaking on finishReason ends the stream normally; readLine() returning null means the
+                        // connection died before it arrived. Throw and let retry/logging take over only when no body has arrived; once text has streamed, deliver degraded
+                        // (mark the output truncated and let the Agent loop auto-continue), avoiding a failed turn that wastes everything already streamed.
                         while (true) {
                             coroutineContext.ensureActive()
                             val line = reader.readLine()
@@ -264,7 +264,7 @@ class GeminiAdapter @Inject constructor(
                             try {
                                 obj.get("usageMetadata")?.takeIf { it.isJsonObject }?.asJsonObject?.let { um ->
                                     streamInputTokens = um.get("promptTokenCount")?.takeIf { !it.isJsonNull }?.asInt ?: streamInputTokens
-                                    // 思考 token 不在 candidatesTokenCount 里，但按输出价计费，两者相加才是真实输出量。
+                                    // Thinking tokens are not in candidatesTokenCount but are billed at the output rate; the two added together are the true output.
                                     val candidateTokens = um.get("candidatesTokenCount")?.takeIf { !it.isJsonNull }?.asInt
                                     val thoughtTokens = um.get("thoughtsTokenCount")?.takeIf { !it.isJsonNull }?.asInt
                                     if (candidateTokens != null || thoughtTokens != null) {
@@ -292,7 +292,7 @@ class GeminiAdapter @Inject constructor(
                                             if (text.isNotEmpty()) {
                                                 budget.add(text)
                                                 if (isThought) {
-                                                    // 思考增量：仅 UI 实时展示，不计入正文、不计入正文（不落库，重试时可安全重新流出）
+                                                    // Reasoning delta: live UI display only, not added to the body (not persisted, so it can safely re-stream on retry)
                                                     firstContent.receivedContent()
                                                     onContent()
                                                     emit(AIStreamChunk.ReasoningDelta(text))
@@ -312,7 +312,7 @@ class GeminiAdapter @Inject constructor(
                                         if (part.has("functionCall")) {
                                             val fnCall = part.getAsJsonObject("functionCall")
                                             val name = fnCall.get("name")?.asString ?: ""
-                                            // 工具名一出现就通知 UI，把「正在思考」换成具体场景
+                                            // Notify the UI as soon as the tool name appears, swapping the generic "thinking" state for a concrete scene
                                             if (name.isNotEmpty()) emit(AIStreamChunk.ToolCallDeclared(name))
                                             val callId = fnCall.get("id")?.takeIf { !it.isJsonNull }?.asString?.takeIf { it.isNotBlank() } ?: name
                                             val argsStr = fnCall.getAsJsonObject("args")?.toString() ?: "{}"
@@ -335,7 +335,7 @@ class GeminiAdapter @Inject constructor(
                     }
                 }
 
-                // 断流降级时把 stopReason 标记为 length，让 Agent 循环自动续写而不是判整轮失败。
+                // When degrading after a broken stream, mark stopReason as length so the Agent loop auto-continues instead of failing the turn.
                 val truncated = truncatedByNetwork && currentFinishReason == null
                 emit(AIStreamChunk.Final(AIResponse(content = textBuilder.toString(), toolCalls = toolCalls, stopReason = if (truncated) STREAM_TRUNCATED_STOP_REASON else currentFinishReason, thinkingBlocksJson = snapshotOf(snapshotParts), inputTokens = streamInputTokens, outputTokens = streamOutputTokens, cachedInputTokens = streamCachedInputTokens, images = images)))
                     }
@@ -355,15 +355,15 @@ class GeminiAdapter @Inject constructor(
     }.flowOn(Dispatchers.IO)
 
     /**
-     * Interactions 请求体。与 generateContent 的差异集中在四处：
-     * - `system_instruction` 是**顶层字符串**，不再是 `{role, parts}` 对象；
-     * - 历史是扁平的 step 序列（见 [buildInteractionsInput]），模型名进请求体；
-     * - 工具声明扁平，不再套 `functionDeclarations`；
-     * - 思考只有 `thinking_level`（2.5 系那套 `thinkingBudget` 在这里不存在）。
+     * Interactions request body. Differences from generateContent in four places:
+     * - `system_instruction` is a **top-level string**, no longer a `{role, parts}` object;
+     * - history is a flat step sequence (see [buildInteractionsInput]) and the model name moves into the body;
+     * - tool declarations are flat, no more `functionDeclarations` wrapper;
+     * - thinking only has `thinking_level` (the 2.5-series `thinkingBudget` does not exist here).
      *
-     * 固定发 `store=false` 走无状态：本地 messages 列表才是唯一事实源，上下文压缩、重新生成、
-     * 失败重试都依赖客户端持有全部历史，服务端状态会与这些直接冲突。
-     * 不发 `temperature`——Interactions 的 GenerationConfig 里没有这个字段。
+     * Always sends `store=false` for stateless mode: the local messages list is the single source of truth, and context
+     * compression, regeneration, and failed-request retries all rely on the client holding the full history; server-side state would clash with them directly.
+     * `temperature` is not sent: Interactions' GenerationConfig has no such field.
      */
     private fun buildInteractionsRequest(
         systemPrompt: String,
@@ -385,15 +385,15 @@ class GeminiAdapter @Inject constructor(
         maxOutputTokens?.takeIf { it > 0 }?.let { generationConfig["max_output_tokens"] = it }
         interactionsThinkingLevel(reasoningEffort)?.let {
             generationConfig["thinking_level"] = it
-            // 不显式要摘要就只能拿到思考签名、拿不到可展示的思考文本，UI 的思考区会一直空着。
-            // 与 thinking_level 绑在一起发：不思考的模型（gemma / 图像 / 音乐）不该收到这两个字段。
+            // Without explicitly requesting summaries we would only get the thinking signature, never displayable thinking text, and the UI's reasoning pane would stay empty.
+            // Sent together with thinking_level: non-thinking models (gemma / image / music) should not receive either field.
             generationConfig["thinking_summaries"] = "auto"
         }
         if (generationConfig.isNotEmpty()) request["generation_config"] = generationConfig
         return request
     }
 
-    /** 思考强度 → `thinking_level`，仅支持 minimal/low/medium/high；none 跳过（不发 thinking），xhigh/max 归一到 high。 */
+    /** Reasoning effort -> `thinking_level`, which only supports minimal/low/medium/high; none skips (no thinking sent) and xhigh/max normalize to high. */
     private fun interactionsThinkingLevel(reasoningEffort: String?): String? = when (reasoningEffort) {
         null, "none" -> null
         "xhigh", "max" -> "high"
@@ -401,9 +401,9 @@ class GeminiAdapter @Inject constructor(
     }
 
     /**
-     * Interactions 的非流式请求。结果从 `steps` 时间线解析（见 [parseInteractionSteps]），
-     * 结束原因不再是 `finishReason` 而是 interaction 的 `status`：`incomplete` 表示撞了输出上限、
-     * `requires_action` 表示有工具待执行，取值归一见 [interactionStopReason]。
+     * Non-streaming Interactions request. Results are parsed from the `steps` timeline (see [parseInteractionSteps]),
+     * and the stop reason is the interaction's `status` instead of `finishReason`: `incomplete` means the output limit was hit,
+     * `requires_action` means tools await execution; see [interactionStopReason] for value normalization.
      */
     private suspend fun completeViaInteractions(
         systemPrompt: String,
@@ -435,7 +435,7 @@ class GeminiAdapter @Inject constructor(
         val parsed = parseInteractionSteps(response.get("steps")?.takeIf { it.isJsonArray }?.asJsonArray)
         val usage = parseInteractionsUsage(response.get("usage")?.takeIf { it.isJsonObject }?.asJsonObject)
         val status = response.get("status")?.takeIf { it.isJsonPrimitive }?.asString
-        // status=failed 时正文通常为空，理由只在 errors 里，取出来交给上层展示。
+        // When status=failed the body is usually empty and the reason lives only in errors; extract it for upper layers to display.
         val errorDetail = response.get("errors")?.takeIf { it.isJsonArray }?.asJsonArray
             ?.firstOrNull()?.takeIf { it.isJsonObject }?.asJsonObject
             ?.get("message")?.takeIf { it.isJsonPrimitive }?.asString
@@ -455,9 +455,9 @@ class GeminiAdapter @Inject constructor(
     }
 
     /**
-     * Interactions 的流式请求。与 generateContent 的 candidates 分片不同，这里是语义事件流
-     * （见 [GeminiInteractionsStreamAccumulator]），且没有 `[DONE]`：结束按 interaction 的
-     * status 到终态判定，读到流尾仍未终止才算被截断。
+     * Streaming Interactions request. Unlike generateContent's candidate shards, this is a semantic event stream
+     * (see [GeminiInteractionsStreamAccumulator]) with no `[DONE]`: completion is judged by the interaction's
+     * status reaching a terminal state; only an unterminated read to end-of-stream counts as truncated.
      */
     private suspend fun FlowCollector<AIStreamChunk>.streamViaInteractions(
         systemPrompt: String,
@@ -468,7 +468,7 @@ class GeminiAdapter @Inject constructor(
         val url = resolveInteractionsUrl(stream = true)
         val request = buildInteractionsRequest(systemPrompt, messages, tools, reasoningEffort, stream = true)
         val seq = AILogger.logRequest(logSessionId, "Gemini", model, "POST", url, request)
-        // 原始 SSE 分批落盘（见 AILogger.beginRawSse），本轮结束在 finally 收尾。
+        // Raw SSE is flushed to disk in batches (see AILogger.beginRawSse); finalized in finally at end of turn.
         val sseLog = AILogger.beginRawSse(logSessionId, "Gemini", seq)
         try {
             val triedKeys = mutableSetOf(apiKey)
@@ -501,8 +501,8 @@ class GeminiAdapter @Inject constructor(
                         try {
                             val reader = rb.charStream().buffered()
                             var sseLines = 0
-                            // 与 generateContent 同策略：没到终态就连没了，只有正文还没收到时才抛
-                            // 异常让重试接管；已经吐了字就降级交付（标记截断，由 Agent 循环续写）。
+                            // Same policy as generateContent: the connection died before a terminal state; throw and let retry
+                            // take over only when no body has arrived; once text has streamed, deliver degraded (mark truncated; the Agent loop continues).
                             while (!acc.terminated) {
                                 coroutineContext.ensureActive()
                                 val line = reader.readLine()
@@ -522,8 +522,8 @@ class GeminiAdapter @Inject constructor(
                                 sseLog.append(line)
                                 if (data == "[DONE]") break
                                 val obj = runCatching { JsonParser.parseString(data).asJsonObject }.getOrNull() ?: continue
-                                // 单个事件的字段类型异常不应废掉整条流，只跳过该事件；
-                                // 但 StreamApiException（error 事件）与取消信号必须放行。
+                                // A field-type error in one event must not kill the stream; skip only that event,
+                                // but StreamApiException (error events) and cancellation signals must be rethrown.
                                 val delta = try {
                                     acc.accept(obj).also {
                                         if (acc.receivedContent) {
@@ -545,13 +545,13 @@ class GeminiAdapter @Inject constructor(
                                         onContent()
                                         emit(AIStreamChunk.TextDelta(delta.text))
                                     }
-                                    // 思考增量仅用于 UI 展示，不计入正文；收到即说明连接已活。
+                                    // Reasoning deltas are UI display only and never added to the body; receiving one proves the connection is live.
                                     is InteractionsDelta.Reasoning -> {
                                         firstContent.receivedContent()
                                         onContent()
                                         emit(AIStreamChunk.ReasoningDelta(delta.text))
                                     }
-                                    // 工具名先于参数到达：通知 UI 提前把状态换成具体场景
+                                    // The tool name arrives before the arguments: notify the UI to switch to a concrete scene early
                                     is InteractionsDelta.ToolCallDeclared -> {
                                         firstContent.receivedContent()
                                         onContent()
@@ -584,8 +584,8 @@ class GeminiAdapter @Inject constructor(
     }
 
     /**
-     * generateContent / streamGenerateContent 共用的请求体。
-     * `generationConfig` 里 thinkingConfig 与 maxOutputTokens 必须合并写（分两次赋值会互相覆盖）。
+     * Request body shared by generateContent / streamGenerateContent.
+     * thinkingConfig and maxOutputTokens must be written into `generationConfig` together (two separate assignments would overwrite each other).
      */
     private fun buildRequestBody(
         systemPrompt: String,
@@ -618,8 +618,8 @@ class GeminiAdapter @Inject constructor(
     }
 
     /**
-     * model 轮 parts 的原样快照；仅当存在需要原样回传的内容（thoughtSignature 或 functionCall）时才生成，
-     * 纯文本轮返回 null，让历史走常规重建（避开正文双写）。
+     * Verbatim snapshot of the model turn's parts; generated only when content that must be replayed verbatim exists (thoughtSignature or functionCall);
+     * pure-text turns return null so history takes the regular rebuild path (avoiding double-writing the body).
      */
     private fun snapshotOf(parts: com.google.gson.JsonArray?): String? {
         if (parts == null || parts.size() == 0) return null
@@ -637,10 +637,10 @@ class GeminiAdapter @Inject constructor(
     }
 
     /**
-     * 把一个流式 part 并入快照：functionCall 单独成段原样保留；文本分片按“是否 thought”分段合并，
-     * 分片上的 thoughtSignature 写回所属段（签名是 part 级元数据，只会随某一片到达）。
+     * Merge one streamed part into the snapshot: functionCall becomes its own verbatim segment; text shards merge per "thought or not",
+     * and a shard's thoughtSignature is written back to its segment (the signature is part-level metadata that arrives on only one shard).
      */
-    /** 图片 part（camelCase 的 inlineData / snake_case 的 inline_data）→ [AgentImage]；图像模型直出的图整块到达。 */
+    /** Image part (camelCase inlineData / snake_case inline_data) -> [AgentImage]; images emitted directly by image models arrive whole. */
     private fun JsonObject.inlineImagePart(): AgentImage? =
         (get("inlineData") ?: get("inline_data"))?.takeIf { it.isJsonObject }?.asJsonObject?.let { inline ->
             val data = inline.get("data")?.takeIf { !it.isJsonNull }?.asString
@@ -659,7 +659,7 @@ class GeminiAdapter @Inject constructor(
             return
         }
         if (!part.has("text")) {
-            // 图片整块到达、无文本分片可合并，原样进快照供下一轮编辑时回传（含 SynthID 等元数据）。
+            // Images arrive whole with no text shard to merge; they enter the snapshot verbatim for replay in the next editing turn (including SynthID and other metadata).
             if (part.has("thoughtSignature") || part.has("inlineData")) snapshot.add(part.deepCopy())
             return
         }
@@ -676,7 +676,7 @@ class GeminiAdapter @Inject constructor(
         }
     }
 
-    /** 把快照还原成 parts 数组；为空或损坏时返回 null，由调用方回退重建逻辑。 */
+    /** Restore the snapshot into a parts array; returns null when blank or corrupt, and the caller falls back to rebuilding. */
     private fun decodeSnapshotParts(json: String): com.google.gson.JsonArray? {
         if (json.isBlank()) return null
         return runCatching {
@@ -684,11 +684,11 @@ class GeminiAdapter @Inject constructor(
         }.getOrNull()
     }
 
-    /** 思考强度 → Gemini thinkingConfig。模型名含 gemini-3 用 thinkingLevel，否则用 thinkingBudget（2.5 系）。显式带上 includeThoughts 以返回思考内容。 */
+    /** Reasoning effort -> Gemini thinkingConfig. Models with gemini-3 in the name use thinkingLevel, others thinkingBudget (2.5 series). includeThoughts is set explicitly so thinking content is returned. */
     private fun buildThinkingConfig(reasoningEffort: String?): Map<String, Any>? {
         if (reasoningEffort == null) return null
         return if (model.contains("gemini-3")) {
-            // thinkingLevel 仅支持 minimal/low/medium/high；none 跳过（不发 thinking），xhigh/max 归一到 high（元数据未命中时 UI 会给出全部档位）
+            // thinkingLevel only supports minimal/low/medium/high; none skips (no thinking sent) and xhigh/max normalize to high (when metadata misses, the UI offers all levels)
             val level = when (reasoningEffort) {
                 "none" -> return null
                 "xhigh", "max" -> "high"
@@ -714,10 +714,10 @@ class GeminiAdapter @Inject constructor(
 
     private fun convertToGeminiContents(messages: List<AgentMessage>): List<Map<String, Any>> {
         val result = mutableListOf<Map<String, Any>>()
-        // 防御性跟踪：上一个 assistant(即 model) 消息是否包含 functionCall
+        // Defensive tracking: whether the previous assistant (i.e. model) message contained functionCall
         var lastModelHadFunctionCall = false
-        // 同一 model 轮次的多个工具结果必须并进同一个 user content：并行调用时 Gemini 与各家兼容
-        // 网关都按「一轮回传全部 functionResponse」配对，拆成多轮会被判成 tool 结果缺失（HTTP 400）。
+        // Multiple tool results of one model turn must be merged into a single user content: for parallel calls, Gemini and compatible
+        // gateways all pair on "one turn returns all functionResponses"; splitting them is judged as missing tool results (HTTP 400).
         var pendingToolResponseParts: MutableList<Map<String, Any>>? = null
 
         for (message in messages) {
@@ -742,8 +742,8 @@ class GeminiAdapter @Inject constructor(
                 is AgentMessage.AssistantMessage -> {
                     lastModelHadFunctionCall = message.toolCalls.isNotEmpty()
                     pendingToolResponseParts = null
-                    // 上轮 model 输出存有原样快照时直接原样回传：thoughtSignature 是 part 级元数据，
-                    // 重建 parts 会丢失签名，Gemini 3 系就接不上上一轮的推理上下文。
+                    // When the previous model output has a verbatim snapshot, replay it as-is: thoughtSignature is part-level metadata,
+                    // rebuilding parts would lose the signature and Gemini 3 could not continue the previous turn's reasoning context.
                     val snapshot = decodeSnapshotParts(message.thinkingBlocksJson)
                     if (snapshot != null) {
                         result.add(mapOf("role" to "model", "parts" to snapshot))
@@ -773,17 +773,17 @@ class GeminiAdapter @Inject constructor(
                     }
                 }
                 is AgentMessage.ToolResultMessage -> {
-                    // 防御性清理：跳过没有配对 functionCall 的孤立 functionResponse
+                    // Defensive cleanup: skip orphaned functionResponses with no matching functionCall
                     if (!lastModelHadFunctionCall) continue
                     val parts = pendingToolResponseParts ?: mutableListOf<Map<String, Any>>().also {
                         result.add(mapOf("role" to "user", "parts" to it))
                         pendingToolResponseParts = it
                     }
-                    // 文件类工具喂模型用精简投影文本，UI/持久化仍走完整 result。
+                    // File-type tools feed the model a condensed projection; the UI/persistence still use the full result.
                     val modelText = message.modelResult
                         ?: modelToolResultText(message.toolName, message.result)
                         ?: message.result
-                    // name 发函数名，并行调用时额外带 id 回去配对（旧数据的 id 就是函数名，此时不发 id）。
+                    // name carries the function name; with parallel calls an id is also sent back for pairing (old data uses the function name as id, in which case no id is sent).
                     val functionName = message.toolName.ifBlank { message.id }
                     val functionResponse = mutableMapOf<String, Any>(
                         "name" to functionName,

@@ -4,32 +4,32 @@ import java.io.InputStream
 import java.io.OutputStream
 
 /**
- * 备份编排器：从各数据源采集快照并打包，或反向解包还原。
+ * Backup orchestrator: collects snapshots from data sources and packs them, or unpacks and restores in reverse.
  *
- * 导出：按 [BackupOptions] 采集 → 流式序列化（metadata.json + 各 *.jsonl）→ tar.gz 压缩 → 口令非空则分块 AES-GCM 加密。
- * 导入：口令非空则先流式解密 → 解 tar.gz → 校验 schemaVersion → 分批合并写入各数据源。
- * 全程流式，内存峰值与数据总量解耦（只持有当前分页批次）。
+ * Export: collect per [BackupOptions] → stream serialization (metadata.json + each *.jsonl) → tar.gz compression → chunked AES-GCM encryption when the passphrase is non-empty.
+ * Import: stream-decrypt first when the passphrase is non-empty → untar the tar.gz → validate schemaVersion → merge into data sources in batches.
+ * Fully streamed throughout; peak memory is decoupled from total data size (only the current page batch is held).
  */
 interface BackupManager {
     /**
-     * 流式生成备份写入 [output]（调用方负责打开与关闭输出流）。
-     * password 为 null 或空时不加密，输出明文 tar.gz。
+     * Streams a generated backup into [output] (the caller owns opening and closing it).
+     * When password is null or empty, no encryption is applied and a plaintext tar.gz is written.
      */
     suspend fun export(password: CharArray?, options: BackupOptions, output: OutputStream)
 
     /**
-     * 导出单个会话（无密码 tar.gz）：只含该会话 + 关联消息 + todo，可由 [import] 直接还原。
-     * @param output 调用方负责打开与关闭输出流
+     * Exports a single session (unencrypted tar.gz): only that session + its messages + todos; restorable directly via [import].
+     * @param output the caller owns opening and closing the output stream
      */
     suspend fun exportSession(sessionId: String, output: OutputStream)
 
     /**
-     * 流式解包并还原备份文件。
-     * @param input 调用方负责打开与关闭输入流
-     * @param password 备份未加密时传 null 或空；加密文件必须提供正确口令。
-     * @param selectedWorkspaces 非 null 时只恢复这些工作区的文件（导入前由 [previewImport] 勾选）；
-     *   null 表示全量恢复（备份无工作区数据或旧调用）。
-     * @return 还原统计（各数据段条目数）；口令错误/格式不符/版本过高时返回失败。
+     * Streams, unpacks, and restores a backup file.
+     * @param input the caller owns opening and closing the input stream
+     * @param password pass null or empty for an unencrypted backup; an encrypted file requires the correct passphrase.
+     * @param selectedWorkspaces when non-null, restore only these workspaces' files (selected via [previewImport] before import);
+     *   null means a full restore (backup has no workspace data, or a legacy call).
+     * @return restore stats (entry counts per data section); a wrong passphrase/format mismatch/too-new version returns failure.
      */
     suspend fun import(
         input: InputStream,
@@ -38,21 +38,21 @@ interface BackupManager {
     ): Result<RestoreStats>
 
     /**
-     * 导入前预览：校验口令/格式/版本，并读出备份中包含的工作区列表（名称 + 文件数）。
-     * 有工作区数据时 UI 应弹出勾选确认（直接覆盖警告）；无数据时导入无需弹窗。
-     * @param input 调用方负责打开与关闭输入流
+     * Pre-import preview: validates the passphrase/format/version and reads out the backup's workspace list (name + file count).
+     * When workspace data exists, the UI should show a selection confirmation (direct-overwrite warning); without data, import needs no dialog.
+     * @param input the caller owns opening and closing the input stream
      */
     suspend fun previewImport(input: InputStream, password: CharArray?): Result<ImportPreview>
 }
 
-/** 导入预览结果：备份中的工作区列表（供勾选）。 */
+/** Import preview result: the backup's workspace list (for selection). */
 data class ImportPreview(
     val workspaces: List<WorkspaceBackupMeta>
 ) {
     val hasWorkspaceData: Boolean get() = workspaces.isNotEmpty()
 }
 
-/** 导出数据范围选项；未勾选的段在快照中保持空值，导入时跳过。 */
+/** Export scope options; unselected sections stay empty in the snapshot and are skipped on import. */
 data class BackupOptions(
     val providers: Boolean = true,
     val remoteConnections: Boolean = true,

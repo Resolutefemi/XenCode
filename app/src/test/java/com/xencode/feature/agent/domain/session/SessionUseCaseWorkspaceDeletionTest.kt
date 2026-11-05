@@ -10,7 +10,7 @@ import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
 import org.junit.Test
 
-/** 删除工作区时按 workspacePath 级联清理会话与消息的行为。 */
+/** Behavior of cascading session and message cleanup by workspacePath when deleting a workspace. */
 class SessionUseCaseWorkspaceDeletionTest {
 
     private fun session(id: String, workspacePath: String, parentId: String? = null) = ChatSessionEntity(

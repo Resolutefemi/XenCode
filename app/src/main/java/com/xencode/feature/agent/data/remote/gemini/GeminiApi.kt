@@ -26,7 +26,7 @@ interface GeminiApi {
         @Body request: Any
     ): retrofit2.Call<ResponseBody>
 
-    /** Interactions API（`v1beta/interactions`）的非流式请求。 */
+    /** Non-streaming request to the Interactions API (`v1beta/interactions`). */
     @POST
     suspend fun createInteraction(
         @Url url: String,
@@ -36,8 +36,8 @@ interface GeminiApi {
     ): com.google.gson.JsonObject
 
     /**
-     * Interactions API 的流式请求：与非流式**同一个端点**，靠请求体的 `stream: true`
-     * 与 `?alt=sse` 切到 SSE，不再有 generateContent 那种独立的 `:streamGenerateContent`。
+     * Streaming request to the Interactions API: **the same endpoint** as non-streaming; switching to SSE
+     * relies on `stream: true` in the request body plus `?alt=sse`, with no separate `:streamGenerateContent` like generateContent.
      */
     @Streaming
     @POST

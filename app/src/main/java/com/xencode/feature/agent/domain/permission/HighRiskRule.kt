@@ -3,35 +3,35 @@ package com.xencode.feature.agent.domain.permission
 import kotlinx.serialization.Serializable
 
 /**
- * 高危拦截规则：「规则拦截」挡位下，命中任一启用规则的 shell 命令必须转人工确认（ASK）。
+ * High-risk interception rules: under the "rule-based interception" tier, any shell command matching an enabled rule must go to human confirmation (ASK).
  *
- * 与授权规则（[PermissionRule]）的区别：授权规则由「始终允许/拒绝」的记忆产生，判定方向是放行/禁止；
- * 高危规则由系统预设、用户可改，判定方向是「必须人工看一眼」，不产生放行语义。
+ * Unlike authorization rules ([PermissionRule]): authorization rules come from "always allow/deny" memories and decide allow/forbid;
+ * high-risk rules are system presets the user can edit, and their verdict is "a human must look at this" — they never produce an allow.
  *
- * 匹配方式：
- * - [HighRiskMatchType.PREFIX]：命令按顶层段拆分后，任一段命中 token 前缀（复用 [ShellCommandParser.matches]，
- *   如 `rm -rf` 命中 `rm -rf /data` 但不命中 `rm -rfd`）；
- * - [HighRiskMatchType.REGEX]：正则作用整行命令，且对每个顶层段（join 回原样）也各试一次，
- *   使 `^`/`$` 锚点在段级同样可用（如 `curl … | sh` 管道、写块设备）。
+ * Matching:
+ * - [HighRiskMatchType.PREFIX]: after the command is split into top-level segments, any segment hitting the token prefix (reusing [ShellCommandParser.matches],
+ *   e.g. `rm -rf` matches `rm -rf /data` but not `rm -rfd`);
+ * - [HighRiskMatchType.REGEX]: the regex is tried against the whole command line and against each top-level segment (joined back verbatim),
+ *   so `^`/`$` anchors work at segment level too (e.g. `curl … | sh` pipes, writing block devices).
  */
 @Serializable
 data class HighRiskRule(
-    /** 稳定 id：预设规则以 `preset.` 开头，用户自建规则用时间戳生成。 */
+    /** Stable id: preset rules start with `preset.`; user-created rules use a generated timestamp. */
     val id: String,
     val pattern: String,
     val matchType: HighRiskMatchType = HighRiskMatchType.PREFIX,
-    /** 分类名（UI 分组徽标），如「删除与擦除」。 */
+    /** Category name (UI grouping badge), e.g. "Delete and erase". */
     val category: String,
-    /** 人类可读的命中说明，弹窗与列表中展示。 */
+    /** Human-readable match explanation, shown in the dialog and the list. */
     val description: String = "",
     val enabled: Boolean = true,
-    /** 是否系统预设：预设可「恢复默认」找回；用户删除预设后再恢复会回到启用态。 */
+    /** Whether it is a system preset: presets can be restored via "Reset to defaults"; restoring after deletion brings them back enabled. */
     val builtin: Boolean = true
 )
 
 enum class HighRiskMatchType { PREFIX, REGEX }
 
-/** 高危规则匹配：返回第一条命中的启用规则，无命中返回 null。 */
+/** High-risk rule matching: returns the first enabled rule that hits, or null when none does. */
 object HighRiskRuleMatcher {
 
     fun matchAny(rules: List<HighRiskRule>, command: String): HighRiskRule? {

@@ -4,7 +4,7 @@ import org.junit.Assert.assertEquals
 import org.junit.Test
 
 /**
- * SSH 连接异常 → 友好提示文案的翻译逻辑（[friendlySshError]）。
+ * Translation logic from SSH connection exceptions to friendly hint copy ([friendlySshError]).
  */
 class FriendlySshErrorTest {
 
@@ -68,7 +68,7 @@ class FriendlySshErrorTest {
     fun not_connected() {
         assertEquals(
             "SSH is not connected. Wait for it to recover or check Settings",
-            friendlySshError(RuntimeException("SSH 未连接"))
+            friendlySshError(RuntimeException("SSH not connected"))
         )
     }
 

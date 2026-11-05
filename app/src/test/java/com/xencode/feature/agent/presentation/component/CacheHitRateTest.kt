@@ -5,7 +5,7 @@ import org.junit.Assert.assertNull
 import org.junit.Test
 
 /**
- * 单条消息的缓存命中率展示（[formatCacheHitRate]）。
+ * Cache hit rate display for a single message ([formatCacheHitRate]).
  */
 class CacheHitRateTest {
 
@@ -23,7 +23,7 @@ class CacheHitRateTest {
 
     @Test
     fun anthropic_style_input_without_cache_read_is_capped_at_full() {
-        // Anthropic 的 input_tokens 不含 cache_read，比值会超过 1，展示封顶 100%
+        // Anthropic's input_tokens excludes cache_read, so the ratio can exceed 1; the display caps at 100%
         assertEquals("100%", formatCacheHitRate(inputTokens = 100, cachedInputTokens = 5_000))
     }
 

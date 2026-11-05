@@ -5,8 +5,8 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 /**
- * 流式文本「同一轮延续」判据：切页 / item 回收重挂载后据此决定恢复出的打字进度与
- * 思考计时能否沿用，故重点覆盖换轮（文本变短、开头改变、流已中断）等不可沿用的情形。
+ * "Same-turn continuation" criteria for streaming text: after a page switch / item recycle-and-remount, this decides whether the restored typing progress and
+ * thinking timer can carry over, so the focus is on turn-change cases (text got shorter, head changed, stream broke off) that must not carry over.
  */
 class StreamContinuityTest {
 
@@ -14,47 +14,47 @@ class StreamContinuityTest {
 
     @Test
     fun prefixGrowth_isContinuation() {
-        val (chars, head) = seen("你好，我先看一下")
-        assertTrue(isStreamContinuation("你好，我先看一下项目结构", chars, head))
+        val (chars, head) = seen("Hello, let me take a look first")
+        assertTrue(isStreamContinuation("Hello, let me take a look first at the project layout", chars, head))
     }
 
     @Test
     fun unchangedText_isContinuation() {
-        val text = "已输出的一段回复"
+        val text = "a stretch of already-delivered reply"
         val (chars, head) = seen(text)
         assertTrue(isStreamContinuation(text, chars, head))
     }
 
     @Test
     fun shorterText_isNotContinuation() {
-        val (chars, head) = seen("上一轮已经输出了很长一段内容")
-        assertFalse(isStreamContinuation("新一轮刚开始", chars, head))
+        val (chars, head) = seen("the previous turn already produced a long stretch of output")
+        assertFalse(isStreamContinuation("a fresh turn just began", chars, head))
     }
 
     @Test
     fun differentHeadSameLength_isNotContinuation() {
-        val (chars, head) = seen("上一轮的开头")
-        assertFalse(isStreamContinuation("另一轮的开头", chars, head))
+        val (chars, head) = seen("the old turn head")
+        assertFalse(isStreamContinuation("the new turn head", chars, head))
     }
 
     @Test
     fun emptyText_isNotContinuation() {
-        val (chars, head) = seen("流被中断前已输出的内容")
+        val (chars, head) = seen("content already output before the stream broke off")
         assertFalse(isStreamContinuation("", chars, head))
     }
 
     @Test
     fun nothingSeenYet_isNotContinuation() {
-        assertFalse(isStreamContinuation("刚开始输出", 0, 0))
+        assertFalse(isStreamContinuation("output just started", 0, 0))
         assertFalse(isStreamContinuation("", 0, 0))
     }
 
     @Test
     fun growthBeyondSampleWindow_isContinuation() {
-        // 已见文本超过采样窗口后继续增长：只比对前 64 字符，仍判为同一轮延续
-        val seenText = "x".repeat(80) + "上一段尾部"
+        // Seen text keeps growing past the sampling window: only the first 64 chars are compared, still judged a same-turn continuation
+        val seenText = "x".repeat(80) + "tail of the prior segment"
         val (chars, head) = seen(seenText)
-        assertTrue(isStreamContinuation(seenText + "继续输出的新内容", chars, head))
+        assertTrue(isStreamContinuation(seenText + "newly streamed continuation", chars, head))
     }
 
     @Test
@@ -65,8 +65,8 @@ class StreamContinuityTest {
 
     @Test
     fun surrogatePairs_measuredInChars() {
-        // 指纹与长度都按 char 计，emoji 的代理对不会让同一轮被判成换轮
-        val (chars, head) = seen("进度🚀🚀")
-        assertTrue(isStreamContinuation("进度🚀🚀继续", chars, head))
+        // Fingerprint and length both count chars, so an emoji's surrogate pair cannot flip a same-turn check into a turn change
+        val (chars, head) = seen("progress🚀🚀")
+        assertTrue(isStreamContinuation("progress🚀🚀more", chars, head))
     }
 }

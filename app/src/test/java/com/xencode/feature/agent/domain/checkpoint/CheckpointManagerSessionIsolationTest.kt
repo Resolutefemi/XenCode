@@ -17,11 +17,11 @@ import java.io.InputStream
 import java.nio.charset.Charset
 
 /**
- * 活动 checkpoint 的会话归属。
+ * Session ownership of the active checkpoint.
  *
- * 回归点：活动 checkpoint 曾是全局单字段，会话 B 发消息会覆盖会话 A 的活动 checkpoint，
- * A 之后写文件产生的快照被挂到 B 名下；B 一撤销就把 A 已写盘的文件还原或删除
- * （表现为「写盘成功但文件消失」的幽灵文件）。
+ * Regression point: the active checkpoint used to be a single global field, so session B sending a message would overwrite session A's active checkpoint,
+ * and snapshots from files A wrote afterwards were attributed to B; a single undo by B would restore or delete files A had already written to disk
+ * (manifesting as a ghost file: "write succeeded but the file disappeared").
  */
 class CheckpointManagerSessionIsolationTest {
 
@@ -42,33 +42,33 @@ class CheckpointManagerSessionIsolationTest {
     fun restoringOtherSession_doesNotRevertModifiedFile() = runTest {
         val path = File(workspace, "a.txt").apply { writeText("original") }.absolutePath
 
-        manager.createCheckpoint("sessionA", "msgA", "A 的请求")
-        val cpB = manager.createCheckpoint("sessionB", "msgB", "B 的请求")
+        manager.createCheckpoint("sessionA", "msgA", "request from A")
+        val cpB = manager.createCheckpoint("sessionB", "msgB", "request from B")
 
-        // A 的 Agent 在 B 发过消息之后才动文件
+        // A's agent touches the file only after B has sent a message
         manager.beforeFileModified("sessionA", path)
-        fileAccess.writeFile(path, "A 的新内容", overwrite = true)
+        fileAccess.writeFile(path, "A's new content", overwrite = true)
 
         val restored = manager.restoreCodeToCheckpoint("sessionB", cpB.id)
 
         assertEquals(0, restored)
-        assertEquals("A 的新内容", File(path).readText())
+        assertEquals("A's new content", File(path).readText())
     }
 
     @Test
     fun restoringOtherSession_doesNotDeleteCreatedFile() = runTest {
         val path = File(workspace, "new.txt").absolutePath
 
-        manager.createCheckpoint("sessionA", "msgA", "A 的请求")
-        val cpB = manager.createCheckpoint("sessionB", "msgB", "B 的请求")
+        manager.createCheckpoint("sessionA", "msgA", "request from A")
+        val cpB = manager.createCheckpoint("sessionB", "msgB", "request from B")
 
         manager.beforeFileModified("sessionA", path)
-        fileAccess.writeFile(path, "A 新建的文件", overwrite = true)
+        fileAccess.writeFile(path, "file created by A", overwrite = true)
 
         manager.restoreCodeToCheckpoint("sessionB", cpB.id)
 
         assertTrue(File(path).exists())
-        assertEquals("A 新建的文件", File(path).readText())
+        assertEquals("file created by A", File(path).readText())
     }
 
     @Test
@@ -76,13 +76,13 @@ class CheckpointManagerSessionIsolationTest {
         val modified = File(workspace, "m.txt").apply { writeText("original") }.absolutePath
         val created = File(workspace, "c.txt").absolutePath
 
-        val cpA = manager.createCheckpoint("sessionA", "msgA", "A 的请求")
-        manager.createCheckpoint("sessionB", "msgB", "B 的请求")
+        val cpA = manager.createCheckpoint("sessionA", "msgA", "request from A")
+        manager.createCheckpoint("sessionB", "msgB", "request from B")
 
         manager.beforeFileModified("sessionA", modified)
-        fileAccess.writeFile(modified, "改过了", overwrite = true)
+        fileAccess.writeFile(modified, "changed", overwrite = true)
         manager.beforeFileModified("sessionA", created)
-        fileAccess.writeFile(created, "新建的", overwrite = true)
+        fileAccess.writeFile(created, "newly created", overwrite = true)
 
         val restored = manager.restoreCodeToCheckpoint("sessionA", cpA.id)
 
@@ -96,8 +96,8 @@ class CheckpointManagerSessionIsolationTest {
         val pathA = File(workspace, "a.txt").apply { writeText("a") }.absolutePath
         val pathB = File(workspace, "b.txt").apply { writeText("b") }.absolutePath
 
-        val cpA = manager.createCheckpoint("sessionA", "msgA", "A 的请求")
-        val cpB = manager.createCheckpoint("sessionB", "msgB", "B 的请求")
+        val cpA = manager.createCheckpoint("sessionA", "msgA", "request from A")
+        val cpB = manager.createCheckpoint("sessionB", "msgB", "request from B")
 
         manager.beforeFileModified("sessionA", pathA)
         manager.beforeFileModified("sessionB", pathB)
@@ -109,7 +109,7 @@ class CheckpointManagerSessionIsolationTest {
     @Test
     fun clearingSessionDropsItsActiveCheckpoint() = runTest {
         val path = File(workspace, "a.txt").apply { writeText("original") }.absolutePath
-        val cpA = manager.createCheckpoint("sessionA", "msgA", "A 的请求")
+        val cpA = manager.createCheckpoint("sessionA", "msgA", "request from A")
 
         manager.clearSessionCheckpoints("sessionA")
         manager.beforeFileModified("sessionA", path)
@@ -135,7 +135,7 @@ class CheckpointManagerSessionIsolationTest {
             snapshots += snapshot
         }
 
-        // 同一毫秒创建的 checkpoint 按插入顺序稳定排序，对齐 Room 的 createdAt ASC
+        // Checkpoints created within the same millisecond sort stably by insertion order, matching Room's createdAt ASC
         override suspend fun getCheckpointsForSession(sessionId: String): List<CheckpointEntity> =
             checkpoints.filter { it.sessionId == sessionId }.sortedBy { it.createdAt }
 

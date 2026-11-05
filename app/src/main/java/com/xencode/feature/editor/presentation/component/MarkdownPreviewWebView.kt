@@ -24,12 +24,12 @@ import com.xencode.core.util.FileLogger
 import com.xencode.feature.editor.presentation.MarkdownPreviewViewModel
 
 /**
- * Markdown 预览页：用 WebView 渲染完整 Markdown（含内嵌 HTML），还原 GitHub 观感。
+ * Markdown preview screen: renders full Markdown (including embedded HTML) in a WebView, reproducing the GitHub look.
  *
- * 预览页里的本地文件链接会像浏览器一样就地导航过去（Markdown 目标由 [MarkdownPreviewViewModel] 渲染成新预览页）；
- * 返回键优先回退 WebView 历史、到头再退出预览；外部链接不跳转。
+ * Local file links navigate in place like a browser (Markdown targets are rendered into a new preview page by [MarkdownPreviewViewModel]);
+ * Back first goes back through WebView history, then exits the preview; external links do not navigate.
  *
- * 与聊天区的 Compose 渲染是两条独立路径，互不影响。
+ * This and the chat area's Compose rendering are two independent paths and do not affect each other.
  */
 @Composable
 internal fun MarkdownPreviewWebView(
@@ -48,7 +48,7 @@ internal fun MarkdownPreviewWebView(
         val themedContext = ContextThemeWrapper(context, webViewThemeRes(dark))
         WebView(themedContext).apply {
             settings.javaScriptEnabled = true
-            // 页面只经 assetLoader 取资源，不暴露本地文件系统
+            // The page only fetches resources through assetLoader; the local file system stays unexposed
             settings.allowFileAccess = false
             settings.allowContentAccess = false
             settings.domStorageEnabled = false
@@ -63,7 +63,7 @@ internal fun MarkdownPreviewWebView(
                     request: WebResourceRequest
                 ): WebResourceResponse? {
                     val response = viewModel.assetLoader.shouldInterceptRequest(request.url)
-                    FileLogger.v(TAG, "预览资源请求: ${request.url} -> ${if (response == null) "走网络" else "已拦截"}")
+                    FileLogger.v(TAG, "Preview resource request: ${request.url} -> ${if (response == null) "network" else "intercepted"}")
                     return response
                 }
 
@@ -72,18 +72,18 @@ internal fun MarkdownPreviewWebView(
                     request: WebResourceRequest
                 ): Boolean {
                     val url = request.url
-                    // 页内锚点（#xxx）：仅 fragment 变化、path 与当前页面一致，放行交给 WebView 滚动
+                    // In-page anchors (#xxx): only the fragment changes and the path matches the current page; allow and let WebView scroll
                     if (url.fragment != null && url.path == view.url?.let { Uri.parse(it).path }) return false
-                    // 指向工作区的文件链接放行，让 WebView 就地导航（Markdown 由 assetLoader 渲染成预览页）
+                    // Allow file links pointing into the workspace so WebView navigates in place (Markdown is rendered into a preview page by assetLoader)
                     if (viewModel.containerPathForUrl(url) != null) return false
-                    // 其余（外链等）一律拦下
+                    // Block everything else (external links etc.)
                     return true
                 }
             }
         }
     }
 
-    // WebView 的 isLightTheme 由上下文主题决定，深色切换时同步更新，避免滚动条等控件配色不匹配。
+    // WebView's isLightTheme derives from the context theme; update it on dark-mode switches so scrollbar and other controls match.
     LaunchedEffect(dark) {
         (webView.context as? ContextThemeWrapper)?.setTheme(webViewThemeRes(dark))
         webView.setBackgroundColor(bgColor)

@@ -104,14 +104,14 @@ class BrowserTool @Inject constructor(
         return try {
             executeAction(action, tabId, args)
         } catch (e: IllegalStateException) {
-            FileLogger.e(TAG, "浏览器操作失败: $action", e)
+            FileLogger.e(TAG, "Browser action failed: $action", e)
             ToolResult.Error(e.message ?: "Browser is not initialized", "BROWSER_NOT_READY")
         } catch (e: IllegalArgumentException) {
             ToolResult.Error(e.message ?: "Invalid argument", "INVALID_ARGUMENT")
         } catch (e: TimeoutCancellationException) {
             ToolResult.Error("Operation timed out: $action", "TIMEOUT")
         } catch (e: Exception) {
-            FileLogger.e(TAG, "浏览器操作异常: $action", e)
+            FileLogger.e(TAG, "Browser action error: $action", e)
             ToolResult.Error("Operation failed: ${e.message}", "BROWSER_ERROR")
         }
     }
@@ -271,7 +271,7 @@ class BrowserTool @Inject constructor(
                         val bytes = Base64.decode(image.base64Data, Base64.DEFAULT)
                         fileAccess.writeBytes(savePath, bytes, overwrite = true)
                     } catch (e: Exception) {
-                        FileLogger.e(TAG, "保存截图到文件失败: $savePath", e)
+                        FileLogger.e(TAG, "Failed to save screenshot to file: $savePath", e)
                     }
 
                     val viewport = browserManager.getViewportInfo(tabId)
@@ -365,7 +365,7 @@ class BrowserTool @Inject constructor(
         }
     }
 
-    /** 统一响应封装；存在挂起的 confirm/prompt 时附加 pendingDialog 提示 AI 处理。 */
+    /** Unified response envelope; appends pendingDialog so the AI handles any pending confirm/prompt. */
     private fun envelope(ok: Boolean, action: String, detail: JsonElement, tabId: String? = null): JsonObject {
         val resolvedTabId = tabId ?: browserManager.getActiveTabId()
         val fields = LinkedHashMap<String, JsonElement>()

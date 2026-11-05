@@ -57,8 +57,8 @@ import compose.icons.feathericons.ChevronDown
 import compose.icons.feathericons.ChevronUp
 
 /**
- * 位于聊天输入框上方的自定义面板栏。
- * 基于 Adaptive Cards 声明式规范，支持任意自定义排版与交互。
+ * Custom dashboard bar sitting above the chat input box.
+ * Built on the Adaptive Cards declarative spec, supporting arbitrary custom layouts and interactions.
  */
 @Composable
 fun ProviderDashboardBar(
@@ -73,10 +73,10 @@ fun ProviderDashboardBar(
     val context = LocalContext.current
     var isExpanded by rememberSaveable { mutableStateOf(false) }
 
-    // 弹窗/键盘叠加时同帧收起：用派生状态而不是 LaunchedEffect 异步改 isExpanded，
-    // 否则弹窗先出现顶开布局、面板后折叠，中间产生空档闪屏。
+    // Collapse in the same frame when a dialog/keyboard overlays: use derived state instead of a LaunchedEffect mutating isExpanded asynchronously,
+    // otherwise the dialog appears and pushes the layout first while the panel folds later, flashing a gap in between.
     val effectiveExpanded = isExpanded && !forceCollapse
-    // 上报展开状态给外层，供叠加面板联动折叠
+    // Report the expanded state to the outside for linked collapsing of overlay panels
     LaunchedEffect(effectiveExpanded) { onExpandedChange(effectiveExpanded) }
 
     val cardBgColor = MaterialTheme.colorScheme.surface.copy(alpha = 0.98f)
@@ -185,7 +185,7 @@ fun ProviderDashboardBar(
                         }
                     }
 
-                    // ── 顶部单行常驻栏（点击展开/折叠） ──
+                    // ── Top single-line persistent bar (tap to expand/collapse) ──
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
@@ -200,7 +200,7 @@ fun ProviderDashboardBar(
                             modifier = Modifier.padding(end = Spacing.md)
                         )
 
-                        // 收起状态展示单行卡片摘要
+                        // Collapsed state shows a one-line card summary
                         AnimatedVisibility(
                             visible = !effectiveExpanded,
                             modifier = Modifier.weight(1f),
@@ -233,7 +233,7 @@ fun ProviderDashboardBar(
                         )
                     }
 
-                    // ── 展开状态内容（平滑自上而下展开、自下而上收起） ──
+                    // ── Expanded-state content (smoothly expands top-down, collapses bottom-up) ──
                     AnimatedVisibility(
                         visible = effectiveExpanded,
                         enter = fadeIn(tween(180)) + expandVertically(tween(220)),
@@ -245,7 +245,7 @@ fun ProviderDashboardBar(
                                 .padding(top = Spacing.sm),
                             verticalArrangement = Arrangement.spacedBy(Spacing.sm)
                         ) {
-                            // 卡片 Body 展开渲染
+                            // Expanded rendering of the card body
                             AdaptiveCardView(
                                 card = card,
                                 isExpanded = true,

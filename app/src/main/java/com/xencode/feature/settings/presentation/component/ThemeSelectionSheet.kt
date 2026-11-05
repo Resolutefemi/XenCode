@@ -46,12 +46,12 @@ import compose.icons.FeatherIcons
 import compose.icons.feathericons.Check
 
 /**
- * 外观主题面板：明暗模式、配色方案与莫奈取色。
+ * Appearance theme panel: light/dark mode, color schemes, and Material You dynamic color.
  *
- * 选择后不关闭弹窗，便于连续对比几套配色。
+ * The sheet stays open after a selection so several color schemes can be compared in a row.
  *
- * @param selectedPresetId 当前配色方案 id，null 表示未选过（回退默认）。
- * @param dynamicColorEnabled 莫奈取色开关状态；开启时配色方案不可选。
+ * @param selectedPresetId Current color scheme id; null means never selected (falls back to default).
+ * @param dynamicColorEnabled Material You dynamic color toggle state; when on, color schemes are not selectable.
  */
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
 @Composable
@@ -188,7 +188,7 @@ private fun SectionLabel(text: String) {
     )
 }
 
-/** 配色方案色块：外圈是该主题的页面底色，内圈是主色，让浅色/深色主题一眼可辨。 */
+/** Color scheme swatch: outer ring is the theme's page background, inner circle is the primary color, making light/dark themes distinguishable at a glance. */
 @Composable
 private fun PresetChip(
     preset: AppThemePreset,

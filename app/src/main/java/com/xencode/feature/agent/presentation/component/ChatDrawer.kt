@@ -133,8 +133,8 @@ import java.util.Locale
 import kotlinx.coroutines.delay
 
 /**
- * 侧边栏内容：顶部 Tab 切换「会话」/「文件」，底部「设置」入口卡片。
- * Tab0 为根会话列表，带子代理的会话行可就地展开；Tab1 为当前工作区的文件树。
+ * Sidebar content: top tabs switch between "Sessions" and "Files", plus a "Settings" entry card at the bottom.
+ * Tab0 is the root session list, where rows with sub-agents expand in place; Tab1 is the file tree of the current workspace.
  */
 @Composable
 fun ChatDrawerContent(
@@ -181,8 +181,8 @@ fun ChatDrawerContent(
     onOpenSearchHit: (ChatSearchHit) -> Unit,
     modifier: Modifier = Modifier
 ) {
-    // tab 与展开状态进 saveable：大屏下侧栏收起后整棵子树会离开组合（见 MainActivity 的
-    // SaveableStateProvider），用 remember 存会让每次回到聊天页都重置回「会话」页。
+    // Tab and expansion state go into saveable: on large screens, collapsing the sidebar removes the whole subtree from the composition (see
+    // SaveableStateProvider in MainActivity); storing them with remember would reset back to the "Sessions" tab every time the chat page is reopened.
     var selectedTab by rememberSaveable { mutableStateOf(0) }
     var isSelectionMode by rememberSaveable { mutableStateOf(false) }
     val selectedSessionIds = remember { mutableStateListOf<String>() }
@@ -197,7 +197,7 @@ fun ChatDrawerContent(
         selectedSessionIds.clear()
     }
 
-    // 点击会话/重开侧边栏保持原滚动位置；仅当同一会话的最后回复时间变化（发消息/收到回复）时滚回顶部。
+    // Keep the current scroll position when tapping a session or reopening the sidebar; scroll back to top only when the same session's last-reply time changes (message sent/reply received).
     var lastTouched by remember { mutableStateOf<Pair<String?, Long?>?>(null) }
     val currentUpdatedAt = sessions.firstOrNull { it.id == currentSessionId }?.updatedAt
     LaunchedEffect(currentSessionId, currentUpdatedAt) {
@@ -223,7 +223,7 @@ fun ChatDrawerContent(
             .padding(bottom = imeInset + Spacing.xl),
         verticalArrangement = Arrangement.spacedBy(Spacing.sm)
     ) {
-        // 顶部 Tab 切换
+        // Top tab switcher
         SegmentedTabs(
             selected = selectedTab,
             labels = listOf(
@@ -233,7 +233,7 @@ fun ChatDrawerContent(
             onSelect = { selectedTab = it }
         )
 
-        // 聊天记录搜索框放在 Tab 栏正下方，仅「会话」Tab 可见。
+        // The chat history search field sits right below the tab bar and is visible only on the "Sessions" tab.
         if (selectedTab == 0 && isSelectionMode) {
             Surface(
                 color = MaterialTheme.semanticColors.cardSurface,
@@ -513,7 +513,7 @@ fun ChatDrawerContent(
 }
 
 /**
- * Tab0：会话列表。搜索词非空时列表区切换为跨会话搜索结果。
+ * Tab0: session list. When the search query is non-empty, the list area switches to cross-session search results.
  */
 @Composable
 private fun SessionListTab(
@@ -551,7 +551,7 @@ private fun SessionListTab(
     }
 }
 
-/** Tab0 的会话列表本体（按最后回复时间分组）。带子代理的会话行尾有展开箭头，展开后在其下方缩进列出子代理。 */
+/** The session list body of Tab0 (grouped by last-reply time). Rows with sub-agents have an expand arrow at the end; when expanded, the sub-agents are listed indented below. */
 @Composable
 private fun SessionListContent(
     sessions: List<ChatSession>,
@@ -599,8 +599,8 @@ private fun SessionListContent(
         state = listState,
         modifier = Modifier.fillMaxSize()
     ) {
-        // 每个分组占一个 item、组内 forEach 全量渲染会让 LazyColumn 失去惰性：
-        // 「最近 30 天」这种分组有上百个会话时，一个 item 就要组合上百行。分组头与会话各自成 item。
+        // Giving each group a single item and fully rendering its contents with forEach would defeat LazyColumn's laziness:
+        // a group like "Last 30 days" can hold hundreds of sessions, so one item would compose hundreds of rows. Group headers and sessions each become their own items.
         groups.forEach { group ->
             item(key = "group-${group.groupKey}", contentType = "group-header") {
                 SettingsGroupHeader(
@@ -703,7 +703,7 @@ private fun SessionListContent(
     }
 }
 
-/** Tab0 底部搜索框：复用设置页的胶囊搜索框，非空时带清除按钮。 */
+/** Bottom search field of Tab0: reuses the settings page pill-shaped search field, with a clear button when non-empty. */
 @Composable
 private fun ChatSearchField(
     query: String,
@@ -730,7 +730,7 @@ private fun ChatSearchField(
     )
 }
 
-/** 搜索结果区：加载中 / 无结果 / 命中列表三态。 */
+/** Search results area: three states — loading / no results / hit list. */
 @Composable
 private fun ChatSearchResults(
     state: ChatSearchState,
@@ -771,7 +771,7 @@ private fun ChatSearchResults(
     }
 }
 
-/** 单条搜索结果行：会话标题 + 命中片段（关键词高亮），点击跳转并定位。 */
+/** A single search result row: session title + matched snippet (keywords highlighted); tapping jumps to and locates it. */
 @Composable
 private fun ChatSearchResultRow(
     hit: ChatSearchHit,
@@ -810,7 +810,7 @@ private fun ChatSearchResultRow(
     }
 }
 
-/** 把片段中所有命中词标为高亮样式。 */
+/** Marks every matched term in the snippet with the highlight style. */
 private fun highlightSnippet(snippet: String, query: String, highlight: SpanStyle): AnnotatedString =
     buildAnnotatedString {
         append(snippet)
@@ -824,7 +824,7 @@ private fun highlightSnippet(snippet: String, query: String, highlight: SpanStyl
         }
     }
 
-/** 会话行尾的子代理展开开关：显示数量与箭头，自己消费点击，不触发整行选中。 */
+/** Sub-agent expand toggle at the end of a session row: shows the count and an arrow; consumes clicks itself so it never triggers row selection. */
 @Composable
 private fun SubAgentExpandToggle(
     expanded: Boolean,
@@ -857,7 +857,7 @@ private fun SubAgentExpandToggle(
 
 
 /**
- * 会话行长按弹出的功能菜单：置顶 / 重命名 / 导出 / 删除。底部 sheet 样式参照 git 分支的 RefActionSheet。
+ * Action menu shown on long-press of a session row: pin / rename / export / delete. The bottom sheet style follows the RefActionSheet used for git branches.
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -970,14 +970,14 @@ private fun SheetActionRow(
     }
 }
 
-/** 侧边栏会话分组：同一时间组（今天 / 昨天 / 7天内 / 30天内 / 月份）内的会话，按最后回复时间降序。 */
+/** Sidebar session grouping: sessions within the same time group (today / yesterday / last 7 days / last 30 days / month), sorted by last-reply time descending. */
 internal data class SessionGroup(
     val groupKey: String,
     val sessions: List<ChatSession>
 )
 
 /**
- * 按最后回复时间（updatedAt）降序的会话列表分组：今天 / 昨天 / 7天内 / 30天内 / 更早按月。
+ * Groups a session list by last-reply time (updatedAt) descending: today / yesterday / last 7 days / last 30 days, and earlier by month.
  */
 internal fun buildSessionGroups(sessions: List<ChatSession>, now: Long): List<SessionGroup> {
     val groups = mutableListOf<SessionGroup>()
@@ -993,7 +993,7 @@ internal fun buildSessionGroups(sessions: List<ChatSession>, now: Long): List<Se
     return groups
 }
 
-/** 返回会话所属分组 key；月份分组为 ISO 年月（如 2026-05），其余为固定字面量。 */
+/** Returns the group key a session belongs to; the month group is an ISO year-month (e.g. 2026-05), the rest are fixed literals. */
 internal fun sessionGroupKey(updatedAt: Long, now: Long): String {
     val zone = ZoneId.systemDefault()
     val day = Instant.ofEpochMilli(updatedAt).atZone(zone).toLocalDate()

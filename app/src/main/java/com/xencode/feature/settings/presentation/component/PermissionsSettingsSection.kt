@@ -55,12 +55,12 @@ import compose.icons.feathericons.Zap
 import kotlinx.coroutines.delay
 
 /**
- * 「工具授权」二级页：与设置页其它二级页一致的 iOS 分组列表。
- * 顶部是「命令授权」三挡位（自主执行 / 规则拦截 / 完全权限）；
- * 其下是「高危拦截规则」管理（预设 + 用户自建，可开关/编辑/删除/恢复预设）。
+ * "Tool authorization" sub-page: iOS-style grouped list consistent with other settings sub-pages.
+ * Top is the three "command authorization" levels (autonomous / rule-based / full access);
+ * below is "high-risk interception rule" management (presets + user-created, toggleable/editable/deletable, presets restorable).
  *
- * 旧的「安全防护」开关与「当前项目 / 全局」记忆规则已整体移除：授权口径统一收敛到三挡位 +
- * 高危规则这套机制上——旧的项目/全局 ALLOW 规则会先于挡位生效，等于绕过高危拦截，语义冲突。
+ * The old "safety protection" toggle and "current project / global" remembered rules were removed entirely: authorization semantics converged onto the three levels +
+ * the high-risk rule mechanism — legacy project/global ALLOW rules took effect before the level, effectively bypassing high-risk interception, a semantic conflict.
  */
 @Composable
 internal fun PermissionsSection(
@@ -72,9 +72,9 @@ internal fun PermissionsSection(
     onDeleteHighRiskRule: (HighRiskRule) -> Unit,
     onResetHighRiskRules: () -> Unit
 ) {
-    // 切到「完全权限」前强制确认（倒计时）。
+    // Force a (countdown) confirmation before switching to "full access".
     var showFullAccessConfirm by remember { mutableStateOf(false) }
-    // 高危规则编辑/新增弹窗目标；isNew 区分新增与编辑。
+    // High-risk rule edit/add dialog target; isNew distinguishes add from edit.
     var editingHighRiskRule by remember { mutableStateOf<HighRiskRule?>(null) }
     var editingIsNew by remember { mutableStateOf(false) }
     var showResetPresetsConfirm by remember { mutableStateOf(false) }
@@ -87,7 +87,7 @@ internal fun PermissionsSection(
             .padding(bottom = Spacing.xl),
         verticalArrangement = Arrangement.spacedBy(Spacing.sm)
     ) {
-        // ── 命令授权挡位 ──
+        // ── Command authorization levels ──
         SettingsGroupHeader(text = stringResource(R.string.perm_auth_group))
         SettingsGroup {
             AuthLevelRow(
@@ -122,7 +122,7 @@ internal fun PermissionsSection(
             )
         }
 
-        // ── 高危拦截规则 ──
+        // ── High-risk interception rules ──
         Row(
             modifier = Modifier
                 .fillMaxWidth()
@@ -243,7 +243,7 @@ internal fun PermissionsSection(
     }
 }
 
-/** 挡位单选行：图标 + 标题/副标题，右侧选中对勾；危险项标题用错误色。 */
+/** Level single-choice row: icon + title/subtitle, selected checkmark on the right; dangerous items use error color for the title. */
 @Composable
 private fun AuthLevelRow(
     icon: ImageVector,
@@ -297,8 +297,8 @@ private fun AuthLevelRow(
 }
 
 /**
- * 高危规则行：分类徽标 + 危险说明（主）+ 匹配模式/类型（次），右侧启用开关；
- * 点击进入编辑弹窗，左滑删除（预设删除后可用「恢复预设」找回）。
+ * High-risk rule row: category badge + danger description (primary) + match pattern/type (secondary), enable toggle on the right;
+ * tap to open the edit dialog, swipe left to delete (deleted presets can be recovered via "Reset presets").
  */
 @Composable
 private fun HighRiskRuleRow(
@@ -308,8 +308,8 @@ private fun HighRiskRuleRow(
     onDelete: () -> Unit
 ) {
     SwipeToDeleteRow(onDelete = onDelete, onClick = onClick) {
-        // 与项目其它滑动行保持一致：左右均 Spacing.lg、纵向 12.dp
-        // （原 end=Spacing.xs 会让开关比「命令授权挡位」各行多贴右 12dp）。
+        // Consistent with other swipeable rows in the project: Spacing.lg on both sides, 12.dp vertically
+        // (the original end=Spacing.xs made the switch sit 12dp closer to the right edge than the "command authorization" level rows).
         Row(
             modifier = Modifier
                 .fillMaxWidth()
@@ -354,7 +354,7 @@ private fun HighRiskRuleRow(
     }
 }
 
-/** 分类/预设徽标：主题色浅底胶囊小字。 */
+/** Category/preset badge: small pill text on a light theme-color background. */
 @Composable
 private fun CategoryBadge(text: String, color: Color = MaterialTheme.colorScheme.primary) {
     Box(
@@ -370,7 +370,7 @@ private fun CategoryBadge(text: String, color: Color = MaterialTheme.colorScheme
     }
 }
 
-/** 高危规则编辑/新增弹窗：匹配模式 + 前缀/正则切换 + 危险说明 + 分类。 */
+/** High-risk rule edit/add dialog: match pattern + prefix/regex toggle + danger description + category. */
 @Composable
 private fun HighRiskRuleEditDialog(
     initial: HighRiskRule,
@@ -449,10 +449,10 @@ private fun HighRiskRuleEditDialog(
     )
 }
 
-/** 「禁用安全拦截」确认框的倒计时秒数。 */
+/** Countdown seconds for the "disable safety interception" confirmation dialog. */
 private const val SAFETY_CONFIRM_COUNTDOWN_SECONDS = 5
 
-/** 高危操作强制确认框：确认按钮带 5 秒倒计时，倒计时结束前不可点。 */
+/** Forced confirmation for high-risk actions: the confirm button has a 5-second countdown and is not tappable before it ends. */
 @Composable
 internal fun CountdownConfirmDialog(
     title: String,
@@ -491,7 +491,7 @@ internal fun CountdownConfirmDialog(
     )
 }
 
-/** 分组内空状态：一行灰字，与行内容对齐。 */
+/** Empty state inside a group: one gray line aligned with row content. */
 @Composable
 private fun RuleEmptyHint(text: String) {
     Text(

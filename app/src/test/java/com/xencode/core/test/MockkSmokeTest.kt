@@ -7,8 +7,8 @@ import org.junit.Assert.assertEquals
 import org.junit.Test
 
 /**
- * 测试基建冒烟：验证 MockK + kotlinx-coroutines-test 在当前 JVM 环境可用
- * （依赖拉取、字节码 agent、协程虚拟时间都能正常工作）。
+ * Test infrastructure smoke check: verifies MockK + kotlinx-coroutines-test work in the current JVM environment
+ * (dependency resolution, bytecode agent, and coroutine virtual time all function correctly).
  */
 class MockkSmokeTest {
 

@@ -17,8 +17,8 @@ class FileMigrationTest {
             sqlStatements = statements
         )
 
-        // FileMigration 继承 Room Migration(startVersion, endVersion)
-        // version 8 对应从 7 升级到 8
+        // FileMigration extends Room's Migration(startVersion, endVersion)
+        // version 8 corresponds to upgrading from 7 to 8
         assertEquals(7, migration.startVersion)
         assertEquals(8, migration.endVersion)
         assertEquals(8, migration.version)
@@ -35,7 +35,7 @@ class FileMigrationTest {
                 created_at INTEGER
             );
             
-            -- 注释
+            -- comment
             ALTER TABLE sample ADD COLUMN data TEXT;
             
             ; ;
@@ -50,6 +50,6 @@ class FileMigrationTest {
             "CREATE TABLE IF NOT EXISTS sample (\n    id TEXT PRIMARY KEY,\n    created_at INTEGER\n)",
             statements[0]
         )
-        assertEquals("-- 注释\nALTER TABLE sample ADD COLUMN data TEXT", statements[1])
+        assertEquals("-- comment\nALTER TABLE sample ADD COLUMN data TEXT", statements[1])
     }
 }

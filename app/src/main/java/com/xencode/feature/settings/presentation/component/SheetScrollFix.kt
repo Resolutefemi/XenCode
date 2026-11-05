@@ -6,8 +6,8 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.input.nestedscroll.NestedScrollConnection
 
 /**
- * 向后兼容别名：实现已迁移至 [com.xencode.core.ui.rememberSheetFlingFix]，
- * 并在 [com.xencode.core.ui.AdaptiveModalBottomSheet] 中自动集成。
+ * Backward-compatible alias: the implementation has moved to [com.xencode.core.ui.rememberSheetFlingFix],
+ * and is integrated automatically in [com.xencode.core.ui.AdaptiveModalBottomSheet].
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable

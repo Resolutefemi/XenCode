@@ -11,7 +11,7 @@ package com.xencode.feature.agent.domain.skill
  * The hint tells the model to ignore this block if none apply, so false positives are cheap.
  *
  * Trigger extraction (same rules on user text and skills):
- * - CJK: consecutive Han pairs (bigrams), e.g. 刷机, 救砖;
+ * - CJK: consecutive Han pairs (bigrams), e.g. two-Han-character terms meaning "flash ROM" or "unbrick";
  * - Latin/digits: tokens of length ≥ 3, lowercased, e.g. root, adb, ssh, pdf, apk.
  * A name hit is weighted 2× — matching the name usually means that skill.
  */

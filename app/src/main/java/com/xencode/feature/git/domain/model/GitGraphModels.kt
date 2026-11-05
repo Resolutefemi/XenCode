@@ -1,14 +1,14 @@
 package com.xencode.feature.git.domain.model
 
 /**
- * Git 提交拓扑图领域模型。由 [com.xencode.feature.git.domain.GitRepository.graph] 解析
- * `git log`（带 `%P` 父哈希）与 `git for-each-ref` 输出，并在纯 Kotlin 中算出泳道布局，
- * 供 UI 用 Canvas 绘制 IDE 风格的分支彩色连线。纯数据，无 Android 依赖。
+ * Domain models for the git commit topology graph. [com.xencode.feature.git.domain.GitRepository.graph]
+ * parses `git log` (with `%P` parent hashes) and `git for-each-ref` output and computes the swimlane layout in pure Kotlin,
+ * letting the UI draw IDE-style colored branch connectors with Canvas. Pure data, no Android dependencies.
  */
 
 /**
- * 一条提交记录（拓扑图用）。在 [GitCommit] 基础上增加 [parents]：父提交哈希列表，
- * 一个为普通提交、两个为合并提交、空为根提交。拓扑连线与泳道分配依赖此字段。
+ * One commit record (for the topology graph). Extends [GitCommit] with [parents]: the parent hash list;
+ * one means a normal commit, two a merge, empty a root commit. Topology edges and lane assignment depend on this field.
  */
 data class GraphCommit(
     val hash: String,
@@ -16,55 +16,55 @@ data class GraphCommit(
     val author: String,
     val date: String,
     val message: String,
-    /** 提交正文（message 之后的段落，无正文时为空串）。 */
+    /** Commit body (paragraphs after the message; empty string when absent). */
     val body: String = "",
-    /** 父提交完整哈希列表（按 git 输出顺序，第一父为主线）。 */
+    /** Full parent commit hashes (in git output order; first parent is the mainline). */
     val parents: List<String>
 ) {
-    /** 是否为合并提交（≥2 个父提交）。用于绘制合并节点。 */
+    /** Whether this is a merge commit (≥2 parents). Used to draw merge nodes. */
     val isMerge: Boolean get() = parents.size >= 2
 }
 
 /**
- * 指向某提交的一个引用（分支或标签）。用于在拓扑图节点旁标注分支名并对分支着色。
+ * A reference (branch or tag) pointing at a commit. Used to label branch names next to graph nodes and color branches.
  */
 data class GitGraphRef(
     val name: String,
-    /** true=本地/远程分支，false=标签。 */
+    /** true = local/remote branch, false = tag. */
     val isBranch: Boolean,
-    /** 是否为当前 HEAD 所在分支（仅本地分支可能为 true）。 */
+    /** Whether this is the branch the current HEAD is on (only local branches can be true). */
     val isCurrent: Boolean,
-    /** 是否为远程分支（refs/remotes 下）。 */
+    /** Whether this is a remote branch (under refs/remotes). */
     val isRemote: Boolean
 )
 
 /**
- * 一条连线：从 [fromLane] 所在泳道连到 [toLane] 所在泳道，对应相邻两个提交之间的父子关系。
- * 同列即竖线，跨列即分叉/合并的折线。颜色由泳道号映射调色板，UI 渲染时查表。
+ * One connector: from the lane of [fromLane] to the lane of [toLane], the parent-child relation between two adjacent commits.
+ * Same column means a vertical line; cross-column means a fork/merge polyline. Color maps from the lane number to a palette, looked up by the UI at render time.
  */
 data class GraphEdge(
     val fromLane: Int,
     val toLane: Int,
-    /** 该边所属泳道号（决定颜色）：出边（分叉）取 [fromLane]（发起分叉的提交所在列），
-     *  入边（合并支线汇入）取 [toLane]（父支线沿用其分支主色）。 */
+    /** Lane number this edge belongs to (decides color): out-edges (forks) take [fromLane] (the column of the commit that forks),
+     *  in-edges (merged branch legs joining) take [toLane] (the parent leg keeps its branch's main color). */
     val lane: Int,
-    /** true=合并入边（父支线从下方汇入本提交，画下半段贝塞尔）；
-     *  false=出边（本提交向父分叉，画下半段贝塞尔）。 */
+    /** true = merge in-edge (a parent leg joins this commit from below; draw the lower Bezier half);
+     *  false = out-edge (this commit forks toward a parent; draw the lower Bezier half). */
     val isMergeIn: Boolean
 )
 
 /**
- * 拓扑图整体视图。
+ * Whole topology graph view.
  *
- * @property commits 按时间从新到旧排列的提交列表。
- * @property refs 每个提交哈希 → 指向它的引用列表（分支/标签），用于节点旁标注。
- * @property lanes 每个提交哈希 → 其所在泳道列号（0 起）。
- * @property edges 相邻提交之间的所有连线（含分叉/合并的跨泳道边），扁平有序，按提交顺序生成。
- * @property activeLanes 每个提交哈希 → 该行需要贯穿竖线的活跃泳道列号列表（含本提交所在列）。
- *   非本提交所属但被某分支穿过的泳道也在此列，UI 据此画贯穿竖线避免断裂。
- * @property maxLane 最大泳道列号，决定 Canvas 宽度。
- * @property hasMore 是否还有更旧的提交可分页加载。首批加载与写操作刷新后按本批返回条数是否达到页大小判定；
- *   UI 滚到底据此决定是否触发下一页。历史末尾时为 false。
+ * @property commits Commit list ordered newest to oldest.
+ * @property refs Commit hash → list of refs (branches/tags) pointing at it, used for labels next to nodes.
+ * @property lanes Commit hash → its lane column number (0-based).
+ * @property edges All connectors between adjacent commits (including cross-lane fork/merge edges), flat and ordered by commit order.
+ * @property activeLanes Commit hash → list of active lane column numbers needing through-lines in that row (including this commit's column).
+ *   Lanes not owned by this commit but crossed by a branch are also listed; the UI draws through-lines from this to avoid breaks.
+ * @property maxLane Max lane column number, decides the Canvas width.
+ * @property hasMore Whether older commits can still be paged in. Judged by whether the first batch and post-write refresh reached the page size;
+ *   the UI decides from this whether to trigger the next page on scroll to bottom. False at the end of history.
  */
 data class GitGraph(
     val commits: List<GraphCommit>,

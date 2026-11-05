@@ -86,9 +86,9 @@ import java.util.UUID
 import javax.inject.Inject
 
 /**
- * 阶段三重构 (完全版)：基于不可变状态 (Immutable State) 与 MVI 架构的 Agent 工作流引擎。
- * 通过定义明确的 AgentSessionState, AgentAction 与 AgentSideEffect，
- * 采用 Reducer 来进行状态扭转，将纯函数的业务逻辑与带有副作用的外部环境操作完全解耦。
+ * Phase-three refactor (full version): an Agent workflow engine built on immutable state and MVI architecture.
+ * By defining explicit AgentSessionState, AgentAction, and AgentSideEffect,
+ * it uses a Reducer for state transitions, fully decoupling pure-function business logic from side-effecting external environment operations.
  */
 class StatefulAgentWorkflow @Inject constructor(
     private val toolRegistry: ToolRegistry,
@@ -120,13 +120,13 @@ class StatefulAgentWorkflow @Inject constructor(
 ) : AgentWorkflow {
 
     /**
-     * 落库专用 scope：独立于调用方协程树、不可取消。
+     * Persistence-only scope: independent of the caller's coroutine tree, non-cancellable.
      *
-     * 用途：把「LLM 调用记录写盘」从协程取消展开路径上摘出去。
-     * 详见各 finally 处注释——在取消展开期间调用任何 suspend（包括 withContext）
-     * 会让协程状态机在挂起/恢复中错乱，触发 ART 原生 abort「No pending exception
-     * expected」/「Unexpected instruction」直接闪退。
-     * 用 [CoroutineScope.launch] 派发：launch 不是 suspend 函数，不会挂起当前协程。
+     * Purpose: takes "writing the LLM call record to disk" off the coroutine cancellation-unwinding path.
+     * See the comments at each finally — calling any suspend (including withContext) during unwinding
+     * scrambles the coroutine state machine across suspend/resume, triggering a native ART abort "No pending
+     * exception expected" / "Unexpected instruction" and an immediate crash.
+     * Dispatched with [CoroutineScope.launch]: launch is not a suspend function and never suspends the current coroutine.
      */
     private val recordScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
@@ -136,43 +136,43 @@ class StatefulAgentWorkflow @Inject constructor(
         const val TITLE_GENERATOR_FILE = "agent/title-generator.md"
         const val TITLE_MAX_CHARS = 50
         const val COMMIT_GENERATOR_FILE = "agent/commit-generator.md"
-        /** AI 命令审查器提示词：「自主执行」挡位下逐条评审 shell 命令。 */
+        /** AI command reviewer prompt: reviews shell commands one by one under the "autonomous execution" tier. */
         const val COMMAND_REVIEWER_FILE = "agent/command-reviewer.md"
-        /** 模式提醒提示词：复用 prompts 目录文件（用户可自定义覆盖），切换时随消息注入而非进 system。 */
+        /** Mode reminder prompts: reuses prompts directory files (user-overridable); injected with a message on switch instead of going into system. */
         const val MODE_REMINDER_PLAN_FILE = "agent/plan-mode.md"
         const val MODE_REMINDER_ASK_FILE = "agent/ask-mode.md"
         val LEADING_COMMENT = Regex("(?s)^\\s*<!--.*?-->\\s*")
-        /** 模型直出图片落盘目录（与 GenerateImageTool 保持一致）。 */
+        /** Directory where model-emitted images are persisted (consistent with GenerateImageTool). */
         const val GENERATED_IMAGE_DIR = "~/.xencode/generated-images"
         const val MAX_GENERATED_IMAGE_BYTES = 20L * 1024 * 1024
     }
 
     /**
-     * 每会话「上次已注入模式提醒的模式」。模式提醒只在变化时注入，避免每轮把同一段文本
-     * 重复拼到最新用户消息上——那样下一轮重建历史时该位置（Anthropic 缓存断点）内容不一致，
-     * 会白白丢掉一段前缀缓存。进程内缓存，重启后首轮再注入一次（无害）。
+     * Per-session "mode whose reminder was last injected". Reminders are injected only on change, to avoid re-appending the same text
+     * to the latest user message every turn — otherwise that position (an Anthropic cache breakpoint) differs when history is rebuilt next turn,
+     * discarding a stretch of prefix cache for nothing. In-process cache; re-injected once on the first turn after restart (harmless).
      */
     private val lastInjectedMode = java.util.concurrent.ConcurrentHashMap<String, AgentMode>()
 
-    /** 不可变状态树 */
+    /** Immutable state tree */
     data class AgentSessionState(
         val messages: List<AgentMessage> = emptyList(),
         val iterations: Int = 0,
         val isFinished: Boolean = false,
         val error: String? = null,
-        /** 错误类型码（如服务端 stop_reason），供 UI 换成本地化文案；null 表示直接展示 [error]。 */
+        /** Error type code (e.g. server stop_reason) for the UI to map to localized copy; null means show [error] directly. */
         val errorCode: String? = null,
-        /** 本批模型返回的 toolCalls（原始顺序，用于最后按序组装 tool 响应） */
+        /** Tool calls returned by the model in this batch (original order, used to assemble tool responses in order at the end) */
         val batchToolCalls: List<ToolCall> = emptyList(),
-        /** 待请求权限的 toolCall（逐个弹窗收集） */
+        /** Tool calls awaiting permission requests (collected one dialog at a time) */
         val pendingPermissionCalls: List<ToolCall> = emptyList(),
-        /** 已批准、待并行执行的 toolCall */
+        /** Approved tool calls awaiting parallel execution */
         val approvedToolCalls: List<ToolCall> = emptyList(),
-        /** 被策略/系统拒绝（非用户拒绝）的 tool 结果，key = toolCall.id */
+        /** Tool results rejected by policy/system (not by the user), keyed by toolCall.id */
         val rejectedToolResults: Map<String, ToolBatchResult> = emptyMap()
     )
 
-    /** 改变状态的动作 (Action) */
+    /** State-changing actions (Action) */
     sealed interface AgentAction {
         data class InitRequest(val initialMessages: List<AgentMessage>) : AgentAction
         data class LlmResponse(val response: AIResponse, val messageId: String) : AgentAction
@@ -195,25 +195,25 @@ class StatefulAgentWorkflow @Inject constructor(
         val errorCode: String = "USER_REJECTED"
     )
 
-    /** 批量工具执行结果：携带 toolCall 元信息，供最后按原始顺序组装 ToolResultMessage。 */
+    /** Batch tool execution results: carry toolCall metadata for assembling ToolResultMessages in the original order at the end. */
     data class ToolBatchResult(
         val id: String,
         val toolName: String,
         val result: String,
         val isError: Boolean,
-        /** 仅 sendFile 等展示型工具：随结果附带的文件卡片元数据，供 UI 渲染，不回放进模型上下文。 */
+        /** Display-only tools such as sendFile: file-card metadata attached to the result for UI rendering, not fed back into the model context. */
         val attachments: List<AgentAttachment> = emptyList(),
         val images: List<AgentImage> = emptyList()
     )
 
-    /** 需要在外部环境中执行的副作用 (SideEffect) */
+    /** Side effects to be executed in the external environment (SideEffect) */
     sealed interface AgentSideEffect {
         object CallLlm : AgentSideEffect
         data class PersistUser(val message: AgentMessage.UserMessage) : AgentSideEffect
         data class RequestPermission(val toolCall: ToolCall) : AgentSideEffect
-        /** 批量并行执行已批准的工具；传入空列表表示本批无工具可执行，直接进入收尾。 */
+        /** Executes the approved tools in parallel as a batch; an empty list means no tools to run this batch, going straight to wrap-up. */
         data class ExecuteToolBatch(val toolCalls: List<ToolCall>) : AgentSideEffect
-        /** 整批取消（用户拒绝批次中某个调用）：补发已启动工具的完成事件，清理 UI「执行中」状态。 */
+        /** Cancels the whole batch (the user rejected one call in it): re-emits completion events for already-started tools and clears the UI's "executing" state. */
         data class CancelToolBatch(val toolCalls: List<ToolCall>) : AgentSideEffect
     }
 
@@ -226,8 +226,8 @@ class StatefulAgentWorkflow @Inject constructor(
     }
 
     /**
-     * 解析当前生效的 provider 配置：优先用 session 绑定的 providerId/model，回退全局 active provider。
-     * session 绑定的 provider 不存在或已禁用时回退全局，保证老会话与异常数据不中断。
+     * Resolves the currently effective provider config: prefers the session-bound providerId/model, falling back to the global active provider.
+     * If the session-bound provider no longer exists or is disabled, falls back to global so old sessions and abnormal data keep working.
      */
     private suspend fun resolveProviderConfig(sessionId: String?): AIProviderConfig? {
         if (sessionId != null) {
@@ -237,13 +237,13 @@ class StatefulAgentWorkflow @Inject constructor(
             if (!boundProviderId.isNullOrBlank()) {
                 val config = aiProviderRepository.getProviderById(boundProviderId)
                 if (config != null && config.isEnabled && config.hasUsableApiKey) {
-                    // 绑定的模型可能已被移出该 provider 的模型列表，此时绑定失效、继续往下回退默认模型
+                    // The bound model may have been removed from the provider's model list; the binding is then void, so keep falling back to the default model below
                     if (boundModel.isNullOrBlank()) return config
                     if (boundModel in config.models) return config.copy(selectedModel = boundModel)
                 }
             }
         }
-        // 回退：新会话默认模型（主页空会话中选择后记忆）；未设置则返回 null，由调用方报错引导。
+        // Fallback: the new-session default model (remembered when chosen in the home empty session); if unset, return null and the caller errors out with guidance.
         val defaultProviderId = defaultModelSettingsRepository.getDefaultProviderId()
         val defaultModel = defaultModelSettingsRepository.getDefaultModel()
         if (defaultProviderId.isNotBlank() && defaultModel.isNotBlank()) {
@@ -264,16 +264,16 @@ class StatefulAgentWorkflow @Inject constructor(
         val history = messagePersistenceUseCase.buildHistory(sessionId, "__manual_compress__")
         if (history.size <= 2) return false
         val compactionProvider = resolveCompactionFallbackProvider(sessionId) ?: provider
-        // 摘要仍用专用压缩模型（尊重用户选择），但保留最近消息的窗口预算按主聊天模型算，
-        // 与自动压缩一致——否则小窗口的压缩模型会让手动压缩保留的最近上下文偏少。
+        // The summary still uses the dedicated compaction model (respecting the user's choice), but the window budget for retained recent messages follows the main chat model,
+        // consistent with auto-compaction — otherwise a small-window compaction model would retain too little recent context in manual compaction.
         val result = contextCompactor.compactIfNeeded(history, compactionProvider, sessionId, force = true, windowProvider = provider, onEvent = onEvent)
         return result.compacted
     }
 
     /**
-     * 根据 [config] 创建一个全新的、独立的 [AIProvider] 实例。
-     * 用于上下文压缩等独立请求场景，完全不占用或修改主对话所用的 Provider 单例。
-     * 同时把提供商级 LLM 缓存开关（Anthropic 断点 / OpenAI cache key）应用到实例。
+     * Creates a brand-new, standalone [AIProvider] instance from [config].
+     * Used for independent request scenarios such as context compaction; never occupies or mutates the Provider singleton used by the main conversation.
+     * Also applies the provider-level LLM cache toggles (Anthropic breakpoints / OpenAI cache key) to the instance.
      */
     private suspend fun createStandaloneProvider(config: AIProviderConfig, sessionId: String?): AIProvider {
         val provider: AIProvider = when (config.type) {
@@ -285,11 +285,11 @@ class StatefulAgentWorkflow @Inject constructor(
                 it.chatCacheKeyEnabled = config.openaiChatCacheKey
             }
         }
-        // 多 Key 模式下由轮换器决定本次用哪个 Key（会话内粘住，Key 不可用时切下一个并重发）。
+        // In multi-key mode the rotator decides which key to use this time (sticky within a session; on key failure it switches to the next and resends).
         val activeKeys = config.effectiveApiKeys
         provider.apiKey = keyRotator.activeKey(config, sessionId)
             ?: throw IllegalStateException("All keys for \"${config.name}\" are cooling down. Try again later.")
-        // 只有真正的多 Key 才需要自动切换：单 Key 冷却后没有可切换目标，只会把用户锁死一段时间。
+        // Only genuine multi-key setups need auto-switching: with a single key there is nothing to switch to after cooldown — it would just lock the user out for a while.
         val keySwitcher: (suspend (Throwable, String, Set<String>) -> KeySwitchOutcome?)? =
             if (activeKeys.size > 1) {
                 { error, failedKey, triedKeys ->
@@ -318,9 +318,9 @@ class StatefulAgentWorkflow @Inject constructor(
         provider.logSessionId = sessionId
         provider.customHeaders = config.customHeaders
         val metadata = modelMetadataService.resolve(config.id, config.type, config.effectiveModel)
-        // 模型元数据的输出上限（models.dev limit.output）：不传时 Anthropic 会把输出卡在 adapter 兜底值上。
+        // Output cap from model metadata (models.dev limit.output): when unset, Anthropic pins output at the adapter's fallback value.
         provider.maxOutputTokens = metadata.outputTokens
-        // 元数据说不接受自定义温度就不发该字段（kimi-k3、gpt-5 系带了直接 400）；允许的只发官方固定值。
+        // If metadata says custom temperature is unsupported, omit the field (kimi-k3 and gpt-5 series return 400 if present); when allowed, only the official fixed value is sent.
         provider.temperature = if (metadata.supportsCustomTemperature) fixedTemperature(config.effectiveModel) else null
         provider.firstByteTimeoutMs = generalSettingsRepository.firstByteTimeoutMs()
         provider.streamIdleTimeoutMs = generalSettingsRepository.streamIdleTimeoutMs()
@@ -328,7 +328,7 @@ class StatefulAgentWorkflow @Inject constructor(
         return provider
     }
 
-    /** 核心 Reducer，接收旧状态与 Action，返回新状态以及触发的副作用列表 (纯函数) */
+    /** Core Reducer: takes the old state and an Action, returns the new state plus the list of triggered side effects (pure function) */
     private fun reduce(
         state: AgentSessionState,
         action: AgentAction
@@ -359,7 +359,7 @@ class StatefulAgentWorkflow @Inject constructor(
                 
                 if (action.response.toolCalls.isEmpty()) {
                     if (action.response.isAborted) {
-                        // 拒答/上下文超限：正文可能为空，静默结束会让用户看到空白气泡以为卡死。
+                        // Refusal / context overflow: the body may be empty; ending silently would leave the user staring at a blank bubble, thinking it hung.
                         newState = newState.copy(
                             isFinished = true,
                             error = action.response.stopDetail ?: "",
@@ -374,8 +374,8 @@ class StatefulAgentWorkflow @Inject constructor(
                         newState = newState.copy(isFinished = true)
                     }
                 } else {
-                    // 本批多个 tool_call：全部进入待权限队列，逐个弹窗收集批准；
-                    // 全部批准后才进入并行执行阶段（见 PermissionEvaluated / ToolBatchFinished）。
+                    // Multiple tool_calls in this batch: all go into the permission queue, collecting approvals one dialog at a time;
+                    // only after all are approved does parallel execution begin (see PermissionEvaluated / ToolBatchFinished).
                     val toolCalls = action.response.toolCalls.toList()
                     newState = newState.copy(
                         batchToolCalls = toolCalls,
@@ -391,7 +391,7 @@ class StatefulAgentWorkflow @Inject constructor(
             }
             is AgentAction.PermissionEvaluated -> {
                 if (action.approved) {
-                    // 批准：当前 toolCall 移入已批准集合；若还有待请求权限的则继续弹窗，否则开始并行执行。
+                    // Approved: move the current toolCall into the approved set; if permission requests remain, keep showing dialogs, otherwise start parallel execution.
                     val remaining = newState.pendingPermissionCalls.filterNot { it.id == action.toolCall.id }
                     val approved = newState.approvedToolCalls + action.toolCall
                     newState = newState.copy(
@@ -406,10 +406,10 @@ class StatefulAgentWorkflow @Inject constructor(
                 } else {
                     val rawResult = ToolResult.Error(action.denyReason, action.errorCode).toTransportString()
                     if (action.errorCode == USER_REJECTED_CODE) {
-                        // 模型一次可能返回多个 tool_calls。用户拒绝批次中任意一个 → 整批取消：
-                        // 按 batchToolCalls 原始顺序为所有调用补上 tool 响应（不重复不遗漏），
-                        // 否则 assistant(toolCalls=N) 后只有部分 tool 消息，OpenAI 会报 400
-                        // "insufficient tool messages following tool_calls"。
+                        // The model may return multiple tool_calls at once. The user rejecting any one → cancel the whole batch:
+                        // backfill tool responses for every call in the original batchToolCalls order (no duplicates, no omissions),
+                        // otherwise assistant(toolCalls=N) is followed by only some of the tool messages and OpenAI returns 400
+                        // "insufficient tool messages following tool_calls".
                         val cancelled = newState.batchToolCalls.map { call ->
                             AgentMessage.ToolResultMessage(
                                 id = call.id,
@@ -427,14 +427,14 @@ class StatefulAgentWorkflow @Inject constructor(
                             approvedToolCalls = emptyList(),
                             isFinished = true
                         )
-                        // 已批准未执行（已收到 ToolCallStarted）的工具需补发完成事件，
-                        // 否则 UI 与落库消息会一直停留在「执行中」。
+                        // Tools approved but not yet executed (whose ToolCallStarted was sent) need completion events re-emitted,
+                        // otherwise the UI and persisted messages would stay stuck in "executing".
                         if (state.approvedToolCalls.isNotEmpty()) {
                             effects.add(AgentSideEffect.CancelToolBatch(state.approvedToolCalls))
                         }
                         return newState to effects
                     }
-                    // 策略/系统拒绝（如 PLAN 模式禁止执行）：记录拒绝结果，继续收集后续权限。
+                    // Policy/system rejection (e.g. execution forbidden in PLAN mode): record the rejection and keep collecting subsequent permissions.
                     val remaining = newState.pendingPermissionCalls.filterNot { it.id == action.toolCall.id }
                     newState = newState.copy(
                         pendingPermissionCalls = remaining,
@@ -455,8 +455,8 @@ class StatefulAgentWorkflow @Inject constructor(
                 }
             }
             is AgentAction.ToolBatchFinished -> {
-                // 本批工具全部执行完，按 batchToolCalls 原始顺序组装 tool 响应：
-                // 优先取策略拒绝结果，其次取并行执行结果，保证与 assistant(toolCalls) 顺序一致。
+                // All tools in this batch have finished; assemble tool responses in the original batchToolCalls order:
+                // prefer policy-rejection results, then parallel execution results, keeping the order consistent with assistant(toolCalls).
                 val resultsById = action.results.associateBy { it.id }
                 val appendedMessages = mutableListOf<AgentMessage>()
                 newState.batchToolCalls.forEach { call ->
@@ -494,7 +494,7 @@ class StatefulAgentWorkflow @Inject constructor(
         var state = AgentSessionState()
         var currentTools = tools
         val actionQueue = ArrayDeque<AgentAction>()
-        // 模式提醒仅在模式变化时随最新用户消息注入一次（不进 system，避免切换时 system 前缀变化打断缓存）。
+        // The mode reminder is injected once with the latest user message only when the mode changes (kept out of system, so mode switches don't change the system prefix and break caching).
         val modeReminder = takeModeReminderIfChanged(currentContext.sessionId, currentContext.mode)
         actionQueue.addLast(
             AgentAction.InitRequest(
@@ -506,12 +506,12 @@ class StatefulAgentWorkflow @Inject constructor(
             )
         )
 
-        // 构建系统提示词会扫描 Skill / 规则 / 记忆目录，在真机 ROOT 通道下这些文件读写是通过
-        // `su -c` 子进程 + Process.waitFor() 完成的，属于阻塞式 IO，必须切到 IO 线程；
-        // 否则主线程会被 waitFor() 卡住直到 ANR、进程被系统杀掉（表现为闪退）。
+        // Building the system prompt scans the Skill / rules / memory directories; on the on-device ROOT channel those file reads/writes go through
+        // `su -c` subprocesses + Process.waitFor(), which is blocking IO and must be moved to the IO dispatcher;
+        // otherwise the main thread gets stuck in waitFor() until ANR and the process is killed by the system (manifesting as a crash).
         val systemPrompt = withContext(Dispatchers.IO) { promptProvider.build(currentContext) }
         val aiProvider = getEffectiveProvider(currentContext.sessionId)
-        // 压缩失败后本轮（本次用户请求内）不再重复尝试压缩，避免每次 LLM 调用都白试一次。
+        // After a compaction failure, do not retry compaction within this turn (this user request), to avoid a wasted attempt on every LLM call.
         var compactionAttemptFailed = false
         val metadata = modelMetadataService.resolve(aiProvider.providerId, when (aiProvider) {
             is AnthropicAdapter -> ProviderType.ANTHROPIC
@@ -546,7 +546,7 @@ class StatefulAgentWorkflow @Inject constructor(
                     }
                     is AgentSideEffect.CallLlm -> {
                         val providerInUse = aiProvider
-                        // 压缩轮：若配置了压缩专用模型，使用独立压缩模型压缩
+                        // Compaction round: if a dedicated compaction model is configured, compact with the standalone compaction model
                         val compactionProvider = resolveCompactionFallbackProvider(currentContext.sessionId) ?: providerInUse
                         var compactedMessages = state.messages
                         if (!compactionAttemptFailed) {
@@ -577,7 +577,7 @@ class StatefulAgentWorkflow @Inject constructor(
                         val reasoningAcc = StringBuilder()
                         var finalResponse: AIResponse? = null
 
-                        // 调用统计埋点：记录请求发出/首字/结束时刻与 usage，失败与取消同样留痕。
+                        // Call telemetry: record request-sent / first-byte / completion times and usage; failures and cancellations are recorded too.
                         val callStartElapsed = SystemClock.elapsedRealtime()
                         val callStartWall = System.currentTimeMillis()
                         val callKind = "chat"
@@ -585,10 +585,10 @@ class StatefulAgentWorkflow @Inject constructor(
                         var callError: String? = null
                         var callCompleted = false
 
-                        // 流式 delta 节流：上游每个 chunk 都携带完整累积文本，逐条 send 会让
-                        // ViewModel 端每秒重建几十次状态、UI 端反复重启打字机协程。按时间窗口合并：
-                        // 窗口内只保留最新累积文本，到窗口边界才发送，把下游事件频率压到 ~16/s。
-                        // 打字机渲染本身有 100ms 节流，少发中间态无感知；collect 结束补发最后 pending。
+                        // Streaming delta throttling: every upstream chunk carries the full accumulated text; sending each one would make
+                        // the ViewModel rebuild state dozens of times per second and the UI repeatedly restart the typewriter coroutine. Merge by time window:
+                        // keep only the latest accumulated text within the window and send only at the window boundary, pressing downstream event frequency down to ~16/s.
+                        // Typewriter rendering already throttles at 100ms, so fewer intermediate states are imperceptible; after collect ends, flush the last pending one.
                         val DELTA_THROTTLE_MS = 60L
                         var lastTextDeltaSentAt = 0L
                         var lastReasoningDeltaSentAt = 0L
@@ -607,7 +607,7 @@ class StatefulAgentWorkflow @Inject constructor(
                         }
 
                         try {
-                            // 发送前按实际模型的视觉能力处理图片（同 execute 路径）。
+                            // Process images according to the actual model's vision capability before sending (same as the execute path).
                             val supportsVision = activeModelSupportsVision(currentContext.sessionId)
                             val messagesToSend = withSkillHint(
                                 sanitizeImagesForModel(compactedMessages, supportsVision),
@@ -627,7 +627,7 @@ class StatefulAgentWorkflow @Inject constructor(
                                         }
                                     }
                                     is AIStreamChunk.ReasoningDelta -> {
-                                        // 思考内容也算首字（推理模型先吐思考再吐正文）
+                                        // Thinking content also counts as the first byte (reasoning models emit thinking before body text)
                                         if (ttfbElapsed == null) ttfbElapsed = SystemClock.elapsedRealtime() - callStartElapsed
                                         reasoningAcc.append(chunk.text)
                                         pendingReasoningDelta = reasoningAcc.toString()
@@ -657,29 +657,29 @@ class StatefulAgentWorkflow @Inject constructor(
                                         send(AgentEvent.KeySwitched(chunk.newIndex, chunk.total))
                                     }
                                     is AIStreamChunk.Final -> {
-                                        // 纯工具调用轮没有文本/思考增量，Final 是首个内容事件，兜底记为 TTFB
+                                        // A tool-call-only turn has no text/thinking deltas; Final is the first content event, so record it as the fallback TTFB
                                         if (ttfbElapsed == null) ttfbElapsed = SystemClock.elapsedRealtime() - callStartElapsed
                                         finalResponse = chunk.response
                                     }
                                     is AIStreamChunk.ToolCallDeclared -> {
-                                        // 工具名先于参数到达：立刻告诉 UI「模型准备调什么」，
-                                        // 免得长参数流式期间一直停在「正在思考」。
+                                        // The tool name arrives before the arguments: tell the UI right away "what the model is about to call",
+                                        // instead of sitting on "Thinking" throughout long argument streaming.
                                         if (ttfbElapsed == null) ttfbElapsed = SystemClock.elapsedRealtime() - callStartElapsed
                                         send(AgentEvent.ToolCallPreparing(chunk.name))
                                     }
                                 }
                             }
-                            // 节流窗口内可能还压着最新累积文本：补发，保证 UI 尾巴拿到完整文本再交接落库。
+                            // The latest accumulated text may still be held inside the throttle window: flush it, so the UI tail gets the complete text before the persistence handoff.
                             flushPendingTextDelta()
                             flushPendingReasoningDelta()
                             val aiResponse = finalResponse ?: AIResponse(content = acc.toString())
-                            // 模型直出图片（Gemini 图像模型）不随流式增量到达，整块在 Final 里：
-                            // 先把 base64 落盘到 ~/.xencode/generated-images/ 并构造 UI 附件（只存路径不存 base64），
-                            // 再随 LlmResponse 把带 path 的 images 交 reduce 挂上 AssistantMessage 供下一回放。
+                            // Model-emitted images (Gemini image models) do not arrive as streaming deltas; they come whole in Final:
+                            // first persist the base64 to ~/.xencode/generated-images/ and build UI attachments (paths only, no base64),
+                            // then hand the path-carrying images to reduce via LlmResponse to attach to the AssistantMessage for the next playback.
                             val (persistedImages, attachments) =
                                 if (aiResponse.images.isNotEmpty()) persistModelImages(aiResponse.images) else emptyList<AgentImage>() to emptyList()
                             callCompleted = true
-                            // 将本轮 reasoning 附加到 AIResponse，以便 reduce 时存入 AssistantMessage 并在下一轮回传
+                            // Attach this turn's reasoning to the AIResponse so reduce stores it in the AssistantMessage and passes it back next turn
                             if (aiResponse.stopReason == "model_context_window_exceeded" && !overflowRecoveryAttempted) {
                                 overflowRecoveryAttempted = true
                                 val recovery = contextCompactor.compactIfNeeded(state.messages, compactionProvider,
@@ -748,29 +748,29 @@ class StatefulAgentWorkflow @Inject constructor(
                             }
                             val partial = acc.toString()
                             val reasoning = reasoningAcc.toString()
-                            // 流式被中断时也要落库已收到的思考：否则下方 finally 会清空流式思考气泡，
-                            // 而落库的接力消息又没产生，表现为「思考显示后凭空消失且无报错」。
-                            // 有正文或有思考其一即落库；两者皆空则不写空消息。
+                            // When the stream is interrupted, persist the thinking received so far: otherwise the finally below clears the streaming thinking bubble
+                            // while no relay message was persisted either, manifesting as "thinking displayed then vanishing with no error".
+                            // Persist if there is body text or thinking; write nothing when both are empty.
                             if (partial.isNotEmpty() || reasoning.isNotBlank()) {
                                 send(AgentEvent.AssistantText(partial, emptyList(), reasoning))
                             }
-                            // 多 Key 的自动切换与重发已在 adapter 内完成（见 AIProvider.keySwitcher）；
-                            // 走到这里说明不是 Key 问题、或候选 Key 已全部失败，直接上报原始错误。
+                            // Multi-key auto-switching and resending already happened inside the adapter (see AIProvider.keySwitcher);
+                            // reaching here means it wasn't a key issue, or all candidate keys failed, so report the original error directly.
                             val errorText = "LLM call failed: ${e.message}"
                             actionQueue.addLast(AgentAction.LlmError(errorText))
                             callError = e.message ?: e.javaClass.simpleName
                         } finally {
                             val durationMillis = (SystemClock.elapsedRealtime() - callStartElapsed).toInt()
                             val usage = finalResponse
-                            // 关键：取消展开（用户点停止）期间绝不能调用 suspend。
-                            // 即使用 withContext(NonCancellable) 包住 Room insert 也一样会闪退——
-                            // 设备 tombstone（2026-10-05，8+ 次复现）栈全部落在
-                            // StatefulAgentWorkflow$executeEvents$1.invokeSuspend+0，abort 文案
-                            // 「No pending exception expected: JobCancellationException」与
-                            // 「Unexpected instruction: unused-e5」，即协程状态机在挂起/恢复中
-                            // label 错乱，ART 解释器随后崩在非法指令上。
-                            // 因此这里改为派发到独立的不可取消 scope：launch 不是 suspend 函数，
-                            // 不会挂起/恢复当前协程，彻底避开取消展开路径上的状态机跳转。
+                            // Critical: never call suspend during cancellation unwinding (user tapped stop).
+                            // Even wrapping the Room insert in withContext(NonCancellable) still crashes —
+                            // the device tombstone (2026-10-05, 8+ reproductions) stacks all land at
+                            // StatefulAgentWorkflow$executeEvents$1.invokeSuspend+0, with abort messages
+                            // "No pending exception expected: JobCancellationException" and
+                            // "Unexpected instruction: unused-e5", i.e. the coroutine state machine's
+                            // labels got scrambled across suspend/resume, and the ART interpreter then died on an illegal instruction.
+                            // So this dispatches to a separate non-cancellable scope instead: launch is not a suspend function,
+                            // never suspends/resumes the current coroutine, and completely avoids state-machine jumps on the cancellation-unwinding path.
                             val record = LlmCallRecordEntity(
                                 sessionId = currentContext.sessionId,
                                 providerId = providerInUse.providerId.ifBlank { null },
@@ -810,8 +810,8 @@ class StatefulAgentWorkflow @Inject constructor(
                         actionQueue.addLast(AgentAction.PermissionEvaluated(effect.toolCall, checkResult.approved, argsPreview, checkResult.denyReason, checkResult.errorCode))
                     }
                     is AgentSideEffect.CancelToolBatch -> {
-                        // 整批取消：已批准未执行的工具补发完成事件（内容为未执行），
-                        // 让 ViewModel 清理 runningTool 并 REPLACE 掉「执行中」占位消息。
+                        // Whole-batch cancellation: re-emit completion events for approved-but-not-executed tools (content: not executed),
+                        // letting the ViewModel clear runningTool and REPLACE the "executing" placeholder messages.
                         effect.toolCalls.forEach { toolCall ->
                             send(
                                 AgentEvent.ToolCallFinished(
@@ -827,8 +827,8 @@ class StatefulAgentWorkflow @Inject constructor(
                         }
                     }
                     is AgentSideEffect.ExecuteToolBatch -> {
-                        // 并行执行本批已批准的工具。先统一记录 checkpoint（editFile/writeFile 修改前快照），
-                        // 再并行执行；mode 切换检查在结果收集后于主协程串行处理（planApproval 单例）。
+                        // Execute this batch's approved tools in parallel. Record checkpoints (pre-modification snapshots for editFile/writeFile) uniformly first,
+                        // then execute in parallel; mode-switch checks are handled serially on the main coroutine after results are collected (planApproval singleton).
                         val toolCalls = effect.toolCalls
                         toolCalls.forEach { toolCall ->
                             if (toolCall.name == "editFile" || toolCall.name == "writeFile") {
@@ -857,7 +857,7 @@ class StatefulAgentWorkflow @Inject constructor(
                             }
                         }
 
-                        // 串行处理 mode 切换并组装批量结果。
+                        // Handle mode switches serially and assemble the batch results.
                         val batchResults = mutableListOf<ToolBatchResult>()
                         toolCalls.forEachIndexed { index, toolCall ->
                             val runResult = runResults.getOrNull(index)
@@ -871,16 +871,16 @@ class StatefulAgentWorkflow @Inject constructor(
                                     ?: ""
                                 send(AgentEvent.ModeChanged(newCtx.mode, reason))
 
-                                // 退出 PLAN 时挂起 workflow，等待用户在计划审查面板批准后才继续
+                                // On leaving PLAN, suspend the workflow and wait for the user's approval in the plan-review panel before continuing
                                 if (currentContext.mode == AgentMode.PLAN && newCtx.mode != AgentMode.PLAN) {
                                     val choice = planApprovalManager.awaitApproval(reason, currentContext.sessionId)
                                     if (choice == PlanApprovalChoice.APPROVE) {
                                         currentContext = newCtx
-                                        // system 与 mode 已解耦（SystemPromptProvider 不再注入模式提示词），
-                                        // 切换不重建 systemPrompt，避免 system 前缀变化打断缓存；模式状态通过工具结果与下轮消息提醒告知。
+                                        // system and mode are decoupled (SystemPromptProvider no longer injects mode prompts),
+                                        // so switching doesn't rebuild systemPrompt, avoiding a system-prefix change breaking the cache; mode state is conveyed via the tool result and next turn's message reminder.
                                         rawResult += buildModeSwitchNotice(newCtx.mode)
                                     } else {
-                                        // 用户选择继续反馈，回滚到 PLAN 模式，修正工具结果让 AI 知道切换被取消并等待用户反馈
+                                        // The user chose to keep refining: roll back to PLAN mode and rewrite the tool result so the AI knows the switch was cancelled and it should await user feedback
                                         currentContext = currentContext.copy(mode = AgentMode.PLAN)
                                         rawResult = ToolResult.Error(
                                             "The user wants to add notes or adjust the plan; staying in PLAN mode. Wait for their specific feedback. Do not invent changes on your own.",
@@ -896,9 +896,9 @@ class StatefulAgentWorkflow @Inject constructor(
                             batchResults.add(ToolBatchResult(toolCall.id, toolCall.name, rawResult, isError, runResult.attachments, runResult.images))
                         }
 
-                        // 本轮内到达的后台任务/子代理完成通知：搭在本批最后一条工具结果上立即送达，
-                        // AI 当轮即可感知，不必等本轮结束再起新一轮。ack 放到完成事件发出（结果已落库）之后：
-                        // 中途被取消时通知仍留在队列里，由后续批次或本轮结束的兜底路径送达。
+                        // Background task / subagent completion notifications that arrived within this turn: delivered immediately by piggybacking on this batch's last tool result,
+                        // so the AI perceives them this very turn instead of waiting for a new turn after this one ends. The ack happens after the completion event is emitted (result already persisted):
+                        // if cancelled midway, the notifications stay queued and are delivered by a later batch or this turn's final fallback path.
                         val notifySessionId = currentContext.sessionId
                         val notifications = if (notifySessionId != null && batchResults.isNotEmpty()) {
                             agentNotificationCenter.peek(notifySessionId)
@@ -909,8 +909,8 @@ class StatefulAgentWorkflow @Inject constructor(
                             val modeChange = notifications.lastOrNull { it.kind == AgentNotificationKind.MODE_CHANGE }
                             val newMode = modeChange?.newMode
                             if (newMode != null) {
-                                // 用户在工作期间切换模式：本轮后续批次的权限判定立即改用新模式。
-                                // 与 SessionUseCase.updateMode 保持同一套语义：进入 PLAN 记下进入前的模式，其余情况清空。
+                                // The user switched modes mid-task: permission checks for subsequent batches this turn use the new mode immediately.
+                                // Same semantics as SessionUseCase.updateMode: entering PLAN records the prior mode; all other cases clear it.
                                 val prevMode = currentContext.mode
                                 currentContext = if (newMode == AgentMode.PLAN) {
                                     currentContext.copy(
@@ -924,13 +924,13 @@ class StatefulAgentWorkflow @Inject constructor(
                             val last = batchResults.last()
                             var injected = eventInjector.inject(last.result, notifications)
                             if (newMode != null) {
-                                // 模式约束提示随工具结果落库，留在历史里供后续轮沿用。
+                                // The mode-constraint notice is persisted with the tool result and stays in history for subsequent turns.
                                 injected += buildExternalModeSwitchNotice(newMode)
                             }
                             batchResults[batchResults.lastIndex] = last.copy(result = injected)
                         }
 
-                        // 逐个推送完成事件（保持与 batchToolCalls 一致顺序），并进入收尾。
+                        // Emit completion events one by one (keeping the same order as batchToolCalls), then wrap up.
                         batchResults.forEach { br ->
                             val persisted = kotlinx.coroutines.CompletableDeferred<Unit>()
                             send(AgentEvent.ToolCallFinished(br.id, br.toolName, br.result, br.isError,
@@ -964,10 +964,10 @@ class StatefulAgentWorkflow @Inject constructor(
     }
 
     /**
-     * 发送前按模型视觉能力处理消息中的图片：
-     * - 支持 vision：原样返回。
-     * - 不支持：剥离所有图片（仅影响本次发送，不动持久化数据），历史/输入中的图片不会原样发给
-     *   非多模态模型导致请求失败；切回多模态模型后图片上下文仍可正常使用。
+     * Handles images in messages according to the model's vision capability before sending:
+     * - Vision supported: returned as-is.
+     * - Not supported: strip all images (affects only this send, never persisted data), so images in history/input are not sent as-is to
+     *   non-multimodal models and failing the request; after switching back to a multimodal model, the image context remains usable.
      */
     private fun sanitizeImagesForModel(
         messages: List<AgentMessage>,
@@ -987,15 +987,15 @@ class StatefulAgentWorkflow @Inject constructor(
     }
 
     /**
-     * 每轮注入「相关技能」提醒（对标 Claude Code 的 "Skills relevant to your task:"）：
-     * 系统提示里的技能清单按会话只注入一次，模型跑几轮工具后就淡忘了；在本轮请求发出前，
-     * 按最新 user 消息把最相关的几个技能连描述再推到他眼前，提高 `loadSkill` 调用率。
+     * Injects a "relevant skills" reminder every turn (modeled on Claude Code's "Skills relevant to your task:"):
+     * the skill list in the system prompt is injected once per session, and the model forgets it after a few tool rounds; before this turn's request goes out,
+     * push the few most relevant skills with their descriptions in front of it again based on the latest user message, raising the `loadSkill` call rate.
      *
-     * 只追加到本轮最新 user 消息末尾、不落库：系统提示与历史消息逐字节不变，
-     * provider 前缀缓存照常命中（KV Cache 友好）。
-     * 仅主代理注入：子代理的工具白名单可能不含 loadSkill，其提示词也未必注入了技能清单。
-     * 首次技能扫描已在系统提示构建时完成并缓存，这里正常情况下是纯内存计算；
-     * 防御性切 IO 线程，避免真机 ROOT 通道下的阻塞 IO 卡住主线程。
+     * Appended only to the end of this turn's latest user message, never persisted: the system prompt and history stay byte-for-byte identical,
+     * so provider prefix caches still hit (KV Cache friendly).
+     * Main agent only: subagents' tool allowlists may exclude loadSkill, and their prompts may not include the skill list.
+     * The first skill scan already happened and was cached during system prompt construction, so this is normally pure in-memory work;
+     * switch to the IO dispatcher defensively, to keep blocking IO on the on-device ROOT channel off the main thread.
      */
     private suspend fun withSkillHint(
         messages: List<AgentMessage>,
@@ -1017,8 +1017,8 @@ class StatefulAgentWorkflow @Inject constructor(
     }
 
     /**
-     * 压缩轮专用 provider 解析。若用户配置了压缩专用模型且 provider 存在、已启用、有 apiKey，
-     * 则返回全新的独立 AIProvider 实例；否则返回 null（沿用当前聊天模型）。
+     * Provider resolution for compaction rounds. If the user configured a dedicated compaction model and the provider exists, is enabled, and has an apiKey,
+     * returns a brand-new standalone AIProvider instance; otherwise returns null (keep the current chat model).
      */
     private suspend fun resolveCompactionFallbackProvider(sessionId: String? = null): AIProvider? {
         val providerId = compactionModelSettingsRepository.getCompactionProviderId().trim()
@@ -1031,8 +1031,8 @@ class StatefulAgentWorkflow @Inject constructor(
     }
 
     /**
-     * 标题生成专用 provider 解析。若用户配置了标题总结专用模型且 provider 存在、已启用、有 apiKey，
-     * 则返回全新的独立 AIProvider 实例；否则返回 null（沿用当前聊天模型）。
+     * Provider resolution for title generation. If the user configured a dedicated title-summary model and the provider exists, is enabled, and has an apiKey,
+     * returns a brand-new standalone AIProvider instance; otherwise returns null (keep the current chat model).
      */
     private suspend fun resolveTitleFallbackProvider(sessionId: String?): AIProvider? {
         val providerId = titleModelSettingsRepository.getTitleProviderId().trim()
@@ -1045,8 +1045,8 @@ class StatefulAgentWorkflow @Inject constructor(
     }
 
     /**
-     * AI 命令审查器专用 provider 解析。若用户配置了审查器专用模型且 provider 存在、已启用、有 apiKey，
-     * 则返回全新的独立 AIProvider 实例；否则返回 null（沿用当前聊天模型）。
+     * Provider resolution for the AI command reviewer. If the user configured a dedicated reviewer model and the provider exists, is enabled, and has an apiKey,
+     * returns a brand-new standalone AIProvider instance; otherwise returns null (keep the current chat model).
      */
     private suspend fun resolveReviewerFallbackProvider(sessionId: String?): AIProvider? {
         val providerId = reviewerModelSettingsRepository.getReviewerProviderId().trim()
@@ -1058,16 +1058,16 @@ class StatefulAgentWorkflow @Inject constructor(
         return createStandaloneProvider(config.copy(selectedModel = model), sessionId)
     }
 
-    /** AI 命令审查结论：[Allow] 直接放行；[Escalate] 回退人工弹窗（附审查器的危险说明，可为空）。 */
+    /** AI command review outcome: [Allow] passes directly; [Escalate] falls back to a manual dialog (with the reviewer's risk note, possibly empty). */
     private sealed interface AiReviewResult {
         data object Allow : AiReviewResult
         data class Escalate(val reason: String?) : AiReviewResult
     }
 
     /**
-     * 「自主执行」挡位下的命令独立评审：默认跟随当前聊天模型，配置了审查器专用模型则用之。
-     * 提示词来自 [SystemPromptProvider] 的 `agent/command-reviewer.md`。
-     * 调用失败/解析失败/UNSURE 一律返回 [AiReviewResult.Escalate] 回退人工（安全兜底）。
+     * Independent command review under the "autonomous execution" tier: follows the current chat model by default, using the dedicated reviewer model if configured.
+     * The prompt comes from `agent/command-reviewer.md` via [SystemPromptProvider].
+     * Call failure / parse failure / UNSURE all return [AiReviewResult.Escalate] to fall back to a human (safety fallback).
      */
     private suspend fun reviewCommandWithAi(command: String, sessionId: String?): AiReviewResult {
         return try {
@@ -1096,7 +1096,7 @@ class StatefulAgentWorkflow @Inject constructor(
                 throw e
             } finally {
                 val durationMillis = (SystemClock.elapsedRealtime() - callStartElapsed).toInt()
-                // 同 executeEvents：取消展开期间不调 suspend，派发到不可取消 scope 落库。
+                // Same as executeEvents: no suspend calls during cancellation unwinding; dispatch to the non-cancellable scope for persistence.
                 val record = LlmCallRecordEntity(
                     sessionId = sessionId,
                     providerId = provider.providerId.ifBlank { null },
@@ -1119,20 +1119,20 @@ class StatefulAgentWorkflow @Inject constructor(
         } catch (e: CancellationException) {
             throw e
         } catch (e: Exception) {
-            FileLogger.w(TAG, "AI 命令审查失败，回退人工确认", e)
+            FileLogger.w(TAG, "AI command review failed; falling back to manual confirmation", e)
             AiReviewResult.Escalate(null)
         }
     }
 
     /**
-     * 审查器警告语言的追加指令：REASON 是给点「拒绝/存疑」弹窗的人看的，
-     * 必须跟随应用界面语言（如中文界面就写中文），否则英文警告对用户形同虚设。
-     * 只约束 REASON 的自然语言部分，VERDICT/ALLOW/DENY/UNSURE 等机器解析关键字仍固定英文。
+     * Extra instruction on the reviewer's warning language: REASON is read by the human at the "deny/unsure" dialog,
+     * so it must follow the app's UI language (Chinese for a Chinese UI), otherwise an English warning is useless to the user.
+     * Only the natural-language REASON part is constrained; machine-parsed keywords like VERDICT/ALLOW/DENY/UNSURE stay fixed in English.
      */
     private suspend fun reviewerLanguageInstruction(): String {
         val tag = languageSettingsRepository.snapshot() ?: Locale.getDefault().toLanguageTag()
         val name = when (tag.substringBefore('-').lowercase()) {
-            "zh" -> "Simplified Chinese (简体中文)"
+            "zh" -> "Simplified Chinese"
             "en" -> "English"
             "ja" -> "Japanese"
             "ko" -> "Korean"
@@ -1148,7 +1148,7 @@ class StatefulAgentWorkflow @Inject constructor(
             "Keep the literal keywords \"VERDICT:\", \"ALLOW\", \"DENY\", \"UNSURE\", \"REASON:\" in English exactly as specified.\n</language>"
     }
 
-    /** 解析审查器输出：首行 `VERDICT: ALLOW|DENY|UNSURE`，DENY/UNSURE 可带 `REASON:` 行。 */
+    /** Parses the reviewer output: first line `VERDICT: ALLOW|DENY|UNSURE`; DENY/UNSURE may carry a `REASON:` line. */
     private fun parseReviewVerdict(content: String): AiReviewResult {        val lines = content.lines()
         val verdictLine = lines.firstOrNull { it.trim().startsWith("VERDICT:", ignoreCase = true) }
             ?: return AiReviewResult.Escalate(null)
@@ -1163,9 +1163,9 @@ class StatefulAgentWorkflow @Inject constructor(
     }
 
     /**
-     * 为新建会话生成标题：默认跟随当前聊天模型，配置了标题总结专用模型则用之。
-     * 提示词来自 [SystemPromptProvider] 的 `agent/title-generator.md`。
-     * 生成失败或取不到标题时返回 null（调用方保留临时标题）。
+     * Generates a title for a newly created session: follows the current chat model by default, using the dedicated title-summary model if configured.
+     * The prompt comes from `agent/title-generator.md` via [SystemPromptProvider].
+     * Returns null when generation fails or no title is produced (the caller keeps the temporary title).
      */
     override suspend fun generateTitle(sessionId: String, request: String): String? = runCatching {
         val provider = resolveTitleFallbackProvider(sessionId) ?: getEffectiveProvider(sessionId)
@@ -1193,7 +1193,7 @@ class StatefulAgentWorkflow @Inject constructor(
             throw e
         } finally {
             val durationMillis = (SystemClock.elapsedRealtime() - callStartElapsed).toInt()
-            // 同 executeEvents：取消展开期间不调 suspend，派发到不可取消 scope 落库。
+            // Same as executeEvents: no suspend calls during cancellation unwinding; dispatch to the non-cancellable scope for persistence.
             val record = LlmCallRecordEntity(
                 sessionId = sessionId,
                 providerId = provider.providerId.ifBlank { null },
@@ -1214,7 +1214,7 @@ class StatefulAgentWorkflow @Inject constructor(
         }
         response.content.trim().take(TITLE_MAX_CHARS).ifBlank { null }
     }.onFailure { e ->
-        FileLogger.w(TAG, "生成会话标题失败", e)
+        FileLogger.w(TAG, "Failed to generate session title", e)
     }.getOrNull()
 
     override suspend fun generateCommitMessage(diff: String): String? = runCatching {
@@ -1235,12 +1235,12 @@ class StatefulAgentWorkflow @Inject constructor(
             ?.trim()
         line?.take(100)?.ifBlank { null }
     }.onFailure { e ->
-        FileLogger.w(TAG, "生成提交信息失败", e)
+        FileLogger.w(TAG, "Failed to generate commit message", e)
     }.getOrNull()
 
     /**
-     * 把模型直出的图片（base64）落盘到 `~/.xencode/generated-images/`，返回带容器路径的 images
-     * 与一一对应的 UI 附件（附件只带路径不含 base64，落库不撑爆数据库行）。
+     * Persists model-emitted images (base64) to `~/.xencode/generated-images/`, returning images carrying container paths
+     * and one-to-one UI attachments (attachments carry paths only, no base64, so persistence doesn't blow up DB rows).
      */
     private suspend fun persistModelImages(images: List<AgentImage>): Pair<List<AgentImage>, List<AgentAttachment>> =
         kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
@@ -1284,7 +1284,7 @@ class StatefulAgentWorkflow @Inject constructor(
             val action = (toolCall.arguments["action"] as? JsonPrimitive)?.content?.trim()?.lowercase()
                 ?: toolCall.arguments["action"]?.toString()?.replace("\"", "")?.trim()?.lowercase()
             when (action) {
-                // 进入 PLAN 时记住当前模式；退出时恢复到它（BUILD/ASK→PLAN 的规划往返结束后回到原模式而非 BUILD）。
+                // On entering PLAN, remember the current mode; on exit, restore it (after a BUILD/ASK→PLAN round trip, return to the original mode instead of BUILD).
                 "enter" -> if (currentContext.mode != AgentMode.PLAN) {
                     return currentContext.copy(mode = AgentMode.PLAN, modeBeforePlan = currentContext.mode) to true
                 }
@@ -1297,9 +1297,9 @@ class StatefulAgentWorkflow @Inject constructor(
     }
 
     /**
-     * 当前模式提醒：随最新用户消息注入（借鉴 opencode SessionReminders 的思路）。
-     * 模式提示词不进 system——一旦切换就要重建 system、打断前缀缓存；
-     * 改为消息级提醒：每次用户请求拼在最新用户消息末尾，位置在消息流尾部，前缀保持稳定。
+     * Current-mode reminder: injected with the latest user message (inspired by opencode's SessionReminders).
+     * Mode prompts stay out of system — a switch would rebuild system and break the prefix cache;
+     * hence message-level reminders: appended to the end of the latest user message on every request, sitting at the tail of the message stream so the prefix stays stable.
      */
     private fun buildModeReminder(mode: AgentMode): String? = when (mode) {
         AgentMode.PLAN -> promptProvider.resolvePrompt(MODE_REMINDER_PLAN_FILE)
@@ -1314,12 +1314,12 @@ class StatefulAgentWorkflow @Inject constructor(
     }
 
     /**
-     * 把待送通知注入工具结果：优先作为 transport JSON 顶层的 `notifications` 字段，结果仍是合法 JSON，
-     * UI 的 formatToolResult（只读 data/message）与各类结构化解析不受影响。
-     * raw 已被模式切换提示等纯文本追加过、不再是合法 JSON 时，退化为文本追加。
+     * Injects pending notifications into a tool result: preferably as a top-level `notifications` field of the transport JSON, keeping the result valid JSON,
+     * so the UI's formatToolResult (which reads only data/message) and other structured parsing are unaffected.
+     * If raw has already been appended with plain text such as a mode-switch notice and is no longer valid JSON, degrade to a text append.
      */
     /**
-     * 取本次应注入的模式提醒：仅当模式与上次注入时不同（含首次）才返回文本并记录，否则为 null。
+     * Takes the mode reminder to inject this time: returns and records the text only when the mode differs from the last injection (including the first), otherwise null.
      */
     private fun takeModeReminderIfChanged(sessionId: String?, mode: AgentMode): String? {
         if (sessionId == null) return buildModeReminder(mode)
@@ -1328,7 +1328,7 @@ class StatefulAgentWorkflow @Inject constructor(
         return buildModeReminder(mode)
     }
 
-    /** 工具调用成功后拼进 planMode 工具结果的模式状态通知（当轮即可见，无需等下一条用户消息）。 */
+    /** Mode-status notice appended to the planMode tool result after a successful call (visible this very turn, no need to wait for the next user message). */
     private fun buildModeSwitchNotice(mode: AgentMode): String = when (mode) {
         AgentMode.PLAN -> "\n\n" + promptProvider.resolvePrompt(MODE_REMINDER_PLAN_FILE)
             .replace(LEADING_COMMENT, "")
@@ -1337,7 +1337,7 @@ class StatefulAgentWorkflow @Inject constructor(
         AgentMode.ASK -> "\n\n[Mode change] The plan was approved. You are back in ASK mode: stay read-only, answer follow-up questions, and do not make changes."
     }
 
-    /** 用户在外部（界面）手动切换模式时拼进工具结果的提示；与 AI 自切的 [buildModeSwitchNotice] 区分，避免误称「计划已获批准」。 */
+    /** Notice appended to a tool result when the user manually switches modes externally (in the UI); distinguished from the AI-initiated [buildModeSwitchNotice] to avoid falsely saying "the plan was approved". */
     private fun buildExternalModeSwitchNotice(mode: AgentMode): String = when (mode) {
         AgentMode.PLAN -> "\n\n" + promptProvider.resolvePrompt(MODE_REMINDER_PLAN_FILE)
             .replace(LEADING_COMMENT, "")
@@ -1358,8 +1358,8 @@ class StatefulAgentWorkflow @Inject constructor(
             return PermissionCheckResult(true)
         }
 
-        // planMode 退出 PLAN 时，后续会有计划审查面板兜底用户决策，
-        // 此处权限弹窗冗余，直接放行；进入 PLAN 的方向无后续审查面板，仍走权限弹窗。
+        // When planMode exits PLAN, the plan-review panel later captures the user's decision,
+        // so a permission dialog here is redundant — approve directly; entering PLAN has no follow-up review panel and still goes through the permission dialog.
         if (tool.name == "planMode" && mode == AgentMode.PLAN) {
             val action = (arguments["action"] as? JsonPrimitive)?.contentOrNull?.trim()?.lowercase()
             if (action == "exit") {
@@ -1382,8 +1382,8 @@ class StatefulAgentWorkflow @Inject constructor(
             ToolPermissionPolicyEngine.Verdict.ALLOW -> PermissionCheckResult(true)
             ToolPermissionPolicyEngine.Verdict.DENY -> PermissionCheckResult(false)
             ToolPermissionPolicyEngine.Verdict.ASK -> {
-                // 「自主执行」挡位：先交 AI 命令审查器独立评审，通过直接放行；
-                // 拒绝/不确定/失败回退人工弹窗（拒绝时附审查器给出的危险说明）。
+                // "Autonomous execution" tier: first have the AI command reviewer review it independently; pass and approve directly;
+                // denial / unsure / failure falls back to a manual dialog (denial attaches the reviewer's risk note).
                 var aiReviewNote: String? = null
                 if (eval.aiReviewable) {
                     val command = ((arguments["command"] ?: arguments["input"]) as? JsonPrimitive)?.contentOrNull

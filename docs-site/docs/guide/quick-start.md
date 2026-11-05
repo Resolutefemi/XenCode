@@ -1,66 +1,66 @@
-# 快速上手
+# Quick Start
 
-从安装到完成第一条 AI 对话。如需先观看操作演示，参见[视频教程](/guide/video-tutorials)。
+From installation to your first AI conversation. To watch it in action first, see the [video tutorials](/guide/video-tutorials).
 
-## 系统要求
+## System requirements
 
-- Android 8.0（API 26）及以上
-- arm64-v8a 或 x86_64 设备
+- Android 8.0 (API 26) or higher
+- arm64-v8a or x86_64 device
 
-## 下载安装
+## Download & install
 
-从 [GitHub Releases](https://github.com/jieapi/xencode/releases/latest) 下载，三个包按设备选择：
+Download from [GitHub Releases](https://github.com/Resolutefemi/XenCode/releases/latest) — pick one of the three packages for your device:
 
-| 包名 | 适用场景 |
+| Package | Best for |
 | --- | --- |
-| `armsolo` | 真机（arm64 设备），体积最小 |
-| `x86solo` | 模拟器、Chromebook（x86_64） |
-| `universal` | 通用包，同时含两种架构，体积较大 |
+| `armsolo` | Real devices (arm64), smallest size |
+| `x86solo` | Emulators, Chromebooks (x86_64) |
+| `universal` | Universal package containing both architectures, larger size |
 
-::: warning 架构要选对
-架构不匹配会导致内置容器无法运行。不确定时使用 `universal`。
+::: warning Pick the right architecture
+A mismatched architecture breaks the built-in container. When in doubt, use `universal`.
 :::
 
-推荐直接点击[文档站首页](/)的「下载 APK」，将通过加速镜像直接下载最新正式版的 `universal` 通用包（镜像不可用时自动回退至 GitHub 原链）。
+The recommended way is to tap "Download APK" on the [docs site homepage](/) — it fetches the latest stable `universal` package through an accelerated mirror (automatically falling back to the original GitHub link when the mirror is unavailable).
 
-## 1. 配置 AI 供应商
+## 1. Configure an AI vendor
 
-::: tip 首次启动有新手引导
-首次启动时会自动开启新手引导（1.12.0 新增），依次引导完成下面几步；也可随时点击「跳过」，或之后在「设置 → 重新运行新手引导」再次启动。
+::: tip First launch has an onboarding guide
+On first launch the onboarding guide starts automatically (new in 1.12.0), walking you through the steps below in order; you can tap "Skip" at any time, or relaunch it later via "Settings → Re-run onboarding".
 :::
 
-XenCode 自身不提供模型，需要先接入一个模型服务。
+XenCode does not provide models itself — connect a model service first.
 
-1. 点主页左上角菜单按钮打开侧边栏，点底部「设置」。
-2. 进入「AI 配置 → AI 供应商」，点右上角 + 新建，在「配置」标签填写四项：
-   - **名称**：别名，例如「官方 OpenAI」。
-   - **上游格式**：`OpenAI` / `Anthropic` / `Gemini` 三选一。第三方中转站一般选 `OpenAI`。
-   - **API Key**：你的密钥，形如 `sk-xxx`。
-   - **Base URL**：API 根地址，**留空时按上游格式使用官方地址**；用第三方中转时填入中转服务的地址。
-3. 底部切到「模型」标签添加模型：
-   - 点击「拉取模型」从服务端同步可用列表，点击每行右侧的「+」逐个添加，或用右上角「全部添加」一键加入。
-   - 点击右上角 + 手动输入模型名（例如 `gpt-4o`）。中转站模型名拉取不全时使用此方式。
-   - 可选：点击模型行编辑元数据（上下文窗口、价格、图片输入与工具调用等能力开关）。
+1. Tap the menu button at the top-left of the home page to open the sidebar, then tap "Settings" at the bottom.
+2. Go to "AI Config → AI Vendors", tap + at the top-right to create one, and fill in four fields on the "Config" tab:
+   - **Name**: an alias, e.g. "OpenAI Official".
+   - **Upstream format**: pick one of `OpenAI` / `Anthropic` / `Gemini`. Third-party relays usually pick `OpenAI`.
+   - **API Key**: your key, like `sk-xxx`.
+   - **Base URL**: the API root — **leave it empty to use the official address for the upstream format**; with a third-party relay, enter the relay service's address.
+3. Switch to the "Models" tab at the bottom to add models:
+   - Tap "Fetch models" to sync the available list from the server, then add them one by one with the "+" on each row, or batch-add with "Add all" at the top-right.
+   - Tap + at the top-right to type a model name manually (e.g. `gpt-4o`). Use this when a relay's model list does not fetch completely.
+   - Optional: tap a model row to edit its metadata (context windows, pricing, and capability toggles like image input and tool calls).
 
-填完退出编辑页时会自动保存，没有单独的保存按钮。
+Everything saves automatically when you leave the edit page — there is no separate save button.
 
-## 2. 选择模型
+## 2. Select a model
 
-回到聊天主页，点击输入框下方工具栏的模型按钮，在弹窗中选择刚添加的模型。顶部搜索框可以筛选，模型按供应商分组显示，点击分组标题可以折叠或展开。
+Back on the chat home, tap the model button in the toolbar below the input box and pick the model you just added in the dialog. The search box at the top filters; models are grouped by vendor, and tapping a group title folds or unfolds it.
 
-## 3. 准备执行环境
+## 3. Prepare the execution environment
 
-默认使用内置的本地容器，无需任何配置。第一次使用时，在主页点击进入终端，按提示完成一次初始化即可（解压系统、安装基础工具），之后 AI 就能正常执行命令。
+The built-in local container is used by default with zero configuration. On first use, open the terminal from the home page and complete the one-time initialization when prompted (extracting the system, installing base tools) — after that the AI can run commands normally.
 
-如需把远程服务器当执行后端，见[远程 SSH 模式](/guide/remote-ssh)；容器与镜像的详细设置见[容器与镜像](/guide/container)。
+To use a remote server as the execution backend, see [Remote SSH mode](/guide/remote-ssh); for detailed container and image settings see [Container & images](/guide/container).
 
-## 4. 开始对话
+## 4. Start a conversation
 
-在输入框输入内容后点击发送。输入框下方工具栏最左侧的模式按钮可以在 BUILD、PLAN、AUTO 之间切换，区别见[三种模式](/guide/modes)。
+Type in the input box and hit send. The mode button on the far left of the toolbar below the input box switches between BUILD, PLAN and AUTO — see [Three modes](/guide/modes) for the differences.
 
-## 实用贴士
+## Useful tips
 
-- 在主页空会话中选择的模型将被记录为新会话的默认模型，后续新建会话自动沿用。
-- 识图、生图与标题总结支持独立指定专属模型，详见[默认模型](/guide/default-models)。
-- AI 修改代码前会自动创建快照，支持一键安全回滚，详见[检查点与撤销](/guide/checkpoint)。
-- 执行编译等耗时任务前，建议开启[软件权限](/guide/app-permissions)中的后台运行保活，防止系统在切换后台时终止进程。
+- The model selected in an empty conversation on the home page is remembered as the default for new conversations and reused automatically.
+- Image recognition, image generation and title summarization can each have a dedicated model; see [Default & dedicated models](/guide/default-models).
+- The AI snapshots code automatically before modifying it, with one-tap safe rollback; see [Checkpoints & undo](/guide/checkpoint).
+- Before long-running tasks like compilation, enable background keep-alive under [System permissions](/guide/app-permissions) to keep the system from killing the process when you switch away.

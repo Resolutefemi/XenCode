@@ -118,7 +118,7 @@ android {
         // targetSdk stays at 28, but PRoot is no longer the blocker: the full proot set is now shipped via jniLibs into nativeLibraryDir
         // (see the sourceSets and packaging.jniLibs comments), so W^X no longer blocks container startup. Before upgrading, still to resolve:
         //   1. The external workspace (EXTERNAL_LOCAL) reads /storage/emulated/0 directly via the File API; on API 29+ this must move
-        //      MANAGE_EXTERNAL_STORAGE；
+        //      MANAGE_EXTERNAL_STORAGE;
         //   2. TerminalKeepaliveService's dataSync foreground service is capped at 6 hours per 24 hours on API 35,
         //      so keep-alive would need the specialUse type.
         // Trade-off: ineligible for Google Play.

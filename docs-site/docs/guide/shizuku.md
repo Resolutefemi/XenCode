@@ -1,43 +1,43 @@
-# Shizuku 工具
+# Shizuku Tool
 
-Shizuku 让普通应用在**不 root** 的前提下，以 adb shell（uid 2000）身份执行命令。XenCode 接入后，AI 获得一个名为 `Shizuku` 的工具，可直接在手机系统上运行 `pm`、`am`、`cmd` 等命令、读写 `/sdcard`，弥补本地容器（PRoot）拿不到系统权限的短板。
+Shizuku lets ordinary apps run commands as adb shell (uid 2000) **without root**. Once connected, the AI gains a tool named `Shizuku` that can run `pm`, `am`, `cmd` and other commands directly on the phone's system and read/write `/sdcard`, covering what the local container (PRoot) lacks — system-level permissions.
 
-Shizuku 是 shell 身份，**无法读取其他应用的私有数据目录**（那是 root 才能做的）。
+Shizuku runs as the shell user and **cannot read other apps' private data directories** (that requires root).
 
-## 前置：安装并启动 Shizuku
+## Prerequisite: install and start Shizuku
 
-1. 从 [Shizuku 官网](https://shizuku.rikka.app/download/) 或应用商店安装 Shizuku。
-2. 打开 Shizuku，按应用内指引启动服务：
-   - Android 11 及以上：开启「无线调试」后可直接在手机上启动；
-   - Android 10 及以下：需连接电脑用 adb 启动。
+1. Install Shizuku from [its website](https://shizuku.rikka.app/download/) or an app store.
+2. Open Shizuku and start the service following the in-app guide:
+   - Android 11 and above: after enabling "Wireless debugging" it can be started right on the phone;
+   - Android 10 and below: connect to a computer and start it with adb.
 
-## 在 XenCode 中授权
+## Authorizing in XenCode
 
-打开「设置 → 软件权限 → Shizuku」，页面显示当前状态：
+Open "Settings → System Permissions → Shizuku"; the page shows the current status:
 
-- **未安装**：点击前往下载安装。
-- **服务未运行**：点击打开 Shizuku 并启动服务。
-- **未授权**：点击申请授权，Shizuku 弹出授权框，选择「允许」。
-- **已就绪**：授权完成，AI 即可使用 `Shizuku` 工具。
+- **Not installed**: tap to go install it.
+- **Service not running**: tap to open Shizuku and start the service.
+- **Not authorized**: tap to request authorization; Shizuku shows a dialog — choose "Allow".
+- **Ready**: authorization complete — the AI can now use the `Shizuku` tool.
 
-从 Shizuku 应用返回 XenCode 时，状态会自动刷新。
+Returning from the Shizuku app to XenCode refreshes the status automatically.
 
-## 使用与安全
+## Usage & security
 
-`Shizuku` 直接以 adb shell 身份操作宿主 Android 系统，权限高危，因此在工具授权上按**高危工具**处理：
+`Shizuku` operates on the host Android system directly as adb shell — the permissions are high-risk, so it is treated as a **high-risk tool** for authorization:
 
-- **每次调用都会弹出授权确认**：包括 `ls` 这类只读命令，不走内置安全白名单，也不会因已有规则自动放行。
-- **不支持「始终允许」**：弹窗中的「始终允许」按钮不可用（会显示原因），只能单次放行，不生成记忆规则。
-- **AUTO（自动）模式下同样弹窗**：AUTO 的「全放行」对它不生效；仅当开启「设置 → 工具授权 → 禁用安全拦截」后，AUTO 下才恢复自动放行（BUILD 模式仍逐次确认、不可记忆）。
-- **PLAN（计划）模式**下，该工具与其他写操作一样被拦截。
-- 项目权限规则中的**禁止规则**对它依然生效（命中 `deny` 会被直接拒绝）。
+- **Every call pops an authorization confirmation**: including read-only commands like `ls`; it bypasses no built-in allowlist and is never auto-allowed by an existing rule.
+- **"Always allow" is not supported**: the "Always allow" button in the dialog is disabled (with the reason shown) — each call is allowed once only and no remembered rule is created.
+- **AUTO (auto) mode still pops dialogs**: AUTO's "allow all" has no effect on it; only after enabling "Settings → Tool authorization → Disable safety interception" does AUTO restore automatic approval (BUILD mode still asks every time and cannot be remembered).
+- Under **PLAN (plan) mode**, the tool is blocked like any other write operation.
+- **Deny rules** in project permission rules still apply to it (a `deny` hit is rejected outright).
 
-## 常见问题
+## FAQ
 
-**命令报「Shizuku 未就绪」**
+**A command reports "Shizuku not ready"**
 
-按设置页提示依次确认：已安装 → 服务已启动 → 已授权。设备重启后 Shizuku 服务通常需要重新启动（Android 11+ 可在 Shizuku 内重新开启无线调试启动）。
+Follow the settings page and confirm in order: installed → service started → authorized. After a device reboot the Shizuku service usually needs starting again (on Android 11+ you can re-enable wireless debugging inside Shizuku to start it).
 
-**`Shizuku` 工具执行失败但没有明显报错**
+**The `Shizuku` tool fails without an obvious error**
 
-部分命令需要特定系统权限，shell 身份并不具备所有权限（如访问其他应用私有目录）。可在终端中用 `Bash` 对比，确认是命令本身还是权限问题。
+Some commands need specific system permissions that the shell identity does not have (e.g. accessing other apps' private directories). Compare with `Bash` in the terminal to tell whether it is the command itself or a permission issue.

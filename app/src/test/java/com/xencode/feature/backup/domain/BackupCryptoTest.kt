@@ -45,11 +45,11 @@ class BackupCryptoTest {
 
     @Test
     fun decryptStream_legacyAiCodeHeader_stillDecrypts() {
-        // 旧版（AiCode 时代）v2 文件头为 8 字节 "AICODEBK" + 版本号；新版本必须仍可导入
+        // The legacy (AiCode-era) v2 file header is the 8-byte "AICODEBK" + version; the new version must still import it
         val plain = "legacy AiCode backup payload".toByteArray(Charsets.UTF_8)
         val modern = encrypt(plain)
 
-        // 构造旧头文件：去掉新头（9 字节 magic + 1 字节版本），换成旧头（8 字节 magic + 版本号）
+        // Build a legacy-header file: strip the new header (9-byte magic + 1-byte version) and swap in the old one (8-byte magic + version)
         val body = modern.copyOfRange(10, modern.size)
         val legacy = "AICODEBK".toByteArray(Charsets.US_ASCII) + byteArrayOf(modern[9]) + body
 
@@ -62,7 +62,7 @@ class BackupCryptoTest {
 
         val encryptedBytes = encrypt(plain)
 
-        // 分块开销 = 每块 (last 1 + 长度 4 + tag 16)，远小于明文
+        // Chunking overhead = per chunk (last 1 + length 4 + tag 16), far smaller than the plaintext
         assertTrue(encryptedBytes.size > plain.size)
         assertTrue(encryptedBytes.size < plain.size + 1024)
         assertArrayEquals(plain, decrypt(encryptedBytes))
@@ -93,7 +93,7 @@ class BackupCryptoTest {
 
     @Test
     fun decryptStream_truncated_throwsIllegalArgumentException() {
-        // 空明文只产生一个块（last 1 + 长度 4 + tag 16 = 21 字节），整块丢弃后读端应报截断
+        // Empty plaintext produces a single chunk (last 1 + length 4 + tag 16 = 21 bytes); dropping that whole chunk should surface as truncation on read
         val encryptedBytes = encrypt(ByteArray(0))
         val truncated = encryptedBytes.copyOf(encryptedBytes.size - 21)
 
@@ -112,7 +112,7 @@ class BackupCryptoTest {
         }
     }
 
-    /** 旧版格式：salt + IV + 单次 GCM，应仍能解密。 */
+    /** Legacy format: salt + IV + a single GCM pass; it must still decrypt. */
     @Test
     fun decryptStream_legacyFormat_stillSupported() {
         val plain = "legacy encrypted payload".toByteArray(Charsets.UTF_8)

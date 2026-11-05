@@ -6,8 +6,8 @@ import javax.inject.Inject
 import javax.inject.Singleton
 
 /**
- * 项目级子代理定义来源：`<projectRoot>/.xencode/agents/`，随工作区走，可 git 追踪。
- * 以容器路径经 [FileAccessProvider] 访问：本地映射到宿主工作区，远程经 SSH 落到远程工作区。
+ * Project-level sub-agent definition source: `<projectRoot>/.xencode/agents/`, travels with the workspace and can be tracked by git.
+ * Accessed via [FileAccessProvider] with container paths: local maps to the host workspace, remote lands in the remote workspace over SSH.
  */
 @Singleton
 class ProjectDirectoryAgentSource @Inject constructor(

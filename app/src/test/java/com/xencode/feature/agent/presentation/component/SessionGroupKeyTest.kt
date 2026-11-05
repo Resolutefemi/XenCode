@@ -7,16 +7,16 @@ import java.time.ZoneId
 import java.time.ZonedDateTime
 
 /**
- * 侧边栏会话时间分组的边界验证：今天 / 昨天 / 7天内 / 30天内 / 更早按月。
+ * Boundary verification for sidebar session time grouping: today / yesterday / last 7 days / last 30 days / older by month.
  */
 class SessionGroupKeyTest {
 
     private val zone = ZoneId.systemDefault()
 
-    /** 固定“当前时间”：2026-08-14 12:00（本地时区）。 */
+    /** Fixed "current time": 2026-08-14 12:00 (local timezone). */
     private val now = ZonedDateTime.of(2026, 8, 14, 12, 0, 0, 0, zone).toInstant().toEpochMilli()
 
-    /** 距 now 往前 [daysAgo] 天的上午 10 点。 */
+    /** 10 AM, [daysAgo] days before now. */
     private fun at(daysAgo: Long): Long =
         ZonedDateTime.of(2026, 8, 14, 10, 0, 0, 0, zone)
             .minusDays(daysAgo)
@@ -68,12 +68,12 @@ class SessionGroupKeyTest {
     @Test
     fun buildGroups_groupsByTimeBucketInOrder() {
         val sessions = listOf(
-            session("s1", at(0)), // 今天
-            session("s2", at(1)), // 昨天
-            session("s3", at(3)), // 7天内
-            session("s4", at(20)), // 30天内
-            session("s5", at(60)), // 月份 2026-06
-            session("s6", at(90)) // 月份 2026-05
+            session("s1", at(0)), // today
+            session("s2", at(1)), // yesterday
+            session("s3", at(3)), // within 7 days
+            session("s4", at(20)), // within 30 days
+            session("s5", at(60)), // month 2026-06
+            session("s6", at(90)) // month 2026-05
         )
 
         val groups = buildSessionGroups(sessions, now)

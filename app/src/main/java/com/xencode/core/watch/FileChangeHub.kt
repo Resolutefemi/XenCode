@@ -34,16 +34,24 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withTimeoutOrNull
 
 /**
- * App 级文件变更监听中心：监听当前活动工作区与 `~/.xencode` 两个根（也可订阅任意宿主目录），
- * 变更合并成批后广播；订阅方按需声明范围与过滤规则，没人订阅的目录不持有 inotify 句柄、不轮询。
+ * App-level file change hub: watches the active workspace and `~/.xencode` — two roots (any
+ * host directory can be subscribed too) — merges changes into batches and broadcasts them;
+ * subscribers declare their own scope and filter rules, and directories nobody subscribes
+ * to hold no inotify handles and are never polled.
  *
- * 事件来源两层：
- * - 每目录单层 inotify（订阅声明递归时随新目录自动补挂）；
- * - 订阅级快照轮询兜底（按订阅范围递归比对 mtime/size），覆盖 PRoot 绑定目录与外部 FUSE 目录上
- *   inotify 失效的机型，也能发现「整棵目录被移动/替换」这类 inotify 事件不完整的变更。
+ * Events come from two layers:
+ * - per-directory single-level inotify (auto-attached to new directories when the
+ *   subscription declares recursion);
+ * - a per-subscription snapshot-polling fallback (recursive mtime/size comparison over the
+ *   subscription scope), covering devices where inotify breaks on PRoot bind mounts and
+ *   external FUSE directories, and also catching changes with incomplete inotify events,
+ *   such as a whole directory being moved/replaced.
  *
- * 过滤按订阅方生效：递归剪枝与事件投递都用订阅自己的 [WatchFilter]，同一目录可以对一个订阅可见、
- * 对另一个订阅被忽略。剪枝只看父路径段，故被剪枝目录自身的增删仍会上报（父目录列表才看得到它）。
+ * Filtering is per subscriber: recursive pruning and event delivery both use the
+ * subscription's own [WatchFilter], so the same directory can be visible to one
+ * subscription and ignored by another. Pruning only looks at parent path segments, so
+ * additions/removals of the pruned directory itself are still reported (only the parent's
+ * listing can see it).
  */
 @OptIn(ExperimentalCoroutinesApi::class)
 @Singleton
@@ -56,34 +64,34 @@ class FileChangeHub @Inject constructor(
     companion object {
         private const val TAG = "FileChangeHub"
 
-        /** 批量窗口默认长度：窗口内同路径变更合并为一条，窗口到期必发。 */
+        /** Default batch window length: same-path changes within the window merge into one entry; the batch is always emitted when the window expires. */
         const val DEFAULT_BATCH_WINDOW_MS = 300
 
-        /** 单批明细上限，超出即截断（只保留「有变更」信号）。 */
+        /** Per-batch detail cap; past it the batch is truncated (keeping only the "something changed" signal). */
         private const val MAX_BATCH_SIZE = 512
 
-        /** 快照轮询兜底间隔。 */
+        /** Snapshot-polling fallback interval. */
         private const val POLL_INTERVAL_MS = 2000L
 
-        /** 订阅根尚不存在时的探测间隔。 */
+        /** Probe interval while the subscription root doesn't exist yet. */
         private const val ROOT_WAIT_INTERVAL_MS = 2000L
 
-        /** 单次快照最多收集的条目数，防止超大订阅每轮遍历开销失控。 */
+        /** Max entries collected per snapshot, keeping huge subscriptions from runaway per-round traversal cost. */
         private const val MAX_SNAPSHOT_ENTRIES = 4096
 
-        /** 单订阅可持有 inotify 句柄的目录数上限，防止大仓库把 inotify watch 用尽。 */
+        /** Cap on directories with inotify handles per subscription, so large repositories can't exhaust the inotify watch limit. */
         private const val MAX_WATCHED_DIRS = 512
 
-        /** 待处理原始事件队列上限；超出时丢弃最旧事件（有快照轮询兜底），防止文件暴增时内存无界增长。 */
+        /** Pending raw-event queue cap; overflow drops the oldest events (snapshot polling is the fallback), preventing unbounded memory growth during file storms. */
         private const val MAX_PENDING_EVENTS = 4096
 
-        /** 待广播批次队列上限；超出时丢弃最旧批次。 */
+        /** Pending batch queue cap; overflow drops the oldest batches. */
         private const val MAX_PENDING_BATCHES = 256
 
-        /** AI 看到的工作区根路径。 */
+        /** Workspace root path as the AI sees it. */
         const val CONTAINER_ROOT = WorkspacePathMapper.CONTAINER_ROOT
 
-        /** AI 配置目录在容器内的根路径。 */
+        /** Root path of the AI config directory inside the container. */
         const val XENCODE_ROOT = WorkspacePathMapper.XENCODE_ROOT
 
         private const val IN_IGNORED = 0x00008000
@@ -94,13 +102,13 @@ class FileChangeHub @Inject constructor(
 
     private val ioScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
-    /** FileObserver 必须绑定有 Looper 的线程创建与 startWatching，故观察器起停统一走主线程。 */
+    /** FileObserver must be created and startWatching'd on a thread with a Looper, so observer start/stop is uniformly done on the main thread. */
     private val mainScope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
 
-    /** 宿主目录路径 → 该目录的观察器（多个订阅共享同一个）。 */
+    /** Host directory path → its watcher (shared by multiple subscriptions). */
     private val dirWatches = ConcurrentHashMap<String, DirWatch>()
 
-    /** 两个根都订阅，递归。 */
+    /** Subscribes to both roots, recursively. */
     fun watchAll(
         filter: WatchFilter = WatchFilter.DEFAULT,
         fallbackPoll: Boolean = true,
@@ -121,8 +129,10 @@ class FileChangeHub @Inject constructor(
     )
 
     /**
-     * 订阅当前工作区（跟随工作区切换自动重建）。[containerSubPath] 是容器路径，默认整个工作区根。
-     * 远程模式下工作区在服务器上、宿主没有对应目录，订阅退化为空流。
+     * Subscribes to the current workspace (rebuilt automatically on workspace switch).
+     * [containerSubPath] is a container path, defaulting to the whole workspace root.
+     * In remote mode the workspace lives on the server with no host directory, so the
+     * subscription degrades to an empty flow.
      */
     fun watchWorkspace(
         containerSubPath: String = CONTAINER_ROOT,
@@ -149,7 +159,7 @@ class FileChangeHub @Inject constructor(
             }
         }
 
-    /** 订阅 AI 配置目录（`~/.xencode`）下的子路径，[containerSubPath] 为空表示该目录本身。 */
+    /** Subscribes to a sub-path under the AI config directory (`~/.xencode`); an empty [containerSubPath] means the directory itself. */
     fun watchXencode(
         containerSubPath: String = "",
         recursive: Boolean = false,
@@ -170,9 +180,12 @@ class FileChangeHub @Inject constructor(
     }
 
     /**
-     * 订阅任意宿主目录（如同步引擎的本地镜像目录）。[containerRootPath] 为 null 时容器路径由
-     * [WorkspacePathMapper.toContainerPath] 反推。目录尚不存在时不放弃订阅——等它出现后再挂 watch，
-     * 并把「目录出现」当作一次变更上报（项目级 `.xencode/skills` 这类目录经常是后建的）。
+     * Subscribes to any host directory (e.g. the sync engine's local mirror directory). When
+     * [containerRootPath] is null, the container path is derived by
+     * [WorkspacePathMapper.toContainerPath]. If the directory doesn't exist yet the
+     * subscription isn't abandoned — it waits for it to appear, then attaches the watch and
+     * reports the appearance as a change (project-level directories like `.xencode/skills`
+     * are often created later).
      */
     fun watchHostDir(
         hostDir: File,
@@ -202,7 +215,7 @@ class FileChangeHub @Inject constructor(
 
     private data class RawEvent(val hostPath: String, val kind: ChangeKind)
 
-    /** 一个订阅：持有自己注册的目录集合、过滤规则、批量窗口与快照轮询。 */
+    /** One subscription: holds its own registered directory set, filter rules, batch window, and snapshot polling. */
     private inner class Subscription(
         private val rootDir: File,
         private val containerRootPath: String?,
@@ -260,7 +273,7 @@ class FileChangeHub @Inject constructor(
             startPolling()
         }
 
-        /** 订阅根暂不存在：等它出现再挂 watch，出现本身算一次变更。 */
+        /** Subscription root doesn't exist yet: wait for it to appear, then attach the watch; the appearance itself counts as a change. */
         private fun awaitRoot() {
             attachJob = ioScope.launch {
                 while (isActive && !rootDir.isDirectory) delay(ROOT_WAIT_INTERVAL_MS)
@@ -270,7 +283,7 @@ class FileChangeHub @Inject constructor(
             }
         }
 
-        /** 递归注册目录；剪枝只针对父路径段，故先判后注册。[reportNew] 为真时对新挂上的目录补报其存量直接子项。 */
+        /** Registers directories recursively; pruning targets parent path segments only, so check first, then register. With [reportNew] true, a newly attached directory's existing direct children are back-reported. */
         private fun registerTree(dir: File, reportNew: Boolean) {
             val parts = relativePartsOf(rootDir, dir)
             if (parts.isNotEmpty() && rules.isIgnoredDir(parts)) return
@@ -282,28 +295,30 @@ class FileChangeHub @Inject constructor(
         private fun register(dir: File, reportNew: Boolean) {
             val path = dir.absolutePath
             if (!myDirs.add(path)) {
-                FileLogger.d(TAG, "[diag] 目录监听已登记，跳过重复注册: $path")
+                FileLogger.d(TAG, "[diag] Directory watch already registered, skipping duplicate registration: $path")
                 return
             }
             if (dirWatches.size >= MAX_WATCHED_DIRS && !dirWatches.containsKey(path)) {
                 myDirs.remove(path)
-                FileLogger.w(TAG, "监听目录数达上限 $MAX_WATCHED_DIRS，停止扩展: $path")
+                FileLogger.w(TAG, "Watched directory count reached the cap $MAX_WATCHED_DIRS, stopping expansion: $path")
                 return
             }
-            // 新出现的目录在 watch 生效前，其内条目没有任何 watcher 在场、inotify 不会汇报。
-            // 补报该目录的存量直接子项来覆盖这段空洞；之后的新增仍由 inotify 汇报。初始注册不补报，
-            // 否则订阅建立时会把整棵工作区当作新增全量上报。
+            // Before the watch takes effect on a newly appeared directory, no watcher is
+            // present for its entries and inotify reports nothing. Back-report the
+            // directory's existing direct children to cover that gap; later additions are
+            // still reported by inotify. The initial registration doesn't back-report,
+            // otherwise establishing a subscription would report the entire workspace as new.
             val onReady: (() -> Unit)? = if (reportNew) {
                 { ioScope.launch { reportExistingChildren(dir) } }
             } else null
-            FileLogger.d(TAG, "[diag] 注册目录监听: $path reportNew=$reportNew")
+            FileLogger.d(TAG, "[diag] Registering directory watch: $path reportNew=$reportNew")
             dirWatches.computeIfAbsent(path) { DirWatch(dir) }.subscribe(this, onReady)
         }
 
-        /** 挂载监听后补扫子项，覆盖首次扫描与 startWatching 之间新建的目录。 */
+        /** After attaching the watch, rescan children to cover directories created between the first scan and startWatching. */
         private fun reportExistingChildren(dir: File) {
             val children = dir.listFiles() ?: return
-            FileLogger.d(TAG, "[diag] 补报新目录子项: ${dir.absolutePath} 数量=${children.size}")
+            FileLogger.d(TAG, "[diag] Back-reporting new directory children: ${dir.absolutePath} count=${children.size}")
             for (child in children) {
                 events.trySend(RawEvent(child.absolutePath, ChangeKind.CREATED))
                 if (recursive && child.isDirectory) registerTree(child, reportNew = true)
@@ -312,7 +327,7 @@ class FileChangeHub @Inject constructor(
 
         fun onWatchInvalidated(path: String) {
             if (!myDirs.remove(path)) return
-            FileLogger.w(TAG, "目录监听失效，准备重新挂载: $path")
+            FileLogger.w(TAG, "Directory watch invalidated, preparing to remount: $path")
             val dir = File(path)
             if (dir.isDirectory) {
                 registerTree(dir, reportNew = true)
@@ -323,7 +338,8 @@ class FileChangeHub @Inject constructor(
 
         fun onEvent(watch: DirWatch, hostPath: String, kind: ChangeKind) {
             events.trySend(RawEvent(hostPath, kind))
-            // 递归订阅：新出现的目录要补挂（回调在主线程，文件系统检查切到 IO）。
+            // Recursive subscription: newly appeared directories need watches attached too
+            // (the callback runs on the main thread; file-system checks hop to IO).
             if (recursive && kind == ChangeKind.CREATED) {
                 ioScope.launch {
                     val child = File(hostPath)
@@ -333,8 +349,10 @@ class FileChangeHub @Inject constructor(
         }
 
         /**
-         * 快照轮询兜底：按订阅范围递归比对（非递归订阅只比根目录单层）。
-         * 递归快照能发现 inotify 漏报的深层改动与「整棵子树被移动/替换」。
+         * Snapshot-polling fallback: recursive comparison over the subscription scope
+         * (non-recursive subscriptions compare only the root's single level).
+         * Recursive snapshots catch deep changes inotify misses and whole subtrees being
+         * moved/replaced.
          */
         private fun startPolling() {
             if (!fallbackPoll || pollJob != null) return
@@ -358,7 +376,7 @@ class FileChangeHub @Inject constructor(
             }
         }
 
-        /** 订阅范围快照：键为相对订阅根的路径（根自身为空串）；剪枝目录不进入。 */
+        /** Snapshot of the subscription scope: keys are paths relative to the subscription root (the root itself is the empty string); pruned directories are excluded. */
         private fun snapshotOfScope(): Map<String, String> {
             val out = HashMap<String, String>()
             if (!rootDir.isDirectory) return out
@@ -411,7 +429,8 @@ class FileChangeHub @Inject constructor(
                 }
 
                 accept(first)
-                // 固定窗口：到期必发。静默 debounce 会在编译这类持续变更期间一直不发出，把刷新吞掉。
+                // Fixed window: always emitted on expiry. A quiet-debounce would stay silent
+                // through sustained changes like compilation and swallow the refresh.
                 val deadline = System.currentTimeMillis() + windowMs
                 while (true) {
                     val remain = deadline - System.currentTimeMillis()
@@ -428,7 +447,7 @@ class FileChangeHub @Inject constructor(
         }
     }
 
-    /** 一个宿主目录的观察器，按订阅引用计数启停（多个订阅共享同一个）。 */
+    /** Watcher for one host directory, started/stopped by subscription ref-counting (shared by multiple subscriptions). */
     private inner class DirWatch(private val dir: File) {
         private val path = dir.absolutePath
         private val subscribers: MutableSet<Subscription> =
@@ -443,7 +462,8 @@ class FileChangeHub @Inject constructor(
                 subscribers.add(sub)
                 first
             }
-            // watch 已生效时立即回调；否则排到主线程 startObserver 之后，保证 onReady 晚于 startWatching。
+            // If the watch is already active, invoke immediately; otherwise queue it after
+            // startObserver on the main thread, guaranteeing onReady follows startWatching.
             if (firstSubscriber) startObserver(onReady) else mainScope.launch { onReady?.invoke() }
         }
 
@@ -480,7 +500,9 @@ class FileChangeHub @Inject constructor(
                 created.startWatching()
                 observer = created
                 FileLogger.d(TAG, "[diag] startWatching path=$path")
-                // 必须在 startWatching 之后：此刻起 inotify 能捕获新增，补报只负责更早的存量，二者无缝衔接。
+                // Must come after startWatching: from that moment inotify catches new
+                // additions, and the back-report only covers earlier existing entries — the
+                // two join seamlessly.
                 onReady?.invoke()
             }
         }
@@ -492,7 +514,7 @@ class FileChangeHub @Inject constructor(
             val affected = synchronized(lock) {
                 subscribers.toList().also { subscribers.clear() }
             }
-            FileLogger.w(TAG, "目录观察器被系统移除: $path，订阅数=${affected.size}")
+            FileLogger.w(TAG, "Directory observer removed by the system: $path, subscribers=${affected.size}")
             for (sub in affected) sub.onWatchInvalidated(path)
         }
 

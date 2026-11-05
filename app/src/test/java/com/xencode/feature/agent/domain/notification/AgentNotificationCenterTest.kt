@@ -5,8 +5,8 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 /**
- * 通知队列的消费语义：peek 不移除、ack 只移除已确认项、drain 原子取走、多会话互不干扰。
- * 这些性质保证同一条后台通知不会既被工具结果搭车送达、又被本轮结束的兜底路径重复送达。
+ * Consumption semantics of the notification queue: peek does not remove, ack removes only the confirmed items, drain takes everything atomically, and sessions do not interfere with each other.
+ * These properties guarantee a single background notification is never delivered twice — once piggybacked on a tool result and again by the end-of-turn fallback path.
  */
 class AgentNotificationCenterTest {
 
@@ -33,7 +33,7 @@ class AgentNotificationCenterTest {
         val center = AgentNotificationCenter()
         center.enqueue("s1", task("term-1"))
         val peeked = center.peek("s1")
-        // peek 之后新到达的事件不应被这次 ack 误删
+        // Events arriving after the peek must not be wrongly removed by this ack
         center.enqueue("s1", task("term-2"))
 
         center.ack("s1", peeked.map { it.seq })

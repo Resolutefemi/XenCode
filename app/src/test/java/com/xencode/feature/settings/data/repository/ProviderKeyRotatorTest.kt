@@ -21,7 +21,7 @@ class ProviderKeyRotatorTest {
         keyCooldownMinutes: Int = 5
     ) = AIProviderConfig(
         id = id,
-        name = "测试提供商",
+        name = "test provider",
         type = ProviderType.OPENAI,
         apiKey = apiKey,
         baseUrl = "https://example.com",
@@ -33,7 +33,7 @@ class ProviderKeyRotatorTest {
         keyCooldownMinutes = keyCooldownMinutes
     )
 
-    /** 多 Key 模式：effectiveApiKeys 取 apiKeys（去空白后非空者）。 */
+    /** Multi-key mode: effectiveApiKeys takes apiKeys (those non-blank after trimming). */
     private fun multiKeyConfig(
         keys: List<String>,
         strategy: KeyRotationStrategy = KeyRotationStrategy.SEQUENTIAL,
@@ -52,7 +52,7 @@ class ProviderKeyRotatorTest {
 
     // ---------- activeKey ----------
 
-    /** 单 Key 直接返回，无需任何选择逻辑。 */
+    /** A single key is returned directly, no selection logic needed. */
     @Test
     fun activeKey_singleKey_returnsIt() {
         val rotator = ProviderKeyRotator()
@@ -60,7 +60,7 @@ class ProviderKeyRotatorTest {
         assertEquals("key-1", rotator.activeKey(config(), "session-1"))
     }
 
-    /** 没有任何可用 Key（单 Key 为空、多 Key 未配置）时返回 null。 */
+    /** Returns null when no key is usable (single key blank, multi-key unconfigured). */
     @Test
     fun activeKey_emptyKeys_returnsNull() {
         val rotator = ProviderKeyRotator()
@@ -68,7 +68,7 @@ class ProviderKeyRotatorTest {
         assertNull(rotator.activeKey(config(apiKey = ""), "session-1"))
     }
 
-    /** 顺序策略：同一会话多次调用粘住同一个 Key（服务端 prompt 缓存按 Key 隔离）。 */
+    /** Sequential strategy: repeated calls in the same session stick to the same key (server-side prompt caches are isolated per key). */
     @Test
     fun activeKey_sequential_sameSessionIsSticky() {
         val rotator = ProviderKeyRotator()
@@ -80,7 +80,7 @@ class ProviderKeyRotatorTest {
         }
     }
 
-    /** 顺序策略：不同会话都从第一个未冷却 Key 开始。 */
+    /** Sequential strategy: every new session starts from the first non-cooling key. */
     @Test
     fun activeKey_sequential_newSessionStartsFromFirst() {
         val rotator = ProviderKeyRotator()
@@ -91,7 +91,7 @@ class ProviderKeyRotatorTest {
         assertEquals("key-a", rotator.activeKey(cfg, "session-3"))
     }
 
-    /** 轮询策略：新会话轮流取起始 Key。 */
+    /** Round-robin strategy: new sessions take turns picking the starting key. */
     @Test
     fun activeKey_roundRobin_rotatesStartingKeyPerNewSession() {
         val rotator = ProviderKeyRotator()
@@ -106,7 +106,7 @@ class ProviderKeyRotatorTest {
         assertEquals("key-a", rotator.activeKey(cfg, "session-4"))
     }
 
-    /** 轮询策略下同一会话仍粘住同一个 Key，不随游标漂移。 */
+    /** Under round-robin the same session still sticks to one key; no cursor drift. */
     @Test
     fun activeKey_roundRobin_sameSessionStaysSticky() {
         val rotator = ProviderKeyRotator()
@@ -119,11 +119,11 @@ class ProviderKeyRotatorTest {
         repeat(3) {
             assertEquals(first, rotator.activeKey(cfg, "session-1"))
         }
-        // 其它会话不受影响，继续轮转
+        // Other sessions are unaffected and keep rotating
         assertEquals("key-b", rotator.activeKey(cfg, "session-2"))
     }
 
-    /** sessionId 为 null 时不建绑定：轮询策略每次调用都推进游标。 */
+    /** With a null sessionId no binding is created: round-robin advances the cursor on every call. */
     @Test
     fun activeKey_nullSession_roundRobinAdvancesEveryCall() {
         val rotator = ProviderKeyRotator()
@@ -137,35 +137,35 @@ class ProviderKeyRotatorTest {
         assertEquals("key-a", rotator.activeKey(cfg, null))
     }
 
-    /** 冷却中的 Key 不被新会话选中。 */
+    /** A key in cooldown is not picked by new sessions. */
     @Test
     fun activeKey_skipsCoolingDownKey() {
         val rotator = ProviderKeyRotator()
         val cfg = multiKeyConfig(keys = listOf("key-a", "key-b"), cooldownMinutes = 60)
 
-        // 先建立配置快照并选中 key-a，随后 key-a 连续失败达阈值进入冷却
+        // First establish the config snapshot and select key-a; then key-a fails repeatedly up to the threshold and enters cooldown
         rotator.activeKey(cfg, "session-1")
         rotator.reportFailure("provider-1", "session-1", "key-a")
         rotator.reportFailure("provider-1", "session-1", "key-a")
 
-        // 新会话不能再选冷却中的 key-a
+        // A new session must not pick the cooling key-a
         assertEquals("key-b", rotator.activeKey(cfg, "session-2"))
     }
 
     // ---------- currentKey ----------
 
-    /** currentKey 返回最近一次 activeKey 选中的 Key。 */
+    /** currentKey returns the key most recently selected by activeKey. */
     @Test
     fun currentKey_returnsLastSelectedKey() {
         val rotator = ProviderKeyRotator()
         val cfg = multiKeyConfig(keys = listOf("key-a", "key-b"))
 
-        rotator.activeKey(cfg, "session-1") // 选中 key-a
+        rotator.activeKey(cfg, "session-1") // selected key-a
 
         assertEquals("key-a", rotator.currentKey(cfg))
     }
 
-    /** currentKey 不推进轮询游标：只读调用后第一个新会话仍从原游标位置起步。 */
+    /** currentKey does not advance the round-robin cursor: after a read-only call, the first new session still starts from the original cursor position. */
     @Test
     fun currentKey_doesNotAdvanceRoundRobinCursor() {
         val rotator = ProviderKeyRotator()
@@ -174,33 +174,33 @@ class ProviderKeyRotatorTest {
             strategy = KeyRotationStrategy.ROUND_ROBIN
         )
 
-        // 只调用 currentKey（不调用 activeKey）
+        // Only currentKey calls (no activeKey)
         rotator.currentKey(cfg)
         rotator.currentKey(cfg)
 
-        // 游标未被推进，第一个新会话仍从 key-a 开始
+        // The cursor has not advanced; the first new session still starts from key-a
         assertEquals("key-a", rotator.activeKey(cfg, "session-1"))
     }
 
-    /** 冷启动（无任何历史调用）时，currentKey 返回第一个未冷却 Key。 */
+    /** On a cold start (no prior calls at all), currentKey returns the first non-cooling key. */
     @Test
     fun currentKey_noSelection_returnsFirstUsableKey() {
         val rotator = ProviderKeyRotator()
         val cfg = multiKeyConfig(keys = listOf("key-a", "key-b"))
 
-        // currentKey 不依赖 activeKey 建立的配置快照，直接可用
+        // currentKey does not depend on the config snapshot built by activeKey and works directly
         assertEquals("key-a", rotator.currentKey(cfg))
     }
 
     // ---------- reportFailure ----------
 
-    /** 失败即刻切换：不累计计数，首次上报即返回切换结果。 */
+    /** Failures switch immediately: no counting is accumulated; the first report already returns the switch result. */
     @Test
     fun reportFailure_switchesImmediately() {
         val rotator = ProviderKeyRotator()
         val cfg = multiKeyConfig(keys = listOf("key-a", "key-b"))
 
-        rotator.activeKey(cfg, "session-1") // 建立配置快照
+        rotator.activeKey(cfg, "session-1") // establish the config snapshot
 
         val switched = rotator.reportFailure("provider-1", "session-1", "key-a")
 
@@ -210,7 +210,7 @@ class ProviderKeyRotatorTest {
         assertEquals(2, switched.total)
     }
 
-    /** 失败切换后重绑会话到新 Key：同会话后续调用都用新 Key。 */
+    /** After a failure switch, the session rebinds to the new key: subsequent calls in the same session all use it. */
     @Test
     fun reportFailure_rebindsSessionToNewKey() {
         val rotator = ProviderKeyRotator()
@@ -224,11 +224,11 @@ class ProviderKeyRotatorTest {
         assertEquals("key-b", switched!!.newKey)
         assertEquals(2, switched.newIndex)
         assertEquals(2, switched.total)
-        // 会话重绑到新 Key
+        // The session is rebound to the new key
         assertEquals("key-b", rotator.activeKey(cfg, "session-1"))
     }
 
-    /** 从未建立配置快照（没调用过 activeKey）时直接返回 null。 */
+    /** Returns null when no config snapshot was ever established (activeKey never called). */
     @Test
     fun reportFailure_withoutPriorSetup_returnsNull() {
         val rotator = ProviderKeyRotator()
@@ -237,7 +237,7 @@ class ProviderKeyRotatorTest {
         assertNull(rotator.reportFailure("provider-1", "session-1", "key-a"))
     }
 
-    /** 单 Key 配置无可切换目标：返回 null。 */
+    /** A single-key config has no switch target: returns null. */
     @Test
     fun reportFailure_singleKey_returnsNull() {
         val rotator = ProviderKeyRotator()
@@ -249,7 +249,7 @@ class ProviderKeyRotatorTest {
         assertNull(rotator.reportFailure("provider-1", "session-1", "key-1"))
     }
 
-    /** 上报不属于该 provider 的 Key：返回 null。 */
+    /** Reporting a key that does not belong to this provider: returns null. */
     @Test
     fun reportFailure_unknownKey_returnsNull() {
         val rotator = ProviderKeyRotator()
@@ -260,7 +260,7 @@ class ProviderKeyRotatorTest {
         assertNull(rotator.reportFailure("provider-1", "session-1", "key-unknown"))
     }
 
-    /** 失败切换后，原 Key 进入冷却（冷却时长非零时）。 */
+    /** After a failure switch, the original key enters cooldown (when the cooldown duration is non-zero). */
     @Test
     fun reportFailure_switchAppliesCooldown() {
         val rotator = ProviderKeyRotator()
@@ -270,11 +270,11 @@ class ProviderKeyRotatorTest {
         rotator.reportFailure("provider-1", "session-1", "key-a")
         rotator.reportFailure("provider-1", "session-1", "key-a")
 
-        // key-a 冷却中，新会话不再选它
+        // key-a is cooling down; new sessions no longer pick it
         assertEquals("key-b", rotator.activeKey(cfg, "session-2"))
     }
 
-    /** 冷却时长为 0 表示不冷却：切换后原 Key 仍可被新会话选中。 */
+    /** A cooldown duration of 0 means no cooldown: after the switch, the original key can still be picked by new sessions. */
     @Test
     fun reportFailure_cooldownZero_noCooldownApplied() {
         val rotator = ProviderKeyRotator()
@@ -284,11 +284,11 @@ class ProviderKeyRotatorTest {
         rotator.reportFailure("provider-1", "s1", "key-a")
         rotator.reportFailure("provider-1", "s1", "key-a")
 
-        // 无冷却，key-a 重新可用；顺序策略下新会话从第一个未冷却 Key 开始
+        // No cooldown, key-a is usable again; under the sequential strategy a new session starts from the first non-cooling key
         assertEquals("key-a", rotator.activeKey(cfg, "s2"))
     }
 
-    /** 轮询策略下失败切换同样生效，且切换会继续推进轮询游标。 */
+    /** Under round-robin, failure switching works too, and the switch keeps advancing the round-robin cursor. */
     @Test
     fun reportFailure_roundRobin_switchesAndAdvancesCursor() {
         val rotator = ProviderKeyRotator()
@@ -297,16 +297,16 @@ class ProviderKeyRotatorTest {
             strategy = KeyRotationStrategy.ROUND_ROBIN
         )
 
-        rotator.activeKey(cfg, "s1") // key-a（游标 0→1）
+        rotator.activeKey(cfg, "s1") // key-a (cursor 0→1)
         val switched = rotator.reportFailure("provider-1", "s1", "key-a")
 
-        // 游标=1：候选 [b,c,a]，避开 key-a → key-b
+        // Cursor=1: candidates [b,c,a], skipping key-a → key-b
         assertEquals("key-b", switched!!.newKey)
-        // 游标被推进（1→2），下一个新会话从 key-c 起步
+        // The cursor advanced (1→2); the next new session starts from key-c
         assertEquals("key-c", rotator.activeKey(cfg, "s2"))
     }
 
-    /** 已试过的 Key 不再重复返回；候选全部试完时返回 null。 */
+    /** Already-tried keys are not returned again; null once every candidate has been tried. */
     @Test
     fun reportFailure_excludesTriedKeysAndReturnsNullWhenExhausted() {
         val rotator = ProviderKeyRotator()
@@ -320,23 +320,23 @@ class ProviderKeyRotatorTest {
         assertNull(switched)
     }
 
-    /** 没有可切换的候选时不冷却当前 Key，避免把最后一个可用 Key 锁死。 */
+    /** With no switchable candidate, the current key is not cooled down, avoiding locking up the last usable key. */
     @Test
     fun reportFailure_noAlternative_doesNotCoolDownCurrentKey() {
         val rotator = ProviderKeyRotator()
         val cfg = multiKeyConfig(keys = listOf("key-a", "key-b"), cooldownMinutes = 60)
 
         rotator.activeKey(cfg, "s1") // key-a
-        rotator.reportFailure("provider-1", "s1", "key-a") // 切到 key-b，key-a 冷却
+        rotator.reportFailure("provider-1", "s1", "key-a") // switch to key-b, key-a cools down
 
-        // key-b 是最后一个可用候选：返回 null 且不冷却它
+        // key-b is the last usable candidate: returns null and is not cooled down
         assertNull(rotator.reportFailure("provider-1", "s1", "key-b"))
         assertEquals("key-b", rotator.activeKey(cfg, "s2"))
     }
 
-    // ---------- 加权轮询 ----------
+    // ---------- Weighted round-robin ----------
 
-    /** 加权轮询：新会话按权重比例分配（1:3 时高权重 Key 约为低权重的三倍）。 */
+    /** Weighted round-robin: new sessions are allocated by weight ratio (with 1:3, the high-weight key gets about three times the low-weight one). */
     @Test
     fun activeKey_weightedRoundRobin_distributesByWeight() {
         val rotator = ProviderKeyRotator()
@@ -356,7 +356,7 @@ class ProviderKeyRotatorTest {
         assertEquals(30, counts["key-b"])
     }
 
-    /** 权重 ≤ 0 的 Key 不参与调度：轮询下始终不会被选中。 */
+    /** Keys with weight ≤ 0 do not join scheduling: never picked under round-robin. */
     @Test
     fun activeKey_nonPositiveWeightIsExcluded() {
         val rotator = ProviderKeyRotator()
@@ -371,7 +371,7 @@ class ProviderKeyRotatorTest {
         }
     }
 
-    /** 所有 Key 权重都 ≤ 0 时没有可调度的 Key，返回 null。 */
+    /** When every key has weight ≤ 0 there is nothing to schedule; returns null. */
     @Test
     fun activeKey_allNonPositiveWeights_returnsNull() {
         val rotator = ProviderKeyRotator()

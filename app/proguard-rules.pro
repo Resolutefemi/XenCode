@@ -101,7 +101,7 @@
 -keep class rikka.shizuku.** { *; }
 -dontwarn rikka.shizuku.**
 
-# ---- Termux terminal-emulator/view（native + JNI）----
+# ---- Termux terminal-emulator/view (native + JNI) ----
 -keep class com.termux.terminal.** { *; }
 -keep class com.termux.view.** { *; }
 
@@ -130,11 +130,11 @@
 # renders blank (debug is fine since it is not obfuscated). Keep the package's class and method names so interface devirtualization and similar optimizations cannot break it again.
 -keep class org.scilab.forge.jlatexmath.** { *; }
 
-# ---- PrismalAGSL（Liquid Glass）----
+# ---- PrismalAGSL (Liquid Glass) ----
 # Two reasons for keeping it:
 # 1) The AAR's AndroidManifest declares androidx.startup.InitializationProvider +
-#    meta-data com.styropyr0.prismal.internal.PrismalAgslInitializer。
-#    the initializer is referenced only from the manifest string; with no code reference visible, R8 removes/renames it,
+#    meta-data com.styropyr0.prismal.internal.PrismalAgslInitializer.
+#    The initializer is referenced only from the manifest string; with no code reference visible, R8 removes/renames it,
 #    and the startup-time reflective lookup by class name throws ClassNotFoundException (so AGSL shader resources never load).
 # 2) The library leans on Compose lambda-based configuration (shape/effects/specular/depth are all
 #    Function0/Function1) plus convention-driven implementations like PrismalShaderCache,

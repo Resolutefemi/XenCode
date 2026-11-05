@@ -15,17 +15,17 @@ import java.io.FileNotFoundException
 import java.util.LinkedList
 
 /**
- * SAF DocumentsProvider，把 app 私有 `filesDir` 暴露为**单一根**到系统「文件」app 及其它 app 的
- * SAF 选择器，满足「对外可见」。根下只放出两个子目录：
- * - `projects`：工作区（各项目）；
- * - `xencode`：AI 配置目录（skills/ 与 mcp.json，容器内即 `/root/.xencode`）。
+ * SAF DocumentsProvider that exposes the app-private `filesDir` as a **single root** to the system Files app and
+ * other apps' SAF pickers, satisfying the "visible to the outside world" requirement. Only two subdirectories are exposed under the root:
+ * - `projects`: workspaces (one per project);
+ * - `xencode`: the AI config directory (skills/ and mcp.json, i.e. `/root/.xencode` inside the container).
  *
- * 其余内部目录（rootfs、容器二进制、数据库、DataStore 等）刻意不在根下列出，避免对外泄露/误删。
+ * Other internal directories (rootfs, container binaries, databases, DataStore, etc.) are deliberately not listed under the root, to avoid leaking them or accidental deletion.
  *
- * 工作区物理上在 app 私有 ext4（filesDir），换取 symlink 支持（npm/pnpm/yarn/git 零配置可用）；
- * emulated 存储虽天然可见但内核拒绝 symlink。可见性这里用官方 SAF API 在 API 层补回，与物理位置解耦。
+ * Physically the workspace lives in app-private ext4 (filesDir) to gain symlink support (npm/pnpm/yarn/git work with zero config);
+ * emulated storage is naturally visible but the kernel refuses symlinks there. Visibility is restored at the API layer via the official SAF API, decoupled from the physical location.
  *
- * docId 直接用文件绝对路径（与 Termux 实现一致），简单且跨进程稳定。
+ * docIds are simply absolute file paths (same as the Termux implementation): simple and stable across processes.
  */
 class WorkspaceDocumentsProvider : DocumentsProvider() {
 
@@ -54,13 +54,14 @@ class WorkspaceDocumentsProvider : DocumentsProvider() {
         )
     }
 
-    /** 暴露的单一根：app 私有 filesDir。 */
+    /** The single exposed root: the app-private filesDir. */
     private fun baseDir(): File =
         ctx().filesDir
 
     /**
-     * 根下唯一对外可见的子目录名白名单：工作区 `projects` 与 AI 配置 `xencode`（容器内 /root/.xencode，
-     * 含 skills/ 与 mcp.json）。两者首次访问即创建，其余 filesDir 内部目录不列出。
+     * Allowlist of the only child directory names visible outside under the root: workspace `projects` and AI config `xencode`
+     * (i.e. /root/.xencode inside the container, containing skills/ and mcp.json). Both are created on first access;
+     * other internal filesDir directories are not listed.
      */
     private fun exposedChildren(): List<File> {
         ContainerInstaller.extractDocs(ctx())
@@ -70,7 +71,7 @@ class WorkspaceDocumentsProvider : DocumentsProvider() {
         )
     }
 
-    /** minSdk 26 上基类无 requireContext()，这里自取非空 context。 */
+    /** On minSdk 26 the base class lacks requireContext(); fetch a non-null context ourselves. */
     private fun ctx() =
         context ?: throw IllegalStateException("Provider context unavailable")
 
@@ -82,7 +83,7 @@ class WorkspaceDocumentsProvider : DocumentsProvider() {
         return result
     }
 
-    /** 往根游标追加一个 root：docId 用目录绝对路径，与 [docIdForFile] 一致。 */
+    /** Appends a root to the root cursor: docId is the directory's absolute path, consistent with [docIdForFile]. */
     private fun addRoot(result: MatrixCursor, dir: File, title: String) {
         result.newRow().apply {
             add(Root.COLUMN_ROOT_ID, docIdForFile(dir))
@@ -112,8 +113,8 @@ class WorkspaceDocumentsProvider : DocumentsProvider() {
     ): Cursor {
         val result = MatrixCursor(projection ?: DEFAULT_DOCUMENT_PROJECTION)
         val parent = fileForDocId(parentDocumentId)
-        // 根目录（filesDir 本身）只放出白名单子目录，隐藏 rootfs/数据库等内部目录；
-        // 其余层级照常列出全部内容。
+        // The root directory (filesDir itself) only exposes allowlisted subdirectories, hiding internal ones like rootfs/databases;
+        // all other levels list everything as usual.
         val children = if (parent.absolutePath == baseDir().absolutePath) {
             exposedChildren()
         } else {
@@ -172,14 +173,14 @@ class WorkspaceDocumentsProvider : DocumentsProvider() {
         val result = MatrixCursor(projection ?: DEFAULT_DOCUMENT_PROJECTION)
         val root = fileForDocId(rootId)
         val rootCanonical = root.canonicalPath
-        // 从根（filesDir）搜索时只下钻白名单子目录，避免扫到 rootfs 等内部目录；其余层级照常。
+        // When searching from the root (filesDir), only descend into allowlisted subdirectories to avoid scanning internal ones like rootfs; other levels behave as usual.
         val seeds = if (root.absolutePath == baseDir().absolutePath) exposedChildren() else listOf(root)
         val pending = LinkedList<File>().apply { addAll(seeds) }
         val needle = query.lowercase()
 
         while (pending.isNotEmpty() && result.count < MAX_SEARCH_RESULTS) {
             val file = pending.removeFirst()
-            // 仅在根目录内搜索，避免 symlink 指向外部导致扫到整个磁盘
+            // Search only within the root directory, so a symlink pointing outside cannot drag us into scanning the whole disk
             val insideRoot = try {
                 file.canonicalPath.startsWith(rootCanonical)
             } catch (e: Exception) {

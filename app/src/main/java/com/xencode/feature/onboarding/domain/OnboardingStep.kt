@@ -4,18 +4,18 @@ import androidx.annotation.StringRes
 import com.xencode.R
 
 /**
- * 首次启动全链路引导的完整模拟演示流程：
+ * Full simulated walkthrough of the first-launch end-to-end onboarding:
  *
- * 1. [OPEN_SIDEBAR]: 主页聚焦左上角汉堡按钮，提示打开侧边栏。
- * 2. [ENTER_SETTINGS]: 侧边栏展开状态，聚焦底部「设置」项，提示进入系统设置。
- * 3. [CONFIG_PROVIDER]: 设置页聚焦「AI 提供商」管理行，提示进入提供商列表。
- * 4. [PROVIDER_ADD]: 提供商列表聚焦顶栏「+」添加按钮，提示添加服务商。
- * 5. [PROVIDER_CONFIG_INFO]: 提供商编辑页聚焦 API Key / 配置信息输入区域。
- * 6. [PROVIDER_FETCH_MODELS]: 提供商模型标签页聚焦「拉取模型」按钮。
- * 7. [SIMULATE_FETCH_DIALOG]: 蒙版上模拟拉取模型弹窗，展示获取到的模型并引导添加。
- * 8. [OPEN_MODEL_PICKER]: 回到主页，聚焦模型选择按钮，提示打开面板。
- * 9. [SIMULATE_CHOOSE_MODEL]: 蒙版上模拟主页模型选择面板，演示选择模型。
- * 10. [SEND_MESSAGE]: 主页聚焦底部输入框，提示输入内容发送第一条消息开启对话。
+ * 1. [OPEN_SIDEBAR]: home focuses the top-left hamburger button, prompting to open the sidebar.
+ * 2. [ENTER_SETTINGS]: with the sidebar open, focuses the bottom "Settings" item, prompting to enter system settings.
+ * 3. [CONFIG_PROVIDER]: the settings page focuses the "AI providers" row, prompting to enter the provider list.
+ * 4. [PROVIDER_ADD]: the provider list focuses the top-bar "+" add button, prompting to add a provider.
+ * 5. [PROVIDER_CONFIG_INFO]: the provider edit page focuses the API Key / config info input area.
+ * 6. [PROVIDER_FETCH_MODELS]: the provider's Models tab focuses the "fetch models" button.
+ * 7. [SIMULATE_FETCH_DIALOG]: the mask simulates the fetch-models dialog, showing fetched models and guiding the user to add one.
+ * 8. [OPEN_MODEL_PICKER]: back on the home page, focuses the model picker button, prompting to open the panel.
+ * 9. [SIMULATE_CHOOSE_MODEL]: the mask simulates the home model picker panel, demonstrating model selection.
+ * 10. [SEND_MESSAGE]: home focuses the bottom input box, prompting to type and send the first message to start a conversation.
  */
 enum class OnboardingStep(
     val route: String,
@@ -73,10 +73,10 @@ enum class OnboardingStep(
         descRes = R.string.onboarding_send_message_desc
     );
 
-    /** 当前步的序号（1-based）。 */
+    /** 1-based ordinal of the current step. */
     val stepIndex: Int get() = ordinal + 1
 
-    /** 是否是最后一步。 */
+    /** Whether this is the last step. */
     val isLastStep: Boolean get() = this == entries.last()
 
     companion object {

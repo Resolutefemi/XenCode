@@ -20,7 +20,7 @@ import retrofit2.Call
 
 class AnthropicAdapterTest {
 
-    /** 捕获实际上送的请求体，并返回可配置的响应。 */
+    /** Captures the actually-sent request body and returns a configurable response. */
     private class FakeApi(var response: AnthropicMessageResponse) : AnthropicApi {
         var lastRequest: AnthropicMessageRequest? = null
 
@@ -41,7 +41,7 @@ class AnthropicAdapterTest {
             version: String,
             extraHeaders: Map<String, String>,
             request: AnthropicMessageRequest
-        ): Call<ResponseBody> = throw UnsupportedOperationException("本测试只覆盖非流式路径")
+        ): Call<ResponseBody> = throw UnsupportedOperationException("this test only covers the non-streaming path")
     }
 
     private fun response(
@@ -94,7 +94,7 @@ class AnthropicAdapterTest {
     @Test
     fun max_tokens_leaves_room_for_content_above_thinking_budget() = runTest {
         val api = FakeApi(response())
-        // 元数据上限比思考预算还小时不能直接用：max_tokens 必须大于 budget_tokens，否则服务端 400。
+        // When the metadata cap is smaller than the thinking budget it cannot be used directly: max_tokens must exceed budget_tokens, otherwise the server returns 400.
         adapter(api, maxOutput = 2048).complete(
             "sys",
             listOf(AgentMessage.UserMessage(content = "hi")),
@@ -110,18 +110,18 @@ class AnthropicAdapterTest {
         val api = FakeApi(
             response(
                 content = listOf(
-                    AnthropicContentBlock(type = "thinking", thinking = "先想想", signature = "sig-a"),
+                    AnthropicContentBlock(type = "thinking", thinking = "Think it over", signature = "sig-a"),
                     AnthropicContentBlock(type = "redacted_thinking", data = "opaque-blob"),
-                    AnthropicContentBlock(type = "thinking", thinking = "再想想", signature = "sig-b"),
-                    AnthropicContentBlock(type = "text", text = "答案")
+                    AnthropicContentBlock(type = "thinking", thinking = " once more", signature = "sig-b"),
+                    AnthropicContentBlock(type = "text", text = "the answer")
                 )
             )
         )
         val result = adapter(api).complete("sys", listOf(AgentMessage.UserMessage(content = "hi")))
 
-        assertEquals("答案", result.content)
-        // 思考文本仍拼接给 UI 展示，但回传用的快照必须保留三个原始块及其顺序。
-        assertEquals("先想想再想想", result.reasoning)
+        assertEquals("the answer", result.content)
+        // The thinking text is still concatenated for UI display, but the replay snapshot must keep the three original blocks and their order.
+        assertEquals("Think it over once more", result.reasoning)
         val snapshot = result.thinkingBlocksJson
         assertTrue(snapshot != null && snapshot.contains("opaque-blob"))
         assertEquals(
@@ -136,7 +136,7 @@ class AnthropicAdapterTest {
             response(
                 content = emptyList(),
                 stopReason = "refusal",
-                stopDetails = AnthropicStopDetails(type = "refusal", explanation = "违反使用政策"),
+                stopDetails = AnthropicStopDetails(type = "refusal", explanation = "violates the usage policy"),
                 usage = AnthropicUsage(
                     input_tokens = 10,
                     output_tokens = 0,
@@ -147,8 +147,8 @@ class AnthropicAdapterTest {
         )
         val result = adapter(api).complete("sys", listOf(AgentMessage.UserMessage(content = "hi")))
 
-        // 拒答时正文为空，只有 stop_details 里有可展示的理由。
-        assertEquals("违反使用政策", result.stopDetail)
+        // On refusal the body is empty; only stop_details carries a displayable reason.
+        assertEquals("violates the usage policy", result.stopDetail)
         assertTrue(result.isAborted)
         assertEquals(7, result.cachedInputTokens)
         assertEquals(3, result.cacheCreationTokens)
@@ -157,15 +157,15 @@ class AnthropicAdapterTest {
     @Test
     fun assistant_history_replays_thinking_snapshot_verbatim() = runTest {
         val api = FakeApi(response())
-        val snapshot = """[{"type":"thinking","thinking":"上轮思考","signature":"sig-a"},""" +
+        val snapshot = """[{"type":"thinking","thinking":"last turn's thinking","signature":"sig-a"},""" +
             """{"type":"redacted_thinking","data":"opaque-blob"}]"""
         adapter(api).complete(
             "sys",
             listOf(
                 AgentMessage.UserMessage(content = "hi"),
                 AgentMessage.AssistantMessage(
-                    content = "上轮回答",
-                    reasoning = "上轮思考",
+                    content = "last turn's answer",
+                    reasoning = "last turn's thinking",
                     signature = "sig-a",
                     thinkingBlocksJson = snapshot
                 )
@@ -185,10 +185,10 @@ class AnthropicAdapterTest {
             "sys",
             listOf(
                 AgentMessage.UserMessage(content = "hi"),
-                // 旧数据/备份恢复只有 signature，没有原生快照。
+                // Old data / restored backups have only the signature, no native snapshot.
                 AgentMessage.AssistantMessage(
-                    content = "上轮回答",
-                    reasoning = "上轮思考",
+                    content = "last turn's answer",
+                    reasoning = "last turn's thinking",
                     signature = "sig-a"
                 )
             )
@@ -196,7 +196,7 @@ class AnthropicAdapterTest {
 
         val blocks = blocksOf(api.lastRequest, "assistant")
         assertEquals(listOf("thinking", "text"), blocks.map { it.type })
-        assertEquals("上轮思考", blocks[0].thinking)
+        assertEquals("last turn's thinking", blocks[0].thinking)
         assertNull(blocks[0].data)
     }
 
@@ -207,7 +207,7 @@ class AnthropicAdapterTest {
             "sys",
             listOf(
                 AgentMessage.UserMessage(content = "hi"),
-                AgentMessage.AssistantMessage(content = "上轮回答")
+                AgentMessage.AssistantMessage(content = "last turn's answer")
             )
         )
 
@@ -223,7 +223,7 @@ class AnthropicAdapterTest {
             listOf(
                 AgentMessage.UserMessage(content = "hi"),
                 AgentMessage.AssistantMessage(
-                    content = "并行读两个文件",
+                    content = "read two files in parallel",
                     toolCalls = listOf(toolCall("c1"), toolCall("c2"))
                 ),
                 AgentMessage.ToolResultMessage(id = "c1", toolName = "readFile", result = "a"),
@@ -231,8 +231,8 @@ class AnthropicAdapterTest {
             )
         )
 
-        // 两个 tool_result 拆成两条 user 消息时，不合并连续 user 轮的网关会报
-        // "tool_use ids were found without tool_result blocks immediately after"。
+        // When two tool_results are split into two user messages, gateways that don't merge consecutive user turns report
+        // "tool_use ids were found without tool_result blocks immediately after".
         val messages = api.lastRequest!!.messages
         assertEquals(listOf("user", "assistant", "user"), messages.map { it.role })
         @Suppress("UNCHECKED_CAST")

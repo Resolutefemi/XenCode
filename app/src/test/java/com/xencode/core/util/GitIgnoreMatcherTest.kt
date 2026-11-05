@@ -4,7 +4,7 @@ import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
-/** [GitIgnoreMatcher] 的路径段匹配行为（含锚定/非锚定差异）。 */
+/** Path-segment matching behavior of [GitIgnoreMatcher] (including the anchored vs non-anchored difference). */
 class GitIgnoreMatcherTest {
 
     @Test
@@ -59,7 +59,7 @@ class GitIgnoreMatcherTest {
 
     @Test
     fun special_chars_in_pattern_are_escaped() {
-        // `.` 是正则特殊字符，必须按字面匹配
+        // `.` is a regex special character and must be matched literally
         assertTrue(GitIgnoreMatcher.matches("*.tar.gz", listOf("a.tar.gz")))
         assertFalse(GitIgnoreMatcher.matches("*.tar.gz", listOf("a.targz")))
         assertFalse(GitIgnoreMatcher.matches("*.tar.gz", listOf("a.tar.gz.bak")))

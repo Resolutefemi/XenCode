@@ -17,7 +17,7 @@ import retrofit2.Call
 
 class GeminiAdapterTest {
 
-    /** 捕获上送的请求体，并返回可配置的响应 JSON。 */
+    /** Captures the sent request body and returns a configurable response JSON. */
     private class FakeApi(var responseJson: String) : GeminiApi {
         var lastRequest: Map<*, *>? = null
         var lastUrl: String? = null
@@ -38,7 +38,7 @@ class GeminiAdapterTest {
             apiKey: String,
             extraHeaders: Map<String, String>,
             request: Any
-        ): Call<ResponseBody> = throw UnsupportedOperationException("本测试只覆盖非流式路径")
+        ): Call<ResponseBody> = throw UnsupportedOperationException("this test only covers the non-streaming path")
 
         override suspend fun createInteraction(
             url: String,
@@ -56,7 +56,7 @@ class GeminiAdapterTest {
             apiKey: String,
             extraHeaders: Map<String, String>,
             request: Any
-        ): Call<ResponseBody> = throw UnsupportedOperationException("本测试只覆盖非流式路径")
+        ): Call<ResponseBody> = throw UnsupportedOperationException("this test only covers the non-streaming path")
     }
 
     private fun textResponse(
@@ -96,7 +96,7 @@ class GeminiAdapterTest {
     @Test
     fun max_output_tokens_and_thinking_config_coexist_in_generation_config() = runTest {
         val api = FakeApi(textResponse())
-        // 两者曾各自覆盖式写 generationConfig，只会剩下后写的那个。
+        // The two used to write generationConfig overwriting each other, leaving only whichever landed last.
         adapter(api, maxOutput = 64000).complete("sys", listOf(user("hi")), reasoningEffort = "high")
 
         val config = generationConfig(api.lastRequest)
@@ -117,7 +117,7 @@ class GeminiAdapterTest {
         val api = FakeApi(textResponse(candidateTokens = 20, thoughtTokens = 30))
         val result = adapter(api).complete("sys", listOf(user("hi")))
 
-        // 思考按输出价计费，只取 candidatesTokenCount 会少算。
+        // Thinking is billed at output rates; taking only candidatesTokenCount undercounts.
         assertEquals(50, result.outputTokens)
         assertEquals(10, result.inputTokens)
     }
@@ -156,7 +156,7 @@ class GeminiAdapterTest {
         )
         val result = adapter(api).complete("sys", listOf(user("hi")))
 
-        // 都用函数名当 id 时，同名工具的并行调用会互相覆盖结果。
+        // When the function name doubles as the id, parallel calls to the same-named tool overwrite each other's results.
         assertEquals(listOf("call-1", "call-2"), result.toolCalls.map { it.id })
         assertEquals(listOf("readFile", "readFile"), result.toolCalls.map { it.name })
     }
@@ -188,7 +188,7 @@ class GeminiAdapterTest {
               "candidates": [{
                 "finishReason": "STOP",
                 "content": {"role": "model", "parts": [
-                  {"text": "答案", "thoughtSignature": "sig-a"}
+                  {"text": "the answer", "thoughtSignature": "sig-a"}
                 ]}
               }]
             }
@@ -199,21 +199,21 @@ class GeminiAdapterTest {
 
         val plain = FakeApi(textResponse())
         val unsigned = adapter(plain).complete("sys", listOf(user("hi")))
-        // 纯文本轮不需要原样回传，存快照只会让历史正文双写。
+        // Plain-text turns don't need verbatim replay; storing a snapshot would only duplicate the history body.
         assertNull(unsigned.thinkingBlocksJson)
     }
 
     @Test
     fun assistant_history_replays_parts_snapshot_verbatim() = runTest {
         val api = FakeApi(textResponse())
-        val snapshot = """[{"text":"上轮答案","thoughtSignature":"sig-a"},""" +
+        val snapshot = """[{"text":"last turn's answer","thoughtSignature":"sig-a"},""" +
             """{"functionCall":{"id":"call-1","name":"readFile","args":{"path":"a.txt"}}}]"""
         adapter(api).complete(
             "sys",
             listOf(
                 user("hi"),
                 AgentMessage.AssistantMessage(
-                    content = "上轮答案",
+                    content = "last turn's answer",
                     toolCalls = listOf(ToolCall(id = "call-1", name = "readFile", arguments = KxJsonObject(emptyMap()))),
                     thinkingBlocksJson = snapshot
                 ),
@@ -234,14 +234,14 @@ class GeminiAdapterTest {
             "sys",
             listOf(
                 user("hi"),
-                AgentMessage.AssistantMessage(content = "上轮答案")
+                AgentMessage.AssistantMessage(content = "last turn's answer")
             )
         )
 
         val model = contents(api.lastRequest).first { it["role"] == "model" }
         @Suppress("UNCHECKED_CAST")
         val parts = model["parts"] as List<Map<*, *>>
-        assertEquals("上轮答案", parts.single()["text"])
+        assertEquals("last turn's answer", parts.single()["text"])
     }
 
     @Test
@@ -278,7 +278,7 @@ class GeminiAdapterTest {
                     content = "",
                     toolCalls = listOf(ToolCall(id = "readFile", name = "readFile", arguments = KxJsonObject(emptyMap())))
                 ),
-                // 旧数据里 tool 结果的 id 就是函数名，此时不该再发 id。
+                // In old data the tool result's id is the function name; in that case no id should be sent.
                 AgentMessage.ToolResultMessage(id = "readFile", toolName = "readFile", result = "body")
             )
         )
@@ -309,7 +309,7 @@ class GeminiAdapterTest {
             )
         )
 
-        // 两个 functionResponse 拆成两轮会被网关判成 tool 结果缺失（HTTP 400）。
+        // Splitting two functionResponses into two turns makes the gateway report missing tool results (HTTP 400).
         val toolTurns = contents(api.lastRequest).filter { it["role"] == "user" }.drop(1)
         assertEquals(1, toolTurns.size)
         @Suppress("UNCHECKED_CAST")
@@ -332,7 +332,7 @@ class GeminiAdapterTest {
                     toolCalls = listOf(ToolCall(id = "call-1", name = "readFile", arguments = KxJsonObject(emptyMap())))
                 ),
                 AgentMessage.ToolResultMessage(id = "call-1", toolName = "readFile", result = "a"),
-                user("继续"),
+                user("continue"),
                 AgentMessage.AssistantMessage(
                     content = "",
                     toolCalls = listOf(ToolCall(id = "call-2", name = "readFile", arguments = KxJsonObject(emptyMap())))
@@ -348,7 +348,7 @@ class GeminiAdapterTest {
         assertEquals("call-2", (lastParts.single()["functionResponse"] as Map<*, *>)["id"])
     }
 
-    // ── Interactions API（useResponseApi = true）─────────────────────────────
+    // ── Interactions API (useResponseApi = true)─────────────────────────────
 
     private fun interactionsAdapter(api: FakeApi, maxOutput: Int? = null): GeminiAdapter =
         adapter(api, maxOutput).apply {
@@ -375,7 +375,7 @@ class GeminiAdapterTest {
         val api = FakeApi(interactionResponse())
         interactionsAdapter(api).complete("sys", listOf(user("hi")))
 
-        // 模型名在请求体里，端点不再带 `models/{model}:generateContent`
+        // The model name is in the request body; the endpoint no longer carries `models/{model}:generateContent`
         assertEquals("https://generativelanguage.googleapis.com/v1beta/interactions", api.lastUrl)
         assertEquals("gemini-1.5-flash", api.lastRequest?.get("model"))
     }
@@ -383,13 +383,13 @@ class GeminiAdapterTest {
     @Test
     fun interactions_is_stateless_with_string_system_instruction() = runTest {
         val api = FakeApi(interactionResponse())
-        interactionsAdapter(api).complete("你是助手", listOf(user("hi")))
+        interactionsAdapter(api).complete("You are an assistant", listOf(user("hi")))
 
-        // 本地 messages 才是唯一事实源，服务端状态会与上下文压缩/重新生成冲突
+        // Local messages are the single source of truth; server-side state would conflict with context compaction/regeneration
         assertEquals(false, api.lastRequest?.get("store"))
         assertFalse(api.lastRequest!!.containsKey("previous_interaction_id"))
-        // system_instruction 是顶层字符串，不再是 {role, parts} 对象
-        assertEquals("你是助手", api.lastRequest?.get("system_instruction"))
+        // system_instruction is a top-level string, no longer a {role, parts} object
+        assertEquals("You are an assistant", api.lastRequest?.get("system_instruction"))
     }
 
     @Test
@@ -400,19 +400,19 @@ class GeminiAdapterTest {
         @Suppress("UNCHECKED_CAST")
         val config = api.lastRequest?.get("generation_config") as Map<*, *>
         assertEquals(64000, config["max_output_tokens"])
-        // thinkingBudget 在 Interactions 里不存在；xhigh/max 归一到 high
+        // thinkingBudget does not exist in Interactions; xhigh/max normalize to high
         assertEquals("high", config["thinking_level"])
         assertFalse(config.containsKey("thinkingConfig"))
-        // 不显式要摘要就拿不到可展示的思考文本
+        // Without explicitly requesting summaries there is no displayable thinking text
         assertEquals("auto", config["thinking_summaries"])
-        // Interactions 的 GenerationConfig 里没有 temperature 字段
+        // Interactions' GenerationConfig has no temperature field
         assertFalse(config.containsKey("temperature"))
     }
 
     @Test
     fun interactions_omits_thinking_fields_for_non_thinking_models() = runTest {
         val api = FakeApi(interactionResponse())
-        // 不思考的模型（gemma / 图像 / 音乐）上层不会给思考强度，这两个字段一并不发
+        // Non-thinking models (gemma / image / music) get no reasoning effort from upper layers, so these two fields are omitted together
         interactionsAdapter(api, maxOutput = 8192).complete("sys", listOf(user("hi")))
 
         @Suppress("UNCHECKED_CAST")
@@ -428,7 +428,7 @@ class GeminiAdapterTest {
         val result = interactionsAdapter(api).complete("sys", listOf(user("hi")))
 
         assertEquals(10, result.inputTokens)
-        // total_output_tokens 不含思考，两者相加才是真实输出量
+        // total_output_tokens excludes thinking; the sum of both is the real output volume
         assertEquals(50, result.outputTokens)
         assertEquals(4, result.cachedInputTokens)
         assertEquals("ok", result.content)
@@ -439,7 +439,7 @@ class GeminiAdapterTest {
         val api = FakeApi(interactionResponse(status = "incomplete"))
         val result = interactionsAdapter(api).complete("sys", listOf(user("hi")))
 
-        // 撞输出上限的语义从 finishReason=MAX_TOKENS 变成 status=incomplete
+        // Hitting the output limit is now signaled by status=incomplete instead of finishReason=MAX_TOKENS
         assertTrue(result.isTruncated)
     }
 

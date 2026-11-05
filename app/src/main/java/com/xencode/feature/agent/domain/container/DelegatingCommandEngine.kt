@@ -9,14 +9,14 @@ import javax.inject.Inject
 import javax.inject.Singleton
 
 /**
- * [CommandEngine] 的委托层：同时持有本地容器、远程 SSH 与真机 ROOT 三套实现，每次方法调用时按
- * [ExecutionModeHolder.currentMode] 转发到对应实现。
+ * Delegating layer for [CommandEngine]: holds all three implementations — local container, remote SSH, and
+ * device ROOT — at once, forwarding each call to the matching one per [ExecutionModeHolder.currentMode].
  *
- * 这样 Hilt 注入时机不再影响最终行为——无论 [CommandEngine] 在何时被首次注入，
- * 真正执行命令时才读取当前模式。
+ * This removes Hilt injection timing from the equation — no matter when [CommandEngine] is first injected,
+ * the current mode is only read when a command actually executes.
  *
- * 除全局模式外，还支持调用方显式指定执行环境（[engineFor]）：全局模式是「首选项」，
- * AI 可在合适的场合（如需要容器内完整 Linux 工具链时）显式选另一个通道执行。
+ * Beyond the global mode, callers may also pick the execution environment explicitly ([engineFor]): the global mode
+ * is a "preference", and the AI can explicitly choose another channel when appropriate (e.g. when it needs the full in-container Linux toolchain).
  */
 @Singleton
 class DelegatingCommandEngine @Inject constructor(
@@ -26,7 +26,7 @@ class DelegatingCommandEngine @Inject constructor(
     private val deviceRootEngine: DeviceRootEngine
 ) : CommandEngine {
 
-    /** 显式执行环境。[AUTO] 跟随全局模式首选项。 */
+    /** Explicit execution environment. [AUTO] follows the global mode preference. */
     enum class TargetEnv { AUTO, CONTAINER, DEVICE, REMOTE }
 
     private fun delegate(): CommandEngine = when (modeHolder.currentMode()) {
@@ -36,8 +36,8 @@ class DelegatingCommandEngine @Inject constructor(
     }
 
     /**
-     * 按指定执行环境取引擎。[TargetEnv.AUTO] 等价于当前全局模式（首选项）；
-     * 其余值绕过全局模式直连对应引擎，供 AI 按场合显式切换通道用。
+     * Returns the engine for a given execution environment. [TargetEnv.AUTO] equals the current global mode (the preference);
+     * the other values bypass the global mode and connect straight to the engine, letting the AI switch channels explicitly per scenario.
      */
     fun engineFor(env: TargetEnv): CommandEngine = when (env) {
         TargetEnv.AUTO -> delegate()

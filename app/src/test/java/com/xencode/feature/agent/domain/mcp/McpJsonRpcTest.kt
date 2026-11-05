@@ -12,23 +12,23 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 /**
- * MCP JSON-RPC 2.0 报文模型的序列化语义。
+ * Serialization semantics of the MCP JSON-RPC 2.0 message models.
  *
- * 线上实际使用 StdioTransport / StreamableHttpTransport 中的 Json 配置
- * （ignoreUnknownKeys + encodeDefaults + explicitNulls=false），
- * 测试与之保持一致；默认 Json（encodeDefaults=false）的行为单独验证，
- * 确保默认值（jsonrpc="2.0"）不会被意外写出。
+ * The Json configuration actually used in production lives in StdioTransport / StreamableHttpTransport
+ * (ignoreUnknownKeys + encodeDefaults + explicitNulls=false);
+ * the tests match it. The default Json (encodeDefaults=false) behavior is verified separately,
+ * to ensure the default value (jsonrpc="2.0") is never written out unexpectedly.
  */
 class McpJsonRpcTest {
 
-    /** 与 MCP 传输层一致的线上配置。 */
+    /** Production configuration matching the MCP transport layer. */
     private val json = Json {
         ignoreUnknownKeys = true
         encodeDefaults = true
         explicitNulls = false
     }
 
-    /** kotlinx.serialization 默认配置：encodeDefaults=false。 */
+    /** kotlinx.serialization default configuration: encodeDefaults=false. */
     private val defaultJson = Json
 
     // ---- JsonRpcRequest ----
@@ -52,7 +52,7 @@ class McpJsonRpcTest {
 
         val encoded = json.encodeToString(request)
 
-        assertTrue("线上配置应写出 jsonrpc 默认值", encoded.contains("\"jsonrpc\":\"2.0\""))
+        assertTrue("the production configuration should write the jsonrpc default value", encoded.contains("\"jsonrpc\":\"2.0\""))
     }
 
     @Test
@@ -61,7 +61,7 @@ class McpJsonRpcTest {
 
         val encoded = defaultJson.encodeToString(request)
 
-        assertFalse("默认 Json 不应写出默认值", encoded.contains("jsonrpc"))
+        assertFalse("default Json must not write default values", encoded.contains("jsonrpc"))
     }
 
     @Test
@@ -75,7 +75,7 @@ class McpJsonRpcTest {
     fun request_nullParams_omittedAndDecodesToNull() {
         val encoded = json.encodeToString(JsonRpcRequest(id = 1, method = "ping"))
 
-        assertFalse("explicitNulls=false 时不写 params 键", encoded.contains("params"))
+        assertFalse("with explicitNulls=false the params key is not written", encoded.contains("params"))
         assertNull(json.decodeFromString<JsonRpcRequest>(encoded).params)
     }
 
@@ -85,8 +85,8 @@ class McpJsonRpcTest {
     fun notification_hasNoId_andOptionalParams() {
         val encoded = json.encodeToString(JsonRpcNotification(method = "notifications/initialized"))
 
-        assertFalse("通知没有 id", encoded.contains("\"id\""))
-        assertFalse("params 为空时不写出", encoded.contains("params"))
+        assertFalse("notifications carry no id", encoded.contains("\"id\""))
+        assertFalse("params is not written when null", encoded.contains("params"))
 
         val decoded = json.decodeFromString<JsonRpcNotification>(
             """{"method":"notifications/cancelled","params":{"requestId":5}}"""
@@ -101,8 +101,8 @@ class McpJsonRpcTest {
     }
 
     // ---- JsonRpcResponse ----
-    // data class 本身不校验 result/error 互斥，互斥体现在序列化层：
-    // explicitNulls=false 时，未设置的一侧不写出；解码时两侧独立还原。
+    // The data class itself does not enforce the result/error mutual exclusion; it shows up at the serialization layer:
+    // with explicitNulls=false the unset side is not written out; on decode both sides are restored independently.
 
     @Test
     fun response_resultOnly_omitsError() {
@@ -114,7 +114,7 @@ class McpJsonRpcTest {
         val encoded = json.encodeToString(response)
 
         assertTrue(encoded.contains("\"result\""))
-        assertFalse("error 为空时不写出", encoded.contains("\"error\""))
+        assertFalse("error is not written when null", encoded.contains("\"error\""))
 
         val decoded = json.decodeFromString<JsonRpcResponse>(encoded)
         assertEquals(response, decoded)
@@ -131,7 +131,7 @@ class McpJsonRpcTest {
         val encoded = json.encodeToString(response)
 
         assertTrue(encoded.contains("\"error\""))
-        assertFalse("result 为空时不写出", encoded.contains("\"result\""))
+        assertFalse("result is not written when null", encoded.contains("\"result\""))
 
         val decoded = json.decodeFromString<JsonRpcResponse>(encoded)
         assertEquals(response, decoded)
@@ -176,24 +176,24 @@ class McpJsonRpcTest {
     fun toolDescriptor_serialName_isInputSchema() {
         val tool = McpToolDescriptor(
             name = "read_file",
-            description = "读取文件",
+            description = "read file",
             inputSchema = JsonObject(mapOf("type" to JsonPrimitive("object")))
         )
 
         val encoded = json.encodeToString(tool)
 
-        assertTrue("字段名必须是 inputSchema（snake_case 约定）", encoded.contains("\"inputSchema\""))
+        assertTrue("the field name must be inputSchema (not the snake_case variant)", encoded.contains("\"inputSchema\""))
         assertFalse(encoded.contains("input_schema"))
 
         val decoded = json.decodeFromString<McpToolDescriptor>(
-            """{"name":"read_file","description":"读取文件","inputSchema":{"type":"object"}}"""
+            """{"name":"read_file","description":"read file","inputSchema":{"type":"object"}}"""
         )
         assertEquals(tool, decoded)
     }
 
     @Test
     fun toolDescriptor_wrongKeyName_isNotBound() {
-        // 只有 @SerialName("inputSchema") 命中的键才会绑定，input_schema 不会
+        // Only the key matched by @SerialName("inputSchema") gets bound; input_schema does not
         val decoded = json.decodeFromString<McpToolDescriptor>(
             """{"name":"read_file","input_schema":{"type":"object"}}"""
         )
@@ -233,7 +233,7 @@ class McpJsonRpcTest {
     fun toolsListResult_defaultEmptyList_writtenWithEncodeDefaults() {
         val encoded = json.encodeToString(McpToolsListResult())
 
-        assertTrue("encodeDefaults=true 时应写出默认空列表", encoded.contains("\"tools\":[]"))
-        assertFalse("nextCursor 为 null 时不写出", encoded.contains("nextCursor"))
+        assertTrue("with encodeDefaults=true the default empty list is written", encoded.contains("\"tools\":[]"))
+        assertFalse("nextCursor is not written when null", encoded.contains("nextCursor"))
     }
 }

@@ -1,23 +1,23 @@
 #!/bin/sh
-# XenCode 容器环境公共库：包管理器探测、包名映射、版本探测、镜像换源、场景定义与安装。
+# XenCode container environment shared library: package manager detection, package name mapping, version detection, mirror switching, scenario definitions and installs.
 #
-# 由容器环境脚本 provision.sh source——它的两个入口（首次进入终端的初始化菜单、`xencode` 命令
-# 打开的环境安装菜单）共用本库。逻辑集中在此，改一处两个入口同时生效。若改动了包清单/安装逻辑
-# 且需存量设备重跑初始化，另需同步 LinuxContainerEngine.PROVISION_VERSION。
+# Sourced by the container environment script provision.sh — its two entry points (the first-run initialization menu,
+# and the environment setup menu opened by the `xencode` command) share this library. Logic is centralized here; one change
+# takes effect in both entries. If package lists / install logic change and existing devices must re-run initialization, also bump LinuxContainerEngine.PROVISION_VERSION.
 
-# 公共库目录：用于定位 android-sdk.sh 与 scenarios/。由 provision.sh 在 source 前设置 SELF_DIR 后传入；
-# 单独 source 时回退到 ~/.xencode/lib。
+# Shared library directory: used to locate android-sdk.sh and scenarios/. provision.sh sets SELF_DIR before sourcing and passes it in;
+# when sourced standalone, falls back to ~/.xencode/lib.
 : "${AICODE_LIB_DIR:=${HOME:-/root}/.xencode/lib}"
 
-# 多镜像候选（按优先级排序，换源时自动探测跳过不可用；阿里云对服务器访问全量 403 放最后，探测会跳过）
+# Mirror candidates (priority-ordered; mirror switching auto-probes and skips unavailable ones; Aliyun is last since it 403s all server access, and probing skips it)
 MIRRORS="mirrors.huaweicloud.com mirrors.tuna.tsinghua.edu.cn mirrors.ustc.edu.cn mirrors.cloud.tencent.com mirrors.aliyun.com"
 MIRROR=""
-# 基础工具（不参与自定义勾选，始终安装）：git/ripgrep 是 AI 工作流与版本管理基础，bash/curl 是通用依赖
+# Base tools (not part of custom selection, always installed): git/ripgrep underpin AI workflows and version control; bash/curl are general dependencies
 BASE_PKGS="bash curl ripgrep git"
 
-# ── 诊断日志：写入宿主可见的 $HOME/.xencode/provision.log（容器内 /root/.xencode 绑定到 App 私有目录）。
-# 终端 PTY 起不来或卡住时，App 侧「容器诊断」会把本文件尾部一并打进日志，用于判断脚本执行到了哪一步、
-# 菜单有没有弹出来。超过 256KB 只保留尾部 64KB，避免每次进终端追加一行而无限增长。全部静默失败，不阻塞初始化。
+# -- Diagnostic log: written to $HOME/.xencode/provision.log, visible on the host (/root/.xencode inside the container is bound to the app private dir).
+# When the terminal PTY fails to start or hangs, the app-side "container diagnostics" appends the tail of this file to the log, to tell which step
+# the script reached and whether the menu ever appeared. Over 256KB, keep only the last 64KB so it cannot grow unbounded from one appended line per terminal entry. All failures are silent and never block initialization.
 LOG_FILE="$HOME/.xencode/provision.log"
 plog() {
     [ -n "$HOME" ] || return 0
@@ -29,7 +29,7 @@ plog() {
     return 0
 }
 
-# ── 终端菜单配色 ──
+# -- Terminal menu colors --
 C_BOLD=$(printf '\033[1m')
 C_CYAN=$(printf '\033[36m')
 C_YELLOW=$(printf '\033[33m')
@@ -38,7 +38,7 @@ C_RED=$(printf '\033[31m')
 C_DIM=$(printf '\033[2m')
 C_RESET=$(printf '\033[0m')
 
-# ── 包管理器探测：菜单前执行一次，供安装/清单共用 ──
+# -- Package manager detection: run once before the menu, shared by install/plan --
 detect_pmgr() {
     if command -v apk >/dev/null 2>&1; then
         PMGR=apk
@@ -55,7 +55,7 @@ detect_pmgr() {
     fi
 }
 
-# ── 按包管理器安装一批包 ──
+# -- Install a batch of packages with the current package manager --
 pkg_add() {
     case "$PMGR" in
         apk)
@@ -77,7 +77,7 @@ pkg_add() {
     esac
 }
 
-# ── apt 下探测可用的 openjdk 包名（trixie 只有 21/25 无 17，bookworm 默认 17；LTS 21 优先）──
+# -- Detect the available openjdk package name under apt (trixie has only 21/25, no 17; bookworm defaults to 17; prefer LTS 21) --
 apt_java_headless() {
     for p in openjdk-21-jdk-headless openjdk-17-jdk-headless; do
         if apt-cache policy "$p" 2>/dev/null | grep -q '^  Candidate: [0-9]'; then
@@ -88,7 +88,7 @@ apt_java_headless() {
     echo "openjdk-17-jdk-headless"
 }
 
-# ── 运行时 → 当前包管理器下的包名映射（自定义安装清单与安装共用）──
+# -- Runtime -> package name mapping under the current package manager (shared by the custom install plan and the install itself) --
 runtime_pkgs() {
     case "$PMGR:$1" in
         apk:node)    echo "nodejs npm" ;;
@@ -119,14 +119,14 @@ runtime_pkgs() {
     esac
 }
 
-# ── 列出某包在仓库中的可用版本（每行一个，最新在前；保留完整版本串供安装固定；失败返回空）──
+# -- List a package's available repo versions (one per line, newest first; keeps the full version string for pinning; empty on failure) --
 pkg_versions() {
     pkg="$1"
     case "$PMGR" in
-        # apk search -v 输出为「包名-版本 - 描述…」且 -e 会命中 provides 相似包（如 nodejs-current），
-        # 用「包名-数字」过滤只取真实包行，再取第一列版本；多源/多仓库行按版本序（最新在前）去重
+        # apk search -v output is "package-version - description..." and -e also matches provides-like packages (e.g. nodejs-current),
+        # so filter with "package-digit" to keep only real package rows, then take the first column as the version; multi-source/multi-repo rows are deduped by version order (newest first)
         apk) apk search -e -v "$pkg" 2>/dev/null | grep -E "^$pkg-[0-9]" | sed -n "s/^$pkg-//p" | awk '{print $1}' | sort -Vu -r ;;
-        # madison 无表头，首行即数据；多个源/仓库会有多行，按版本序（最新在前）去重
+        # madison has no header, the first row is data; multiple sources/repos produce multiple rows, deduped by version order (newest first)
         apt) apt-cache madison "$pkg" 2>/dev/null | awk -F'|' '{gsub(/^ +| +$/, "", $2); print $2}' | sort -Vu -r ;;
         dnf) dnf list available --showduplicates "$pkg" 2>/dev/null | awk 'NR>2 {print $2}' | sort -Vu -r ;;
         yum) yum list available "$pkg" 2>/dev/null | awk 'NR>2 {print $2}' | sort -Vu -r ;;
@@ -134,10 +134,10 @@ pkg_versions() {
     esac
 }
 
-# ── 候选主版本包探测：java/php 不锁死单一版本，列出仓库真实可用的主版本包（最新在前）；其余运行时单包 ──
+# -- Major-version package candidates: java/php are not locked to one version, list the major-version packages actually in the repo (newest first); other runtimes are single packages --
 runtime_candidates() {
     case "$PMGR:$1" in
-        # apk search 输出「包名-版本」，不能直接用；改为已知候选列表 + 精确存在性验证，输出纯包名
+        # apk search outputs "package-version" which cannot be used directly; instead use a known candidate list + exact existence checks, outputting plain package names
         apk:java)
             for p in openjdk25-jdk openjdk21-jdk openjdk17-jdk openjdk11-jdk openjdk8-jdk; do
                 [ -n "$(pkg_versions "$p" | head -1)" ] && echo "$p"
@@ -170,12 +170,12 @@ runtime_candidates() {
     esac
 }
 
-# ── 运行时主包版本号（显示用，取默认候选，去掉 apk 的 -rN 后缀）──
+# -- Runtime primary package version (display only; default candidate, minus apk's -rN suffix) --
 runtime_ver() {
     pkg_versions "$(runtime_candidates "$1" | head -1)" | head -1 | sed 's/-r[0-9]*$//'
 }
 
-# ── 更新软件包索引（版本探测与安装的前置步骤）──
+# -- Refresh package indexes (prerequisite for version detection and install) --
 pkg_update() {
     case "$PMGR" in
         apk) apk update ;;
@@ -186,7 +186,7 @@ pkg_update() {
     esac
 }
 
-# ── 候选主版本选择：列出可用主版本包（纯包名），单选一个序号（回车/非法输入回退第 1 个）；结果写 $PICKED_PKG ──
+# -- Major-version selection: list available major-version packages (plain names), pick one by number (Enter/invalid input falls back to the first); the result is written to $PICKED_PKG --
 pick_candidate() {
     PICKED_PKG=""
     cands=$(runtime_candidates "$1")
@@ -205,7 +205,7 @@ pick_candidate() {
     [ -z "$PICKED_PKG" ] && PICKED_PKG=$(echo "$cands" | head -1)
 }
 
-# ── 运行时主包名（自定义安装优先用所选候选包，未选回退默认候选）──
+# -- Runtime primary package name (custom install prefers the chosen candidate; falls back to the default candidate when unset) --
 pkg_for() {
     case "$1" in
         node)   [ -n "$node_pkg" ] && echo "$node_pkg" || runtime_candidates node | head -1 ;;
@@ -217,12 +217,12 @@ pkg_for() {
     esac
 }
 
-# ── 运行时已选主包版本号（显示用）──
+# -- Version of the selected runtime primary package (display only) --
 ver_for() {
     pkg_versions "$(pkg_for "$1")" | head -1 | sed 's/-r[0-9]*$//'
 }
 
-# ── 运行时安装包列表（所选候选主包 + 附属包）──
+# -- Runtime install package list (chosen primary package + companion packages) --
 runtime_install() {
     rest=$(runtime_pkgs "$1" | awk '{$1=""; sub(/^ /, ""); print}')
     if [ -n "$rest" ]; then
@@ -232,7 +232,7 @@ runtime_install() {
     fi
 }
 
-# ── 安装清单一行：名称 → 包列表（v版本，探测得到时；显示去掉 apk 的 -rN 后缀）──
+# -- One install-plan line: name -> package list (v version when detected; apk's -rN suffix stripped for display) --
 plan_line() {
     line="    · $1 → $2"
     if [ -n "$3" ]; then
@@ -242,7 +242,7 @@ plan_line() {
     echo "$line"
 }
 
-# ── y/N 询问：$1 提示语，$2 默认值（y/n），$3 版本号（可选）；回答 y 返回 0，n 返回 1 ──
+# -- y/N prompt: $1 prompt text, $2 default (y/n), $3 optional version; y returns 0, n returns 1 --
 ask_yn() {
     def="$2"
     while :; do
@@ -261,7 +261,7 @@ ask_yn() {
     done
 }
 
-# ── 列出安装清单并确认：$1 为空格分隔的运行时列表（可为空）；输入 y 返回 0，其余返回 1 ──
+# -- Show the install plan and confirm: $1 is a space-separated runtime list (may be empty); y returns 0, anything else returns 1 --
 show_plan() {
     echo ""
     echo "══════════════ Install plan ══════════════"
@@ -288,7 +288,7 @@ show_plan() {
     [ "$ans" = "y" ] || [ "$ans" = "Y" ]
 }
 
-# ── 换源交互：列出镜像候选供单选（1=自动探测，中间=指定镜像，最后=不换源），选定后执行换源 ──
+# -- Mirror selection UI: list mirror candidates for a single pick (1=auto-detect, middle=specific mirror, last=keep default), then switch to the chosen one --
 ask_mirror() {
     echo ""
     echo "Choose a software mirror:"
@@ -317,8 +317,8 @@ ask_mirror() {
     setup_mirror
 }
 
-# ── 自定义安装：逐项勾选运行时，基础工具始终安装，清单确认后执行 ──
-# 返回：0=完成 1=安装失败 2=用户取消（未确认清单）
+# -- Custom install: pick runtimes item by item, base tools always installed, executes after plan confirmation --
+# Returns: 0=done 1=install failed 2=user cancelled (plan not confirmed)
 install_custom() {
     echo ""
     echo "Custom install will add base tools ($BASE_PKGS) plus the runtimes you pick."
@@ -380,7 +380,7 @@ install_custom() {
     return 0
 }
 
-# ── 探测单个 URL 的 http 状态码（curl 优先，wget 兑底，无法探测返回 000）──
+# -- Probe one URL's HTTP status code (curl preferred, wget fallback, 000 when probing is impossible) --
 http_code() {
     if command -v curl >/dev/null 2>&1; then
         curl -s -o /dev/null --max-time 8 -w '%{http_code}' "$1" 2>/dev/null || echo "000"
@@ -391,9 +391,9 @@ http_code() {
     fi
 }
 
-# ── 探测镜像站 $1 对当前容器是否可用：按包管理器选真实内容路径；
-#    apk 要求 http 直连 2xx（3xx 会跳 https，minirootfs 无 CA 证书不可用）；
-#    apt 接受 2xx/3xx（apt 可跟随 https 重定向）；dnf/pacman 有响应即可用 ──
+# -- Probe whether mirror site $1 is usable from this container: picks a real content path per package manager;
+#    apk requires a direct http 2xx (a 3xx redirects to https, unusable without CA certs in the minirootfs);
+#    apt accepts 2xx/3xx (apt can follow https redirects); dnf/pacman just need any response --
 probe_mirror() {
     m="$1"
     case "$PMGR" in
@@ -418,7 +418,7 @@ probe_mirror() {
     esac
 }
 
-# ── 从候选里选当前可用镜像（全部不可用则兑底第一个）──
+# -- Pick the first usable mirror from the candidates (falls back to the first one if none respond) --
 pick_mirror() {
     for m in $MIRRORS; do
         if probe_mirror "$m"; then
@@ -429,7 +429,7 @@ pick_mirror() {
     MIRROR=$(echo "$MIRRORS" | awk '{print $1}')
 }
 
-# ── 镜像源：按包管理器换国内镜像源（多候选自动探测），失败自动恢复原配置（不阻塞后续安装）──
+# -- Mirrors: switch to a China mirror per package manager (multi-candidate auto-detection); automatically restores the original config on failure (never blocks the install) --
 setup_mirror() {
     [ -z "$MIRROR" ] && pick_mirror
     if command -v apk >/dev/null 2>&1; then
@@ -447,12 +447,12 @@ setup_mirror() {
 }
 
 setup_apk_mirror() {
-    # 用 http 而非 https：minirootfs 无 ca-certificates，apk 对索引与包做独立签名校验，http 不影响完整性。
+    # Use http instead of https: the minirootfs has no ca-certificates, and apk verifies signatures on indexes and packages independently, so http does not affect integrity.
     mkdir -p /etc/apk
-    # Alpine 大版本分支从镜像自身动态读取，兼容用户导入的不同版本 Alpine 镜像：
-    # 1) 优先从现有 repositories 提取（官方源 / 已换过的源都含 `alpine/<分支>/`，edge 也能拿到）；
-    # 2) 读不到再回退到 /etc/os-release 的 VERSION_ID（如 3.21.3 → v3.21）；
-    # 3) 最后兜底 v3.21（与内置 Alpine 一致）。
+    # The Alpine major-version branch is read dynamically from the mirror itself, to support user-imported Alpine images of any version:
+    # 1) Prefer extracting from the existing repositories (official and already-switched sources both contain `alpine/<branch>/`; edge works too);
+    # 2) Fall back to VERSION_ID from /etc/os-release (e.g. 3.21.3 -> v3.21);
+    # 3) Ultimate fallback: v3.21 (matching the built-in Alpine).
     branch=""
     if [ -f /etc/apk/repositories ]; then
         branch=$(sed -n 's#.*alpine/\([^/]*\)/.*#\1#p' /etc/apk/repositories 2>/dev/null | head -1)
@@ -474,8 +474,8 @@ setup_apt_mirror() {
     . /etc/os-release 2>/dev/null
     codename="${VERSION_CODENAME:-}"
     [ -z "$codename" ] && { echo "Could not detect the apt codename; skipping mirror switch" >&2; return 1; }
-    # ARM 架构（手机常见）的 Ubuntu 包在 ubuntu-ports 仓库（对应 ports.ubuntu.com）；x86 走 ubuntu 主仓库。
-    # Debian 主仓库本身含 arm64/armhf，无需 ports。
+    # Ubuntu packages for ARM architectures (common on phones) live in the ubuntu-ports repo (ports.ubuntu.com); x86 uses the main ubuntu repo.
+    # Debian's main repo already carries arm64/armhf, no ports needed.
     arch=$(dpkg --print-architecture 2>/dev/null || uname -m)
     case "$ID" in
         ubuntu)
@@ -495,11 +495,11 @@ setup_apt_mirror() {
             ;;
         *) echo "Unsupported apt distro: $ID; skipping mirror switch" >&2; return 1 ;;
     esac
-    # keyring 存在才写 Signed-By；缺 keyring 时 apt 回退 trusted.gpg.d
+    # Only write Signed-By when the keyring exists; without it apt falls back to trusted.gpg.d
     signed_by=""
     [ -f /usr/share/keyrings/ubuntu-archive-keyring.gpg ] && signed_by="Signed-By: /usr/share/keyrings/ubuntu-archive-keyring.gpg"
     [ -f /usr/share/keyrings/debian-archive-keyring.gpg ] && signed_by="Signed-By: /usr/share/keyrings/debian-archive-keyring.gpg"
-    # 备份并清空旧源（sources.list 与 sources.list.d 两种格式一并处理）
+    # Back up and clear the old sources (handles both sources.list and sources.list.d layouts)
     backup_dir=/etc/apt/mirror-backup
     rm -rf "$backup_dir" && mkdir -p "$backup_dir"
     [ -f /etc/apt/sources.list ] && cp /etc/apt/sources.list "$backup_dir/" 2>/dev/null
@@ -523,7 +523,7 @@ setup_apt_mirror() {
             [ -n "$signed_by" ] && echo "$signed_by"
         } > /etc/apt/sources.list.d/xencode-mirror-security.sources
     fi
-    # 验证：update 失败输出原因并恢复原配置
+    # Verify: if update fails, print the reason and restore the original config
     if ! apt-get update -y; then
         echo "apt update failed after switching mirrors; restored the original sources" >&2
         rm -rf /etc/apt/sources.list.d
@@ -537,7 +537,7 @@ setup_apt_mirror() {
 }
 
 setup_dnf_mirror() {
-    # Fedora：备份原 repo，写华为云 baseurl（国内 metalink 不可用，直接覆写 repo 文件）
+    # Fedora: back up the original repo and write the Huawei Cloud baseurl (metalink is unreachable in China, so overwrite the repo files directly)
     backup_dir=/etc/yum.repos.d/mirror-backup
     rm -rf "$backup_dir" && mkdir -p "$backup_dir"
     cp -a /etc/yum.repos.d/ "$backup_dir/" 2>/dev/null
@@ -583,56 +583,56 @@ EOF
 }
 
 git_config() {
-    # git 未安装（手动安装/退出路径）时跳过凭据配置
+    # Skip credential setup when git is not installed (manual install / exit paths)
     command -v git >/dev/null 2>&1 || return 0
-    # 凭据注入最小化：只对工作区根目录（$HOME/workspace/）下的仓库生效——
-    # credential.helper 写进 gitconfig.credential，经 includeIf 按目录条件加载，
-    # 容器内其它目录的 git 仓库不会被注入（xencode 自定义 helper 解码凭据文件命中秒过，未命中时经文件 IPC 弹窗回填）。
-    # 用 $HOME 而非写死 /root：容器 home 由环境决定，保持一致（App 侧 GIT_CONFIG_GLOBAL 同指向 $HOME/.xencode/.gitconfig）。
+    # Minimized credential injection: applies only to repositories under the workspace root ($HOME/workspace/) —
+    # credential.helper is written into gitconfig.credential and loaded conditionally per directory via includeIf,
+    # so git repositories elsewhere in the container get nothing injected (the custom xencode helper decodes the credential file and passes instantly on a hit; on a miss it pops a dialog via file IPC).
+    # Use $HOME instead of hard-coding /root: the container home depends on the environment, keep them consistent (the app side points GIT_CONFIG_GLOBAL at $HOME/.xencode/.gitconfig too).
     AICODE_DIR="$HOME/.xencode"
     mkdir -p "$AICODE_DIR"
     cat > "$AICODE_DIR/gitconfig.credential" <<EOF
 [credential]
     helper = $AICODE_DIR/git-credential-xencode
 EOF
-    # 先清旧的 includeIf 段（幂等），再写限定工作区根的 includeIf。
-    # 段名必须带 subsection：真实段是 [includeIf "gitdir:…"]，只写 `--remove-section includeIf`
-    # 匹配不到它、报 fatal 后被 2>/dev/null 吞掉，于是每跑一次初始化就 --add 累加一条重复 path。
+    # Clear the old includeIf section first (idempotent), then write the workspace-root-scoped includeIf.
+    # The section name must carry a subsection: the real section is [includeIf "gitdir:..."], so a bare `--remove-section includeIf`
+    # does not match it; the fatal error gets swallowed by 2>/dev/null, and every initialization run would --add another duplicate path.
     git config --global --remove-section "includeIf.gitdir:$HOME/workspace/" 2>/dev/null || true
     git config --global --add includeIf."gitdir:$HOME/workspace/".path "$AICODE_DIR/gitconfig.credential"
-    # 清掉全局顶层 [credential] 段：helper 只应经上面的 includeIf 按目录加载，
-    # 写在顶层会对容器内所有仓库生效，破坏「只注入工作区根下」的最小化设计。
+    # Remove the global top-level [credential] section: the helper should only load per directory via the includeIf above;
+    # at top level it would apply to every repository in the container, breaking the "inject only under the workspace root" minimization.
     git config --global --remove-section credential 2>/dev/null || true
-    # 默认新仓库初始分支统一为 main（现代平台如 GitHub / GitLab 标准，避免 master 导致的错位）
+    # Default the initial branch of new repositories to main (the standard on modern platforms like GitHub / GitLab, avoiding master mismatches)
     git config --global init.defaultBranch main
 }
 
-# ── 场景框架 ──
-# 每个开发环境一个脚本，放在 lib/scenarios/ 下，定义 scenario_name_<id> 与 install_scenario_<id>；
-# SCENARIO_IDS 决定菜单顺序。android / flutter 较重，逻辑在各自文件里（共用 lib/android-sdk.sh）。
+# -- Scenario framework --
+# One script per dev environment under lib/scenarios/, defining scenario_name_<id> and install_scenario_<id>;
+# SCENARIO_IDS controls the menu order. android / flutter are heavier and keep their logic in their own files (sharing lib/android-sdk.sh).
 SCENARIO_IDS="common python node android flutter java go rust php base"
 
-# 载入共享工具与各场景脚本（android-sdk.sh 供 android / flutter 场景共用）
+# Load the shared tools and each scenario script (android-sdk.sh is shared by the android / flutter scenarios)
 [ -f "$AICODE_LIB_DIR/android-sdk.sh" ] && . "$AICODE_LIB_DIR/android-sdk.sh"
 for f in "$AICODE_LIB_DIR/scenarios/"*.sh; do
     [ -f "$f" ] && . "$f"
 done
 
-# 场景名（未定义则回退 id）
+# Scenario name (falls back to the id when undefined)
 scenario_name() {
     fn="scenario_name_$1"
     if command -v "$fn" >/dev/null 2>&1; then "$fn"; else echo "$1"; fi
 }
 
-# 场景安装分发
+# Scenario install dispatch
 install_scenario() {
     fn="install_scenario_$1"
     if command -v "$fn" >/dev/null 2>&1; then "$fn"; else echo "${C_RED}Unknown scenario: $1${C_RESET}"; return 1; fi
 }
 
-# ── 轻场景安装器（供轻量场景调用）：换源 → 更新索引 → 列出清单确认 → 装包。
-#    取运行时默认最新主版本；需指定主版本请走「自定义安装」。
-#    返回：0=完成 1=安装失败 2=用户取消（未确认清单）
+# -- Light-scenario installer (for lightweight scenarios): switch mirrors -> refresh indexes -> show plan for confirmation -> install packages.
+#    Takes the runtime's default latest major version; to pick a specific major version use "Custom install".
+#    Returns: 0=done 1=install failed 2=user cancelled (plan not confirmed)
 install_light_runtimes() {
     runtimes="$1"
     ask_mirror

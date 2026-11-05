@@ -1,49 +1,49 @@
-# 网络代理
+# Network Proxy
 
-::: tip 版本说明
-网络代理从 1.11.0 起提供。
+::: tip Version note
+Network proxy is available since 1.11.0.
 :::
 
-「设置 → 运行环境 → 网络代理」配置全局代理，让 App 的所有网络请求（AI 对话、MCP、模型列表、检查更新、镜像下载、网页搜索）以及容器内的命令（`curl`、`git`、`npm`、`pip` 等）统一走代理。
+"Settings → Runtime → Network Proxy" configures a global proxy so that all of the app's network requests (AI chat, MCP, model lists, update checks, image downloads, web search) and commands inside the container (`curl`, `git`, `npm`, `pip`, etc.) all go through the proxy.
 
-## 代理设置
+## Proxy settings
 
-- **启用代理**：总开关，关掉后所有请求恢复直连。
-- **类型**：点击从底部弹窗选 HTTP 或 SOCKS5。
-  - **HTTP**：经 CONNECT 隧道转发，可代理全部 http/https 流量。本地 Clash 的 `127.0.0.1:7890` 就是这一类。
-  - **SOCKS5**：TCP 级转发（Clash 通常是 `7891` 端口）。注意容器内的 npm 和 pip 对 SOCKS5 支持有限。
-- **服务器地址 / 端口**：代理地址。
-- **认证**（可选）：代理需要用户名密码时填。本地无认证的代理（如 Clash）无需配置。
-- **不走代理的地址**：逗号分隔，命中的直连。支持主机名、通配符 `*`、子域 `*.example.com`、`host:port` 以及 CIDR 网段。默认值已经包含了 localhost 和常见内网段。
+- **Enable proxy**: the master switch; turn it off and all requests go direct again.
+- **Type**: tap to choose HTTP or SOCKS5 from a bottom sheet.
+  - **HTTP**: forwarded through a CONNECT tunnel; can proxy all http/https traffic. A local Clash at `127.0.0.1:7890` is this kind.
+  - **SOCKS5**: TCP-level forwarding (Clash usually on port `7891`). Note that npm and pip inside the container have limited SOCKS5 support.
+- **Server address / port**: the proxy address.
+- **Authentication** (optional): fill in when the proxy needs a username and password. Local proxies without auth (like Clash) need nothing here.
+- **Addresses that bypass the proxy**: comma-separated; matched entries connect directly. Supports hostnames, the wildcard `*`, sub-domains like `*.example.com`, `host:port`, and CIDR ranges. The default already covers localhost and common intranet ranges.
 
-填完整之后下方会出现**连通性测试**卡片：
+Once fully filled in, a **connectivity test** card appears below:
 
-- **测试地址**：默认 `https://www.google.com`，可以改成任意目标。
-- **测试代理**：经当前代理向该地址发一次请求，确认代理真的能用。测试不会展示出口 IP，也不向第三方服务外发你的本机 IP。
+- **Test URL**: defaults to `https://www.google.com`; change it to any target.
+- **Test proxy**: sends one request to that URL through the current proxy to confirm it really works. The test does not reveal the exit IP, nor does it send your local IP to any third-party service.
 
-## 供应商级代理
+## Vendor-level proxy
 
-单个供应商也能配专属代理。在「AI 供应商 → 编辑页 → 选项 → 网络代理」，界面和全局代理页基本一致（少了「不走代理的地址」）。
+A single vendor can also have its own dedicated proxy. Under "AI Vendors → edit page → Options → Network Proxy", the UI is nearly identical to the global proxy page (without "Addresses that bypass the proxy").
 
-开启后，这个供应商的 AI 请求走专属代理，其它请求仍走全局代理；关闭则跟随全局。改动随供应商编辑页的保存一起生效。
+When on, this vendor's AI requests go through the dedicated proxy while everything else still follows the global proxy; when off it follows the global setting. Changes take effect together with the save on the vendor edit page.
 
-匹配规则是按供应商 Base URL 的**主机加路径前缀**精确匹配，所以同一个主机上不同路径的供应商可以各配不同的代理，请求按最具体的路径前缀分派。只有当多个供应商的主机和路径完全相同（同一端点、不同 Key）时无法区分，这时最先配置的那个生效。
+Matching is exact on the **host plus path prefix** of the vendor's Base URL, so vendors on the same host but different paths can each have a different proxy, with requests dispatched by the most specific path prefix. Only when multiple vendors share an identical host and path (same endpoint, different keys) can they not be told apart — in that case the first one configured wins.
 
-适合多个供应商共用同一个网关域名但路径不同、各自需要不同出口的情况。
+Handy when several vendors share one gateway domain but sit on different paths and each needs a different exit.
 
-::: tip 容器内命令不受供应商级代理影响
-容器里的命令始终走全局代理。
+::: tip Commands inside the container ignore vendor-level proxy
+Commands in the container always use the global proxy.
 :::
 
-## 生效时机
+## When changes take effect
 
-所有修改**即时生效**，新连接立即走代理，无需重启 App。
+Every change takes effect **immediately** — new connections use the proxy right away, no app restart needed.
 
-但容器内已经启动的常驻进程不会继承新的环境变量，需要重启那个进程或整个容器。容器内的代理是通过环境变量实现的：HTTP 类型注入 `HTTP_PROXY` / `HTTPS_PROXY` / `ALL_PROXY` / `NO_PROXY`，SOCKS5 类型注入 `ALL_PROXY=socks5h://...`（走远程 DNS）。
+Long-running processes already started inside the container do not inherit the new environment variables — restart that process or the whole container. Proxying inside the container is implemented with environment variables: the HTTP type injects `HTTP_PROXY` / `HTTPS_PROXY` / `ALL_PROXY` / `NO_PROXY`, and the SOCKS5 type injects `ALL_PROXY=socks5h://...` (remote DNS).
 
-## 注意
+## Notes
 
-- 代理配置存在 App 私有目录里，不影响系统级代理设置。
-- 代理不可用（地址填错、代理没启动）时网络请求会失败，关掉「启用代理」即可恢复直连。
-- **远程 SSH 模式下服务器上的命令不经过本地代理**，需要在服务器上自行配置。
-- 不支持 HTTPS 代理（即到代理服务器本身走 TLS 的那种）。
+- Proxy configuration lives in the app's private directory and does not touch system-level proxy settings.
+- If the proxy is unavailable (wrong address, or the proxy is not running), network requests fail; turn off "Enable proxy" to restore direct connections.
+- **In remote SSH mode, commands on the server do not go through the local proxy**; configure it on the server yourself.
+- HTTPS proxies are not supported (i.e. TLS between you and the proxy server itself).

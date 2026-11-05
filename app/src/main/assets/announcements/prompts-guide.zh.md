@@ -1,7 +1,7 @@
-## 怎么用
+## How to use
 
-1. 列表里每行是一个提示词片段：前面的数字是编号，决定它在系统提示词里的顺序；右侧徽章标明这份内容来自哪一层。
-2. 同一编号只生效一份，优先级为：项目 > 全局 > 本地 > 内置。
-3. 点一行可编辑它的内容；左滑可删除该编号在可写层的覆盖，删掉后自动回退到下一层。
-4. 右上角「+」可用未占用的编号新增片段，或进入高级设置。
-5. 修改后即时生效，无需重启 App。
+1. Each row in the list is a prompt fragment: the number in front is its ID, which determines its order in the system prompt; the badge on the right shows which layer the content comes from.
+2. Only one copy per ID takes effect, with priority: project > global > local > built-in.
+3. Tap a row to edit its content; swipe left to delete the writable-layer override for that ID — once deleted, it automatically falls back to the next layer.
+4. The "+" in the top-right corner adds a fragment with an unused ID, or takes you to advanced settings.
+5. Changes take effect immediately; no app restart needed.

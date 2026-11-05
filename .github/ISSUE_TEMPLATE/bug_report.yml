@@ -1,26 +1,26 @@
-name: 🐛 Bug 报告
-description: 报告 App 使用中遇到的问题
+name: 🐛 Bug Report
+description: Report a problem you ran into while using the app
 labels: ["bug"]
 body:
   - type: markdown
     attributes:
       value: |
-        感谢反馈！请尽量填写完整，信息越全问题越快定位。
-        提交前请先搜索 [已有 issue](../../issues?q=is%3Aissue+)，避免重复。
+        Thanks for the feedback! Please fill in as much detail as you can — the more complete the information, the faster the issue can be located.
+        Before submitting, please search [existing issues](../../issues?q=is%3Aissue+) to avoid duplicates.
 
   - type: textarea
     id: description
     attributes:
-      label: 问题描述
-      description: 简要说明遇到了什么问题。
+      label: Issue description
+      description: Briefly describe what went wrong.
     validations:
       required: true
 
   - type: textarea
     id: repro
     attributes:
-      label: 复现步骤
-      description: 如何触发这个问题？例如：1. 打开设置 → 2. 点击 AI 提供商 → 3. ……
+      label: Steps to reproduce
+      description: How do you trigger the issue? E.g. 1. Open Settings → 2. Tap AI providers → 3. ...
       placeholder: |
         1.
         2.
@@ -31,55 +31,55 @@ body:
   - type: textarea
     id: expected
     attributes:
-      label: 期望行为与实际行为
-      description: 你期望发生什么，实际发生了什么。
+      label: Expected and actual behavior
+      description: What you expected to happen, and what actually happened.
     validations:
       required: true
 
   - type: input
     id: version
     attributes:
-      label: App 版本
-      description: 设置页可见，或「设置 → 关于」。形如 1.7.0 或 1.7.0-rc1。
+      label: App version
+      description: Shown on the settings page, or under Settings → About. E.g. 1.7.0 or 1.7.0-rc1.
     validations:
       required: true
 
   - type: dropdown
     id: terminal_mode
     attributes:
-      label: 终端模式
+      label: Terminal mode
       options:
-        - 本地容器（PRoot）
-        - 远程 SSH
-        - 均可复现
-        - 不涉及终端
+        - Local container (PRoot)
+        - Remote SSH
+        - Reproducible in both
+        - Terminal not involved
     validations:
       required: true
 
   - type: input
     id: device
     attributes:
-      label: 设备与系统版本
-      placeholder: 例如 Pixel 8 / Android 15，或小米 14 / HyperOS 2
+      label: Device and OS version
+      placeholder: E.g. Pixel 8 / Android 15, or Xiaomi 14 / HyperOS 2
     validations:
       required: true
 
   - type: input
     id: provider_model
     attributes:
-      label: AI 提供商与模型
-      description: 问题涉及 AI 对话时填写，例如 DeepSeek / deepseek-chat。不涉及可不填。
+      label: AI provider and model
+      description: Fill in if the issue involves AI conversations, e.g. DeepSeek / deepseek-chat. Otherwise leave it blank.
 
   - type: textarea
     id: logs
     attributes:
-      label: 日志
+      label: Logs
       description: |
-        日志位于 Android/data/<包名>/files/logs/。问题涉及崩溃或异常时请粘贴相关片段（注意脱敏 API Key）。
-        设置 → 日志 可直接查看。
+        Logs are located under Android/data/<package name>/files/logs/. If the issue involves a crash or an exception, paste the relevant excerpt (remember to redact API keys).
+        They can be viewed directly under Settings → Logs.
 
   - type: textarea
     id: screenshots
     attributes:
-      label: 截图 / 录屏
-      description: 有助于说明问题的图片或视频（拖拽上传，注意遮挡敏感信息）。
+      label: Screenshots / screen recordings
+      description: Images or videos that help explain the issue (drag and drop to upload; be careful to cover sensitive information).

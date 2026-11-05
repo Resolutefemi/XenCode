@@ -9,9 +9,9 @@ import org.junit.Assert.assertEquals
 import org.junit.Test
 
 /**
- * 验证识图会话历史（[AgentMessage] 多态 sealed class，含图片）经 JSON 落盘后能完整还原。
- * VisionSessionStore 依赖此序列化；sealed class 基类缺 @Serializable 会在运行时抛
- * "Serializer for class 'AgentMessage' is not found"，此处用与存储相同的 Json 配置做往返验证。
+ * Verifies that vision session history ([AgentMessage] polymorphic sealed class, with images) round-trips fully through JSON persistence.
+ * VisionSessionStore depends on this serialization; a sealed class base missing @Serializable throws
+ * "Serializer for class 'AgentMessage' is not found" at runtime, so this uses the same Json config as the store for a round-trip check.
  */
 class VisionSessionSerializationTest {
 
@@ -21,15 +21,15 @@ class VisionSessionSerializationTest {
     fun messageHistory_roundTripsWithImages() {
         val messages = listOf(
             AgentMessage.UserMessage(
-                content = "请对比这两张图片的差异",
+                content = "Please compare the differences between these two images",
                 images = listOf(
                     AgentImage(mimeType = "image/jpeg", base64Data = "AAAA", path = "/a.jpg"),
                     AgentImage(mimeType = "image/png", base64Data = "BBBB", path = "/b.png")
                 )
             ),
-            AgentMessage.AssistantMessage(content = "左图是 A，右图是 B，主要差异在配色。"),
-            AgentMessage.UserMessage(content = "左图右上角是什么？"),
-            AgentMessage.AssistantMessage(content = "是一个红色按钮。")
+            AgentMessage.AssistantMessage(content = "The left image is A, the right is B; the main difference is the color scheme."),
+            AgentMessage.UserMessage(content = "What is in the top-right corner of the left image?"),
+            AgentMessage.AssistantMessage(content = "It is a red button.")
         )
 
         val restored = json.decodeFromString<List<AgentMessage>>(json.encodeToString(messages))

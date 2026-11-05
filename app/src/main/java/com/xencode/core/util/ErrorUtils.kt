@@ -3,11 +3,11 @@ package com.xencode.core.util
 import java.io.IOException
 
 /**
- * 把异常转换成对用户有意义的提示文本。
+ * Converts an exception into user-meaningful hint text.
  *
- * 很多异常（如 NPE、被取消的请求）的 [Throwable.message] 为 null，
- * 直接使用会显示成 "null"。这里回退到异常类名，并向上追溯 cause 链，
- * 尽量给出可定位问题的信息。
+ * Many exceptions (e.g. NPEs, cancelled requests) have a null [Throwable.message], and using
+ * it directly would display "null". Here we fall back to the exception class name and walk
+ * up the cause chain, trying to surface something that helps locate the problem.
  */
 fun Throwable.toUserMessage(): String {
     val parts = mutableListOf<String>()

@@ -86,25 +86,25 @@ interface MemorySource {
 
     companion object {
         /**
-         * 将模型传入的记忆名归一化为安全文件名片段。
+         * Normalize a model-supplied memory name into a safe file name fragment.
          *
-         * 记忆名来自大模型工具参数（自由文本），不经处理直接拼到 "$name.md" 会引入路径穿越
-         * （如 "../x" 会写到 memoryRoot 之外）、含分隔符的非法文件名等问题。
-         * 这里只保留「字母/数字/连字符/下划线」 Unicode 字符，其余替换为 '-'，并去首尾连字符；
-         * 结果只含合法文件名字符、不含路径分隔符，且对同一输入确定性可逆，保证
-         * 「写出去的文件名 ↔ MemoryParser.parse 回读的 name」一致。
+         * Memory names come from model tool arguments (free text); concatenating them into "$name.md" unprocessed invites path traversal
+         * (e.g. "../x" would write outside memoryRoot) and illegal names containing separators.
+         * Only "letter/digit/hyphen/underscore" Unicode characters are kept; the rest become '-', and leading/trailing hyphens are trimmed.
+         * The result contains only legal file-name characters and no path separators, and is deterministic and reversible for the same input, ensuring
+         * "the written file name ↔ the name read back by MemoryParser.parse" stays consistent.
          */
         fun sanitizeName(raw: String): String {
             val cleaned = raw.map { ch ->
                 if (ch.isLetterOrDigit() || ch == '-' || ch == '_') ch else '-'
             }.joinToString("").trim('-')
-            // 全非法字符时回退一个占位名，避免空文件名
+            // All-illegal characters: fall back to a placeholder name to avoid an empty file name
             return if (cleaned.isBlank()) "memory" else cleaned
         }
 
         /**
-         * 解析 memory 名对应的磁盘文件，并校验解析后的 canonical 路径仍落在 [root] 之内，
-         * 杜绝 sanitize 漏网导致的越界写入。
+         * Resolve the on-disk file for a memory name; the resolved canonical path is guaranteed to stay inside [root],
+         * ruling out out-of-bounds writes that slip past sanitize.
          */
         fun resolveMemoryFile(root: File, name: String): File {
             val safe = sanitizeName(name)

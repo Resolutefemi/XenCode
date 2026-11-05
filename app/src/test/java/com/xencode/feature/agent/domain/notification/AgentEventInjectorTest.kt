@@ -11,8 +11,8 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 /**
- * 通知搭车注入器：合法 JSON 结果注入顶层 `notifications` 字段且仍可解析；
- * 非 JSON 结果退化为文本追加，保证不丢事件。
+ * Notification piggyback injector: valid JSON results get a top-level `notifications` field injected and stay parseable;
+ * non-JSON results fall back to text appending so no events are lost.
  */
 class AgentEventInjectorTest {
 

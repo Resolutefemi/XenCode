@@ -4,10 +4,11 @@ import org.junit.Assert.assertEquals
 import org.junit.Test
 
 /**
- * git 输出里带引号路径的还原（[unquoteGitPath]）。
+ * Restoring quoted paths from git output ([unquoteGitPath]).
  *
- * 重点是八进制转义的多字节还原：git 逐字节输出 `\344\270\255`，若逐段 `toChar()` 就会得到
- * 三个 Latin-1 字符（Git 页中文目录名乱码的成因），必须攒成字节序列后整体按 UTF-8 解码。
+ * The focus is octal-escaped multibyte restoration: git outputs byte by byte as `\344\270\255`, and converting each
+ * segment with `toChar()` yields three Latin-1 characters (the cause of garbled Chinese directory names in Git pages);
+ * the bytes must be accumulated into a sequence and decoded as a whole as UTF-8.
  */
 class GitPathUnquoteTest {
 

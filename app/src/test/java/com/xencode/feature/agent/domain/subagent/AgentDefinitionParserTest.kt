@@ -19,9 +19,9 @@ class AgentDefinitionParserTest {
     private val provider = TestFileAccessProvider()
 
     /**
-     * 解析器契约里的路径是**容器路径**（POSIX 分隔符，见 [AgentDefinitionSource] 拼的 `"$base/${entry.name}"`），
-     * 名字回退按 `/` 取 basename。Windows 上 `absolutePath` 用反斜杠，直接传进去会取不到文件名，
-     * 这里先归一化成容器路径。
+     * Paths in the parser contract are **container paths** (POSIX separators, see the `"$base/${entry.name}"` built by [AgentDefinitionSource]);
+     * the name fallback takes the basename by splitting on `/`. On Windows `absolutePath` uses backslashes, and passing it through directly fails to yield the file name,
+     * so normalize it to a container path first.
      */
     private fun parseFile(file: File): AgentDefinition? =
         AgentDefinitionParser.parse(provider, file.absolutePath.replace(File.separatorChar, '/'))
@@ -36,7 +36,7 @@ class AgentDefinitionParserTest {
             """
             ---
             name: researcher
-            description: 只读调研
+            description: read-only research
             provider: DeepSeek
             model: deepseek-reasoner
             reasoningEffort: high
@@ -45,14 +45,14 @@ class AgentDefinitionParserTest {
             disallowedTools: [Bash]
             inject: [base, projectRules]
             ---
-            你是调研专家。
+            You are a research expert.
             """.trimIndent()
         )
 
         val def = parseFile(file)!!
 
         assertEquals("researcher", def.name)
-        assertEquals("只读调研", def.description)
+        assertEquals("read-only research", def.description)
         assertEquals("DeepSeek", def.providerId)
         assertEquals("deepseek-reasoner", def.model)
         assertEquals("high", def.reasoningEffort)
@@ -60,19 +60,19 @@ class AgentDefinitionParserTest {
         assertEquals(listOf("readFile", "search"), def.allowedTools)
         assertEquals(listOf("Bash"), def.disallowedTools)
         assertEquals(setOf(InjectPart.BASE, InjectPart.PROJECT_RULES), def.inject)
-        assertEquals("你是调研专家。", def.prompt)
+        assertEquals("You are a research expert.", def.prompt)
     }
 
     @Test
     fun parse_nameFallsBackToFileName() {
-        val def = parseFile(write("coder.md", "---\ndescription: 写代码\n---\n正文"))!!
+        val def = parseFile(write("coder.md", "---\ndescription: writes code\n---\nbody"))!!
 
         assertEquals("coder", def.name)
     }
 
     @Test
     fun parse_defaultsWhenInjectOmitted() {
-        val def = parseFile(write("a.md", "---\nname: a\n---\n正文"))!!
+        val def = parseFile(write("a.md", "---\nname: a\n---\nbody"))!!
 
         assertEquals(AgentDefinition.DEFAULT_INJECT, def.inject)
         assertTrue(def.allowedTools.isEmpty())
@@ -85,15 +85,15 @@ class AgentDefinitionParserTest {
 
     @Test
     fun parse_injectNoneMeansNoInjection() {
-        val def = parseFile(write("a.md", "---\nname: a\ninject: [none]\n---\n正文"))!!
+        val def = parseFile(write("a.md", "---\nname: a\ninject: [none]\n---\nbody"))!!
 
         assertTrue(def.inject.isEmpty())
     }
 
-    /** 全部取值非法时回退默认，避免写错一个词就丢掉全部上下文。 */
+    /** Falls back to defaults when every value is invalid, so one misspelled word cannot drop all context. */
     @Test
     fun parse_invalidInjectFallsBackToDefault() {
-        val def = parseFile(write("a.md", "---\nname: a\ninject: [bogus]\n---\n正文"))!!
+        val def = parseFile(write("a.md", "---\nname: a\ninject: [bogus]\n---\nbody"))!!
 
         assertEquals(AgentDefinition.DEFAULT_INJECT, def.inject)
     }
@@ -101,7 +101,7 @@ class AgentDefinitionParserTest {
     @Test
     fun parse_toolsAcceptsCommaSeparatedString() {
         val def = parseFile(
-            write("a.md", "---\nname: a\ntools: readFile, search\n---\n正文")
+            write("a.md", "---\nname: a\ntools: readFile, search\n---\nbody")
         )!!
 
         assertEquals(listOf("readFile", "search"), def.allowedTools)
@@ -110,7 +110,7 @@ class AgentDefinitionParserTest {
     @Test
     fun parse_invalidReasoningEffortIgnored() {
         val def = parseFile(
-            write("a.md", "---\nname: a\nreasoningEffort: turbo\n---\n正文")
+            write("a.md", "---\nname: a\nreasoningEffort: turbo\n---\nbody")
         )!!
 
         assertNull(def.reasoningEffort)
@@ -124,19 +124,19 @@ class AgentDefinitionParserTest {
 
     @Test
     fun parse_noFrontmatterTreatsWholeFileAsPrompt() {
-        val def = parseFile(write("plain.md", "只有正文"))!!
+        val def = parseFile(write("plain.md", "body only"))!!
 
         assertEquals("plain", def.name)
-        assertEquals("只有正文", def.prompt)
+        assertEquals("body only", def.prompt)
     }
 
     @Test
     fun scan_onlyTopLevelMarkdownSortedByName() {
-        write("b.md", "---\nname: b\n---\n正文")
-        write("a.md", "---\nname: a\n---\n正文")
-        write("notes.txt", "不是定义")
+        write("b.md", "---\nname: b\n---\nbody")
+        write("a.md", "---\nname: a\n---\nbody")
+        write("notes.txt", "not a definition")
         File(tempFolder.root, "nested").mkdirs()
-        File(File(tempFolder.root, "nested"), "c.md").writeText("---\nname: c\n---\n正文")
+        File(File(tempFolder.root, "nested"), "c.md").writeText("---\nname: c\n---\nbody")
 
         val defs = AgentDefinitionDirectoryScanner.scan(provider, tempFolder.root.absolutePath)
 
@@ -149,14 +149,14 @@ class AgentDefinitionParserTest {
     }
 
     /**
-     * 设置页存盘走 serialize，再读回来必须与存进去的完全一致；
-     * 描述里的冒号、井号与引号是 YAML 重灾区，专门放进测数据。
+     * The settings page persists via serialize, and reading it back must match what was stored exactly;
+     * colons, hashes, and quotes in descriptions are YAML trouble spots, so they are deliberately included in the test data.
      */
     @Test
     fun serialize_roundTripsThroughParse() {
         val text = AgentDefinitionParser.serialize(
             name = "researcher",
-            description = "只读调研：先 search 定位，再 readFile 核实 #1 优先，别改文件",
+            description = "read-only research: locate with search first, then verify with readFile; #1 priority; never modify files",
             providerId = "deepseek",
             model = "deepseek-reasoner",
             reasoningEffort = "high",
@@ -164,13 +164,13 @@ class AgentDefinitionParserTest {
             allowedTools = listOf("readFile", "search"),
             disallowedTools = listOf("Bash"),
             inject = setOf(InjectPart.BASE, InjectPart.PROJECT_RULES),
-            prompt = "你是调研专家。\n\n结论要带 文件:行号 引用。"
+            prompt = "You are a research expert.\n\nConclusions must cite file:line references."
         )
 
         val def = parseFile(write("researcher.md", text))!!
 
         assertEquals("researcher", def.name)
-        assertEquals("只读调研：先 search 定位，再 readFile 核实 #1 优先，别改文件", def.description)
+        assertEquals("read-only research: locate with search first, then verify with readFile; #1 priority; never modify files", def.description)
         assertEquals("deepseek", def.providerId)
         assertEquals("deepseek-reasoner", def.model)
         assertEquals("high", def.reasoningEffort)
@@ -178,10 +178,10 @@ class AgentDefinitionParserTest {
         assertEquals(listOf("readFile", "search"), def.allowedTools)
         assertEquals(listOf("Bash"), def.disallowedTools)
         assertEquals(setOf(InjectPart.BASE, InjectPart.PROJECT_RULES), def.inject)
-        assertEquals("你是调研专家。\n\n结论要带 文件:行号 引用。", def.prompt)
+        assertEquals("You are a research expert.\n\nConclusions must cite file:line references.", def.prompt)
     }
 
-    /** 空注入集必须写成 [none]：省略会被解成默认注入项，恰好与用户的选择相反。 */
+    /** An empty inject set must serialize as [none]: omitting it would parse back as the default inject parts, exactly opposite to the user's choice. */
     @Test
     fun serialize_emptyInjectStaysEmptyAfterParse() {
         val text = AgentDefinitionParser.serialize(
@@ -193,7 +193,7 @@ class AgentDefinitionParserTest {
             allowedTools = emptyList(),
             disallowedTools = emptyList(),
             inject = emptySet(),
-            prompt = "只用自己的提示词。"
+            prompt = "Uses only its own prompt."
         )
 
         val def = parseFile(write("bare.md", text))!!

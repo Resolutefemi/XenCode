@@ -8,13 +8,13 @@ import com.xencode.feature.workspace.domain.ProjectXencodeRoot
 import java.io.File
 
 /**
- * 项目级记忆数据源。由 Repository 动态创建（依赖当前会话的 projectRoot）。
+ * Project-level memory source. Created on the fly by the Repository (depends on the session's projectRoot).
  *
- * 本地模式：存 `<projectRoot>/.xencode/memory/`（跟随工作区目录）；
- * 远程模式：projectRoot 是远程服务器路径，java.io.File 无法在本地创建该目录（保存必失败），
- * 故改存全局配置目录下 `memory/projects/<项目名>-<标识哈希>/`（本地可写、跨连接稳定）。
- * 标识哈希基于「IP:端口:路径」计算，不同服务器上的同名路径（如都叫 /home/u/workspace/default）
- * 也会落到不同目录，不会混淆。
+ * Local mode: stored under `<projectRoot>/.xencode/memory/` (travels with the workspace directory);
+ * Remote mode: projectRoot is a remote server path that java.io.File cannot create locally (saving would always fail),
+ * so memories are stored under the global config directory in `memory/projects/<project-name>-<identity-hash>/` (locally writable, stable across connections).
+ * The identity hash is derived from "IP:port:path", so same-named paths on different servers (e.g. both /home/u/workspace/default)
+ * land in different directories and never get mixed up.
  */
 class ProjectMemorySource(
     private val projectRoot: String,

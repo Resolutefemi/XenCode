@@ -2,7 +2,7 @@ package com.xencode.feature.agent.domain.mcp
 
 import kotlinx.serialization.Serializable
 
-// 远程 HTTP（含 url）或本地 stdio（含 command）两种形态，由 isStdio 推断。
+// Two shapes: remote HTTP (has url) or local stdio (has command); inferred by isStdio.
 @Serializable
 data class McpServerConfig(
     val name: String,
@@ -18,8 +18,8 @@ data class McpServerConfig(
 
     companion object {
         /**
-         * 名称会拼进 function-calling 工具名（`mcp__{名称}__{工具名}`），只允许 ASCII 字母、数字、下划线与连字符；
-         * 中文等其它 Unicode 字符不符合 provider 的工具命名规范。
+         * The name is spliced into the function-calling tool name (`mcp__{name}__{tool}`); only ASCII letters, digits, underscore, and hyphen are allowed.
+         * Other Unicode characters, such as Chinese, do not conform to providers' tool-naming rules.
          */
         private val NAME_REGEX = Regex("[a-zA-Z0-9_-]+")
 

@@ -5,7 +5,7 @@ import org.junit.Assert.assertNull
 import org.junit.Test
 
 /**
- * 服务端固定采样温度的模型 → 请求该带哪个值（[fixedTemperature]）。
+ * Models with a server-fixed sampling temperature -> which value the request should carry ([fixedTemperature]).
  */
 class FixedTemperatureTest {
 
@@ -39,7 +39,7 @@ class FixedTemperatureTest {
         assertNull(fixedTemperature("gemini-2.0-flash"))
     }
 
-    /** 表外模型不带 temperature，交由服务端默认——kimi-k3 / gpt-5 系带任何值都会 400。 */
+    /** Models outside the table send no temperature, leaving the server default — kimi-k3 / gpt-5 series return 400 for any value. */
     @Test
     fun models_outside_the_table_send_nothing() {
         assertNull(fixedTemperature("kimi-k3"))

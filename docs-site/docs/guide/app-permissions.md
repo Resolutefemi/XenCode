@@ -1,35 +1,35 @@
-# 软件权限
+# App Permissions
 
-「设置 → 软件权限」集中管理 App 需要的系统级权限。权限状态在页面恢复时（包括从系统设置页返回）自动刷新，已授权的项点击后不会有反应。
+"Settings → App Permissions" centrally manages the system-level permissions the app needs. Permission states refresh automatically when the page resumes (including returning from system settings); already-granted items do nothing when tapped.
 
-后台保活、屏幕常亮、AI 完成通知这三个开关在[后台运行](/guide/background-run)页。
+The three toggles for background keep-alive, keep screen on, and AI completion notifications live on the [Running in the Background](/guide/background-run) page.
 
-## 安装未知应用
+## Install unknown apps
 
-显示当前是否已允许。未允许时点这一行会跳到系统设置里本应用的「安装未知应用」开关页，开启后才能安装 APK。
+Shows whether it is currently allowed. If not allowed, tapping the row opens the system settings page for this app's "Install unknown apps" switch, which must be enabled before APKs can be installed.
 
-## 访问存储空间
+## Access storage
 
-显示当前是否已授权。未授权时点击会弹系统权限申请框，用于读写工作区文件与容器镜像。
+Shows whether it is currently granted. When not granted, tapping pops up the system permission dialog; it is used to read and write workspace files and container images.
 
-如果权限已被永久拒绝（系统不再弹框），会有弹窗提示，点「去设置」手动开启。
+If the permission was permanently denied (the system no longer shows the dialog), a popup explains it; tap "Go to settings" to enable it manually.
 
-## 忽略电池优化
+## Ignore battery optimizations
 
-显示当前是否已豁免。未允许时点击跳到系统的电池优化申请页，对本应用豁免省电策略，降低后台进程被杀的概率。
+Shows whether the app is currently exempt. When not exempt, tapping opens the system's battery optimization request page to exempt this app from power-saving policies, reducing the chance of the background process being killed.
 
-## 自启动管理
+## Autostart management
 
-点击跳转到你设备厂商（小米、华为、OPPO、vivo、魅族等）的自启动管理设置页，允许 App 在开机或被系统终止后自动拉起。厂商设置页打不开或匹配不到厂商时，会回退到本应用的详情页。
+Tapping jumps to your device vendor's autostart management settings (Xiaomi, Huawei, OPPO, vivo, Meizu, etc.), letting the app start itself after boot or after being terminated by the system. If the vendor page will not open or the vendor cannot be matched, it falls back to this app's details page.
 
-这一项配合「后台运行保活」和「忽略电池优化」一起使用，能进一步降低后台被终止的概率——国产 ROM 的后台限制比较激进，若长任务经常被打断，建议三项都开启。
+Combined with "Background keep-alive" and "Ignore battery optimizations", this further reduces the chance of being killed in the background — Chinese OEM ROMs are fairly aggressive about background restrictions, so if long tasks keep getting interrupted, enable all three.
 
-## Shizuku 授权
+## Shizuku authorization
 
-Shizuku 让本应用以 adb shell（uid 2000）身份执行系统命令，是 AI 的 `Shizuku` 工具的前提。这一行显示当前状态：
+Shizuku lets the app run system commands as adb shell (uid 2000) and is a prerequisite for the AI's `Shizuku` tool. The row shows the current state:
 
-- **未安装 / 服务未运行**：点击打开 Shizuku 应用，按其中的指引安装或启动服务。
-- **未授权**：点击申请授权，在 Shizuku 弹出的授权框里选「允许」。
-- **已就绪**：授权完成，AI 即可调用 `Shizuku` 工具。
+- **Not installed / service not running**: tapping opens the Shizuku app; follow its instructions to install it or start the service.
+- **Not authorized**: tapping requests authorization; choose "Allow" in the dialog Shizuku shows.
+- **Ready**: authorization is complete and the AI can call the `Shizuku` tool.
 
-从 Shizuku 应用返回本页时状态会自动刷新。用法与安全注意事项见 [Shizuku 工具](/guide/shizuku)。
+The state refreshes automatically when you return to this page from the Shizuku app. For usage and security notes see the [Shizuku tool](/guide/shizuku).

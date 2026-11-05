@@ -35,12 +35,15 @@ import androidx.compose.ui.window.DialogProperties
 import com.xencode.core.theme.Spacing
 
 /**
- * 修复 Material3 ModalBottomSheet 已知 bug（issuetracker 486562294）：
- * 内容接近全屏高度且有可滚动区域时，快速上滑 fling 到内容边界，未消费的向上速度会传给
- * sheet 的拖拽状态，导致 sheet 反复「向下拖动再弹回」振荡。
+ * Works around a known Material3 ModalBottomSheet bug (issuetracker 486562294):
+ * when the content is near full-screen height and scrollable, a fast upward fling hitting the
+ * content boundary passes the unconsumed upward velocity to the sheet's drag state, making the
+ * sheet oscillate — repeatedly "dragged down then springing back".
  *
- * 挂到可滚动内容外层：sheet 已完全展开时吞掉向上方向的剩余 fling 速度，使速度不再流向
- * sheet 的 AnchoredDraggableState；内容自身的惯性滚动不受影响（只在子滚动消费完后拦截剩余量）。
+ * Attach it to the outer layer of scrollable content: once the sheet is fully expanded it
+ * swallows the leftover upward fling velocity so it no longer reaches the sheet's
+ * AnchoredDraggableState; the content's own inertial scrolling is unaffected (the leftover
+ * amount is only intercepted after the child scroll consumes what it can).
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -57,10 +60,13 @@ fun rememberSheetFlingFix(sheetState: SheetState): NestedScrollConnection =
     }
 
 /**
- * 自适应模态底栏/弹窗：
- * - 紧凑屏幕（手机竖屏、窄分屏等，< 600dp）：呈现为标准贴底 [ModalBottomSheet]，保留下拉手势与拖拽手柄，
- *   并内置 [rememberSheetFlingFix] 杜绝快速滑动到边界时的抽搐振荡；
- * - 宽屏/平板（>= 600dp）：呈现为规范的居中模态 [Dialog]，移除拖拽手柄，限制最大宽度并居中展示。
+ * Adaptive modal bottom sheet / dialog:
+ * - Compact screens (phone portrait, narrow split-screen, etc., < 600dp): renders as a
+ *   standard bottom-anchored [ModalBottomSheet] that keeps the pull-down gesture and drag
+ *   handle, with [rememberSheetFlingFix] built in to eliminate the jittery oscillation on fast
+ *   flings to the edge;
+ * - Wide screens/tablets (>= 600dp): renders as a proper centered modal [Dialog] with the drag
+ *   handle removed, a capped max width, and centered placement.
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable

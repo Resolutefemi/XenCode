@@ -1,14 +1,20 @@
 package com.xencode.core.util
 
 /**
- * 日志媒体脱敏：落盘前把超大 base64（图片等）替换为省略标记，防止单行几 MB 撑爆日志文件。
+ * Log media redaction: replaces oversized base64 (images etc.) with an omission marker
+ * before writing to disk, so multi-MB lines can't bloat log files.
  *
- * 三层覆盖：
- * 1. `data:<mime>;base64,...` 内联 data URL（生图/截图工具结果常见）；
- * 2. 已知字段名（`data` / `base64Data` / `image_data`）下的 base64 值（Gson pretty 或 SSE compact 均命中）；
- * 3. 兜底：任意位置 ≥1024 的连续 base64 字符——不管字段叫什么都能截住，代价是超长纯字母数字文本也会被省略（罕见，可接受）。
+ * Three layers of coverage:
+ * 1. `data:<mime>;base64,...` inline data URLs (common in image-generation/screenshot tool
+ *    results);
+ * 2. base64 values under known field names (`data` / `base64Data` / `image_data`) — matches
+ *    both Gson pretty and SSE compact forms;
+ * 3. Fallback: any run of >=1024 consecutive base64 characters anywhere — caught whatever
+ *    the field is called, at the cost of also omitting rare, very long alphanumeric-only
+ *    text (acceptable).
  *
- * 阈值取 256/1024：真实图片 base64 至少几百字符，正常文本几乎不会连续 256 个 base64 字符。
+ * Thresholds are 256/1024: a real image's base64 is at least several hundred characters,
+ * while normal text almost never has 256 consecutive base64 characters.
  */
 object MediaRedactor {
 

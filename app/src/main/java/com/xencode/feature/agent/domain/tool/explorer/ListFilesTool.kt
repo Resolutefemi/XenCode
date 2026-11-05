@@ -21,10 +21,10 @@ import java.util.Locale
 import javax.inject.Inject
 
 /**
- * 以 ls 风格列出目录内容——纯只读探索工具。
+ * Lists directory contents in ls style — a purely read-only exploration tool.
  *
- * 不进容器，通过 [WorkspacePathMapper] 映射容器路径到宿主文件系统直接遍历，
- * 与 `readFile` 一致的路径解析方式。两种模式下均可使用。
+ * Does not enter the container; maps container paths to the host filesystem via [WorkspacePathMapper]
+ * and traverses directly, using the same path resolution as `readFile`. Usable in both modes.
  */
 class ListFilesTool @Inject constructor(
     private val fileAccess: FileAccessProvider
@@ -248,7 +248,7 @@ class ListFilesTool @Inject constructor(
             if (s[i].isDigit()) {
                 val start = i
                 while (i < s.length && s[i].isDigit()) i++
-                // 数字段补零到固定宽度，使字典序等价数值序；不 toInt 以避免超长数字段溢出崩溃。
+                // Zero-pad digit runs to a fixed width so lexicographic order equals numeric order; avoid toInt to prevent overflow on very long digit runs.
                 sb.append(s.substring(start, i).padStart(20, '0'))
             } else {
                 sb.append(s[i])

@@ -10,7 +10,7 @@ import java.io.File
 import java.nio.file.Files
 
 /**
- * `prompts.custom/` 片段解析规则：两位数字身份、扫描排序去重、`.no-builtin` 判定、静态基线合并。
+ * Fragment parsing rules for `prompts.custom/`: two-digit numeric identity, scan/sort/dedupe, `.no-builtin` detection, and static baseline merging.
  */
 class PromptFragmentResolverTest {
 
@@ -22,27 +22,27 @@ class PromptFragmentResolverTest {
     }
 
     @Test
-    fun parseNumber_两位数字前缀_取值() {
+    fun parseNumber_twoDigitPrefix_returnsValue() {
         assertEquals(0, PromptFragmentResolver.parseNumber("00-identity.md"))
-        assertEquals(5, PromptFragmentResolver.parseNumber("05-我的规则.md"))
+        assertEquals(5, PromptFragmentResolver.parseNumber("05-my-rules.md"))
         assertEquals(50, PromptFragmentResolver.parseNumber("50-safety.md"))
         assertEquals(99, PromptFragmentResolver.parseNumber("99-any.md"))
     }
 
     @Test
-    fun parseNumber_非两位数字前缀_返回null() {
+    fun parseNumber_nonTwoDigitPrefix_returnsNull() {
         assertNull(PromptFragmentResolver.parseNumber("notes.md"))
-        assertNull("一位数不算", PromptFragmentResolver.parseNumber("0-x.md"))
-        assertNull("四位数不算", PromptFragmentResolver.parseNumber("2024-x.md"))
-        assertNull("名称不能为空", PromptFragmentResolver.parseNumber("10-.md"))
-        assertNull("子目录不算顶层片段", PromptFragmentResolver.parseNumber("agent/title-generator.md"))
+        assertNull("single digit does not count", PromptFragmentResolver.parseNumber("0-x.md"))
+        assertNull("four digits do not count", PromptFragmentResolver.parseNumber("2024-x.md"))
+        assertNull("the name must not be empty", PromptFragmentResolver.parseNumber("10-.md"))
+        assertNull("subdirectories do not count as top-level fragments", PromptFragmentResolver.parseNumber("agent/title-generator.md"))
         assertNull(PromptFragmentResolver.parseNumber(".no-builtin"))
     }
 
     @Test
-    fun numberedFragments_按数字升序_过滤非匹配文件() {
-        File(dir, "50-安全.md").writeText("a")
-        File(dir, "05-开头.md").writeText("b")
+    fun numberedFragments_ascendingByNumber_filtersNonMatchingFiles() {
+        File(dir, "50-safety.md").writeText("a")
+        File(dir, "05-intro.md").writeText("b")
         File(dir, "notes.md").writeText("c")
         File(dir, "agent").apply { mkdirs() }
         File(dir, "agent/title-generator.md").writeText("d")
@@ -55,7 +55,7 @@ class PromptFragmentResolverTest {
     }
 
     @Test
-    fun numberedFragments_同数字_取字典序首个() {
+    fun numberedFragments_sameNumber_takesLexicographicallyFirst() {
         File(dir, "50-zzz.md").writeText("z")
         File(dir, "50-aaa.md").writeText("a")
 
@@ -66,12 +66,12 @@ class PromptFragmentResolverTest {
     }
 
     @Test
-    fun numberedFragments_目录不存在_返回空() {
+    fun numberedFragments_missingDirectory_returnsEmpty() {
         assertTrue(PromptFragmentResolver.numberedFragments(File(dir, "missing")).isEmpty())
     }
 
     @Test
-    fun isBuiltinDisabled_仅精确名命中() {
+    fun isBuiltinDisabled_matchesExactNameOnly() {
         File(dir, ".DS_Store").writeText("x")
         assertFalse(PromptFragmentResolver.isBuiltinDisabled(dir))
 

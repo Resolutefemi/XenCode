@@ -43,7 +43,7 @@ import compose.icons.feathericons.Check
 import compose.icons.feathericons.Zap
 
 /**
- * 输入区下行的模型切换图标按钮
+ * Icon button in the input bar row for switching models
  */
 @Composable
 internal fun ModelIconButton(
@@ -83,8 +83,8 @@ internal fun ModelIconButton(
 }
 
 /**
- * 思考强度选择器：独立图标按钮，点击弹出底部档位选择。
- * [availableEfforts] 由调用方按当前模型元数据生成，元数据未命中时给出全部档位。
+ * Reasoning effort selector: a standalone icon button that opens a bottom sheet of tiers on tap.
+ * [availableEfforts] is built by the caller from the current model metadata; all tiers are offered when metadata misses.
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -184,7 +184,7 @@ private fun ReasoningEffort.labelRes(): Int = when (this) {
 }
 
 /**
- * 模型选择弹窗：复用设置页默认模型的 [ModelSelectionSheet]（iOS 胶囊搜索框、提供商分组卡片、能力 Tag）。
+ * Model selection sheet: reuses the settings page default-model [ModelSelectionSheet] (iOS pill search field, provider group cards, capability tags).
  */
 @Composable
 internal fun ModelSheet(

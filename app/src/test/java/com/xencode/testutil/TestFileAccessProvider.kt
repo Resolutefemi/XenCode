@@ -10,8 +10,8 @@ import java.nio.file.FileAlreadyExistsException
 import java.nio.file.NoSuchFileException
 
 /**
- * 测试用的 [FileAccessProvider]：把传入路径直接当本地文件系统路径处理。
- * 覆盖技能/子代理目录扫描与写回、附件写入所需的能力。
+ * [FileAccessProvider] for tests: treats incoming paths directly as local file-system paths.
+ * Covers what skill/subagent directory scanning and write-back, plus attachment writing, need.
  */
 class TestFileAccessProvider : FileAccessProvider {
 

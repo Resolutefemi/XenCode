@@ -15,9 +15,9 @@ import kotlin.io.FileAlreadyExistsException
 import kotlin.io.NoSuchFileException
 
 /**
- * LocalFileAccess：以真实临时目录（TemporaryFolder）为宿主的 java.io.File 文件操作。
- * pathMapper 是 mockk：toHostFile 一律映射到 tmp 根下（路径字符串原样拼进临时目录），
- * toContainerPath 原样返回，聚焦文件行为本身。
+ * LocalFileAccess: java.io.File operations with a real temp directory (TemporaryFolder) as the host.
+ * pathMapper is a mockk: toHostFile maps everything under the tmp root (path strings spliced verbatim into the temp dir),
+ * toContainerPath returns input unchanged — the focus stays on file behavior itself.
  */
 class LocalFileAccessTest {
 
@@ -85,7 +85,7 @@ class LocalFileAccessTest {
 
     @Test
     fun readLines_sequenceCanIterateMultipleTimes() {
-        // 实现是惰性 sequence（每次迭代重新打开 reader），验证可重复迭代
+        // The implementation is a lazy sequence (each iteration reopens the reader); verify it can be iterated repeatedly
         newAccess().writeFile("lines.txt", "a\nb\n", overwrite = true)
         val seq = newAccess().readLines("lines.txt")
         assertEquals(listOf("a", "b"), seq.toList())
@@ -99,7 +99,7 @@ class LocalFileAccessTest {
         }
     }
 
-    // ---------- 元数据：exists / isDirectory / isFile / fileSize / lastModified ----------
+    // ---------- Metadata: exists / isDirectory / isFile / fileSize / lastModified ----------
 
     @Test
     fun exists_isDirectory_isFile() {
@@ -159,7 +159,7 @@ class LocalFileAccessTest {
         access.writeFile("f.txt", "x", overwrite = true)
         val expectedFilePerm = if (File(tmp.root, "f.txt").canExecute()) "rwx" else "rw-"
         assertEquals(expectedFilePerm, access.permissions("f.txt"))
-        // 目录恒带 x 位
+        // Directories always carry the x bit
         assertEquals("rwx", access.permissions("."))
     }
 
@@ -324,7 +324,7 @@ class LocalFileAccessTest {
         assertTrue(File(tmp.root, "a/b/c").isDirectory)
     }
 
-    // ---------- 路径回显 ----------
+    // ---------- Path echo ----------
 
     @Test
     fun parentPath_returnsContainerPathOfParent() {

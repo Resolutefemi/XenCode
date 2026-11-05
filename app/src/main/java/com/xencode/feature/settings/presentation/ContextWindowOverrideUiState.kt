@@ -1,10 +1,10 @@
 package com.xencode.feature.settings.presentation
 
 /**
- * 「上下文窗口统一高级设置」页的 UI 快照。
+ * UI snapshot for the unified advanced context-window settings page.
  *
- * [enabled] 为实际生效状态——必填项（总上下文窗口、输出窗口）不齐时恒为 false，
- * 存储层与业务层各有一重兜底，UI 无需自行判定。
+ * [enabled] is the actually effective state — always false when required fields (total context window, output window) are incomplete;
+ * the storage and business layers each provide a fallback, so the UI needs no check of its own.
  */
 data class ContextWindowOverrideUiState(
     val enabled: Boolean = false,

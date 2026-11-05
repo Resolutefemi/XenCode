@@ -20,15 +20,15 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 /**
- * 工具授权策略引擎的分支覆盖。规则加载经 mock 注入，聚焦 [ToolPermissionPolicyEngine.evaluate]
- * 的裁决逻辑：PLAN/ASK 模式特判、完全权限挡位、DENY 优先、白名单/记忆规则、rm 高危删除防护与不可记忆降级。
- * 底层 [ShellCommandParser] / [BuiltInSafeCommands] 的解析细节由各自独立测试覆盖，不在此重复。
+ * Branch coverage for the tool authorization policy engine. Rule loading is injected via mocks; the focus is the verdict logic of [ToolPermissionPolicyEngine.evaluate]:
+ * PLAN/ASK mode special cases, the full-access tier, DENY precedence, allowlist/remembered rules, rm high-risk deletion guards, and non-rememberable downgrades.
+ * Parsing details of the underlying [ShellCommandParser] / [BuiltInSafeCommands] are covered by their own tests and not repeated here.
  */
 class ToolPermissionPolicyEngineTest {
 
     /**
-     * 构造策略引擎：授权规则与挡位经 mock 注入；高危规则默认使用真实预设集（贴近生产行为），
-     * 挡位默认 [CommandAuthLevel.RULE_BASED]（与仓库默认值一致），可按用例覆盖。
+     * Builds the policy engine: authorization rules and tier are injected via mocks; high-risk rules default to the real preset set (close to production behavior),
+     * the tier defaults to [CommandAuthLevel.RULE_BASED] (matching the repository default), overridable per case.
      */
     private fun engine(
         vararg rules: PermissionRule,
@@ -57,7 +57,7 @@ class ToolPermissionPolicyEngineTest {
 
     private fun terminal(action: String) = mapOf("action" to JsonPrimitive(action))
 
-    // ── PLAN 模式：写/执行类工具一律拒绝 ─────────────────────────────
+    // ── PLAN mode: write/execute tools are always rejected ─────────────────────────────
 
     @Test
     fun planMode_deniesWorkspaceWriteTool() = runTest {
@@ -92,12 +92,12 @@ class ToolPermissionPolicyEngineTest {
     fun planMode_allowsTerminalRead() = runTest {
         val e = engine()
         val r = e.evaluate(tool(ToolCapability.READ_WORKSPACE), "terminal", terminal("read"), AgentMode.PLAN)
-        // 无任何规则时按整工具 ASK（可记忆），而非 DENY
+        // With no rules at all, whole-tool ASK (rememberable) rather than DENY
         assertEquals(ToolPermissionPolicyEngine.Verdict.ASK, r.verdict)
     }
 
-    // ── 完全权限挡位：直接放行但保留灾难性 rm 防护 ────────────────────
-    // （原 AUTO 会话模式的「全放行」语义由「完全权限」挡位承担，AUTO 已退场）
+    // ── Full-access tier: allow directly but keep the catastrophic rm guard ────────────────────
+    // (the old AUTO session mode's "allow everything" semantics now live in the full-access tier; AUTO is gone)
 
     @Test
     fun fullAccessLevel_allowsAnyTool() = runTest {
@@ -130,13 +130,13 @@ class ToolPermissionPolicyEngineTest {
 
     @Test
     fun disabledSafety_allModes_allowsCatastrophicRm() = runTest {
-        // 「禁用安全拦截」现对全部模式生效（原 AUTO 专属开关随 AUTO 一并退场）
+        // "Disable safety interception" now applies to all modes (the AUTO-only switch went away with AUTO)
         val e = engine(safetyDisabled = true, level = CommandAuthLevel.FULL_ACCESS)
         val r = e.evaluate(tool(ToolCapability.EXECUTE_COMMANDS), "Bash", bash("rm -rf /"), AgentMode.BUILD)
         assertEquals(ToolPermissionPolicyEngine.Verdict.ALLOW, r.verdict)
     }
 
-    // ── ASK 模式：写操作硬拒绝，且禁止 AI 自行切入 PLAN ─────────────
+    // ── ASK mode: writes are hard-denied, and the AI may not switch itself into PLAN ─────────────
 
     @Test
     fun askMode_deniesWriteTool() = runTest {
@@ -154,7 +154,7 @@ class ToolPermissionPolicyEngineTest {
 
     @Test
     fun askMode_deniesPlanModeSwitch() = runTest {
-        // planMode 的能力不在危险能力集里，须单独拦截，否则会弹窗后被执行
+        // planMode's capability is not in the dangerous set, so it needs a dedicated block; otherwise it would run after a prompt
         val e = engine()
         val r = e.evaluate(
             tool(ToolCapability.MODIFY_SESSION_STATE),
@@ -222,7 +222,7 @@ class ToolPermissionPolicyEngineTest {
         assertEquals(ToolPermissionPolicyEngine.Verdict.ASK, r.verdict)
     }
 
-    // ── 只读 Agent 配置自动放行 ─────────────────────────────────────
+    // ── Read-only agent config auto-allow ─────────────────────────────────────
 
     @Test
     fun readAgentConfig_capabilityAutoAllow() = runTest {
@@ -231,7 +231,7 @@ class ToolPermissionPolicyEngineTest {
         assertEquals(ToolPermissionPolicyEngine.Verdict.ALLOW, r.verdict)
     }
 
-    // ── task 只读动作放行，whole DENY 仍生效 ─────────────────────────
+    // ── task read-only actions allowed; whole-tool DENY still applies ─────────────────────────
 
     @Test
     fun taskReadAction_allowsWithoutRules() = runTest {
@@ -242,7 +242,7 @@ class ToolPermissionPolicyEngineTest {
 
     @Test
     fun taskReadAction_alwaysAllowed() = runTest {
-        // task 的只读动作走 evaluate 的快捷放行分支，早于挡位与规则匹配，规则不影响结果
+        // task's read-only actions take evaluate's fast-allow branch, ahead of tier and rule matching, so rules do not affect the result
         val e = engine(
             PermissionRule("task", PermissionRule.WHOLE_TOOL, PermissionDecision.DENY)
         )
@@ -250,12 +250,12 @@ class ToolPermissionPolicyEngineTest {
         assertEquals(ToolPermissionPolicyEngine.Verdict.ALLOW, r.verdict)
     }
 
-    // ── 记忆规则已下线：shell 授权只由「挡位 + 高危规则」决定 ──────────
+    // ── Remembered rules are gone: shell authorization is decided by "tier + high-risk rules" only ──────────
 
     @Test
     fun shellDenyRuleIgnored_authLevelDecides() = runTest {
-        // 命令类工具的 ALLOW/DENY 记忆规则已整体下线（会先于挡位生效、绕过高危拦截），
-        // ls 命中内置只读白名单 → 放行，DENY 规则不参与。
+        // ALLOW/DENY remembered rules for command tools are fully retired (they used to apply before the tier and bypass high-risk interception),
+        // ls hits the built-in read-only allowlist -> allowed; the DENY rule plays no part.
         val e = engine(
             PermissionRule("Bash", "ls", PermissionDecision.DENY)
         )
@@ -263,17 +263,17 @@ class ToolPermissionPolicyEngineTest {
         assertEquals(ToolPermissionPolicyEngine.Verdict.ALLOW, r.verdict)
     }
 
-    // ── 不可静态判定：无破坏特征则放行 ───────────────────────────────
+    // ── Not statically analyzable: allowed when there are no destructive traits ───────────────────────────────
 
     @Test
     fun unanalyzableBenignCommand_allowed() = runTest {
-        // 命令替换使静态判定失效，但对原文做破坏特征扫描无命中 → 放行（AI 排查命令常含 $()）
+        // Command substitution defeats static analysis, but a destructive-trait scan of the raw text finds nothing -> allowed (AI diagnostic commands often contain $())
         val e = engine()
         val r = e.evaluate(tool(ToolCapability.EXECUTE_COMMANDS), "Bash", bash("echo $(whoami)"), AgentMode.BUILD)
         assertEquals(ToolPermissionPolicyEngine.Verdict.ALLOW, r.verdict)
     }
 
-    // ── 内置安全白名单自动放行 ───────────────────────────────────────
+    // ── Built-in safe allowlist auto-allow ───────────────────────────────────────
 
     @Test
     fun safeCommand_autoAllowed() = runTest {
@@ -284,13 +284,13 @@ class ToolPermissionPolicyEngineTest {
 
     @Test
     fun mixOfSafeAndNonHighRisk_allowed() = runTest {
-        // 高危规则只覆盖递归/通配/批量删除，裸 `rm x` 未命中；整条命令可静态判定 → 放行。
+        // High-risk rules only cover recursive/wildcard/bulk deletion, so bare `rm x` does not hit; the whole command is statically analyzable -> allowed.
         val e = engine()
         val r = e.evaluate(tool(ToolCapability.EXECUTE_COMMANDS), "Bash", bash("ls -la && rm x"), AgentMode.BUILD)
         assertEquals(ToolPermissionPolicyEngine.Verdict.ALLOW, r.verdict)
     }
 
-    // ── 已记忆 ALLOW 规则 ───────────────────────────────────────────
+    // ── Remembered ALLOW rules ───────────────────────────────────────────
 
     @Test
     fun rememberedPrefix_allows() = runTest {
@@ -303,8 +303,8 @@ class ToolPermissionPolicyEngineTest {
 
     @Test
     fun rememberedPrefix_doesNotMatchOtherSubcommand() = runTest {
-        // 「规则拦截」挡位语义：git clone 未命中高危规则且可静态判定 → 直接放行（不再逐次询问）；
-        // 同时也验证了 "git pull" 记忆规则不会误放行其它 git 子命令后再被高危规则拦下。
+        // "Rule-based" tier semantics: git clone hits no high-risk rule and is statically analyzable -> allowed outright (no per-run prompting);
+        // This also verifies the "git pull" remembered rule does not wrongly allow other git subcommands that high-risk rules would then block.
         val e = engine(
             PermissionRule("Bash", "git pull", PermissionDecision.ALLOW)
         )
@@ -312,7 +312,7 @@ class ToolPermissionPolicyEngineTest {
         assertEquals(ToolPermissionPolicyEngine.Verdict.ALLOW, r.verdict)
     }
 
-    // ── rm 精细校验：无目标 / 递归 / 通配的规则不得放行 ───────────────
+    // ── rm fine-grained checks: rules with no target / recursive / wildcard must not allow ───────────────
 
     @Test
     fun bareRmRuleIgnored_nonRecursiveRmAllowed() = runTest {
@@ -320,7 +320,7 @@ class ToolPermissionPolicyEngineTest {
             PermissionRule("Bash", "rm", PermissionDecision.ALLOW)
         )
         val r = e.evaluate(tool(ToolCapability.EXECUTE_COMMANDS), "Bash", bash("rm file.txt"), AgentMode.BUILD)
-        // 规则不参与；`rm file.txt` 非递归/无通配，未命中高危规则 → 放行
+        // Rules play no part; `rm file.txt` is non-recursive with no wildcard and hits no high-risk rule -> allowed
         assertEquals(ToolPermissionPolicyEngine.Verdict.ALLOW, r.verdict)
     }
 
@@ -331,13 +331,13 @@ class ToolPermissionPolicyEngineTest {
         )
         val r = e.evaluate(tool(ToolCapability.EXECUTE_COMMANDS), "Bash", bash("rm -rf /some/dir"), AgentMode.BUILD)
         assertEquals(ToolPermissionPolicyEngine.Verdict.ASK, r.verdict)
-        assertTrue(r.rememberablePatterns.isEmpty()) // 递归删除不可记忆
+        assertTrue(r.rememberablePatterns.isEmpty()) // recursive deletion is not rememberable
         assertNotNull(r.rememberDisabledReason)
     }
 
     @Test
     fun recursiveRmRuleIgnored_stillAsks() = runTest {
-        // ALLOW 记忆规则已下线，递归删除命中高危规则 → 人工确认且不可记忆
+        // ALLOW remembered rules are gone; recursive deletion hits a high-risk rule -> manual confirmation, not rememberable
         val e = engine(
             PermissionRule("Bash", "rm -rf /tmp/build", PermissionDecision.ALLOW)
         )
@@ -347,7 +347,7 @@ class ToolPermissionPolicyEngineTest {
         assertNotNull(r.rememberDisabledReason)
     }
 
-    // ── 灾难性 rm 防护在 BUILD 模式同样生效 ─────────────────────────
+    // ── Catastrophic rm guard also applies in BUILD mode ─────────────────────────
 
     @Test
     fun catastrophicRm_deniedEvenWithAllowRule() = runTest {
@@ -365,7 +365,7 @@ class ToolPermissionPolicyEngineTest {
         assertEquals(ToolPermissionPolicyEngine.Verdict.DENY, r.verdict)
     }
 
-    // ── 提权：携带 elevate 将硬拒绝降级为一次性授权 ───────────────────
+    // ── Elevation: carrying elevate downgrades a hard deny to one-time authorization ───────────────────
 
     @Test
     fun catastrophicRm_elevate_asksUser() = runTest {
@@ -401,7 +401,7 @@ class ToolPermissionPolicyEngineTest {
         assertEquals(ToolPermissionPolicyEngine.Verdict.ASK, r.verdict)
     }
 
-    // ── 路径归一化：多种等价写法均需拦截，工作区子目录放行 ─────────────
+    // ── Path normalization: many equivalent spellings must be blocked; workspace subdirectories allowed ─────────────
 
     private suspend fun denied(command: String): Boolean =
         engine().evaluate(tool(ToolCapability.EXECUTE_COMMANDS), "Bash", bash(command), AgentMode.BUILD).verdict ==
@@ -436,7 +436,7 @@ class ToolPermissionPolicyEngineTest {
         assertTrue(denied("rm -rf ~/workspace/.."))
     }
 
-    // ── 完全权限挡位：不可静态判定的命令按字面放行 ─────────────────────
+    // ── Full-access tier: statically unanalyzable commands are allowed verbatim ─────────────────────
 
     @Test
     fun fullAccess_unanalyzableBenign_allowed() = runTest {
@@ -449,11 +449,11 @@ class ToolPermissionPolicyEngineTest {
 
     @Test
     fun fullAccess_unanalyzableBenignWithStderrRedirect_allowed() = runTest {
-        // 回归（10-18 真机复现）：原 AUTO 分支曾用「含 `>` 即破坏」的严格判定，而
-        // ShellCommandParser 把 `> /dev/null` 判为不可静态判定——两个条件叠加，
-        // 条条带 `2>/dev/null` 的只读排查命令（getprop/pidof/cat /proc/...）被
-        // 硬拒绝。现已统一为宽松判定（只认 find -delete / 破坏性程序 / 覆盖写重定向），
-        // 且「完全权限」按字面放行，不再有第二道兜底拦截。
+        // Regression (reproduced on a real device 10-18): the old AUTO branch used the strict "contains `>` means destructive" check, while
+        // ShellCommandParser classifies `> /dev/null` as not statically analyzable — the two conditions stacked,
+        // and every read-only diagnostic command carrying `2>/dev/null` (getprop/pidof/cat /proc/...) got
+        // hard-denied. Now unified into the lenient check (only find -delete / destructive programs / overwrite redirects count),
+        // and full access allows verbatim, with no second fallback interception.
         val e = engine(level = CommandAuthLevel.FULL_ACCESS)
         val r = e.evaluate(
             tool(ToolCapability.EXECUTE_COMMANDS),
@@ -466,7 +466,7 @@ class ToolPermissionPolicyEngineTest {
 
     @Test
     fun ruleBased_unanalyzableDestructiveInSubstitution_stillAsks() = runTest {
-        // 安全边界不因误报修复而放松：藏在命令替换里的 find -delete 在「规则拦截」挡位仍须人工确认
+        // The safety boundary is not loosened by the false-positive fix: find -delete hidden inside command substitution still requires manual confirmation in the rule-based tier
         val e = engine()
         val r = e.evaluate(
             tool(ToolCapability.EXECUTE_COMMANDS),
@@ -487,7 +487,7 @@ class ToolPermissionPolicyEngineTest {
         )
     }
 
-    // ── Shizuku 高危工具：一律弹窗、不可记忆，完全权限也不豁免 ─────────
+    // ── Shizuku high-risk tools: always prompt, not rememberable, no exemption even with full access ─────────
 
     private fun shizuku(command: String) = mapOf("command" to JsonPrimitive(command))
 
@@ -503,7 +503,7 @@ class ToolPermissionPolicyEngineTest {
     @Test
     fun shizuku_safeCommandStillAsks() = runTest {
         val e = engine()
-        // 内置安全白名单（ls）对 Shizuku 不适用，仍需弹窗
+        // The built-in safe allowlist (ls) does not apply to Shizuku; still prompts
         val r = e.evaluate(tool(ToolCapability.EXECUTE_COMMANDS), "Shizuku", shizuku("ls -la /sdcard"), AgentMode.BUILD)
         assertEquals(ToolPermissionPolicyEngine.Verdict.ASK, r.verdict)
         assertTrue(r.rememberablePatterns.isEmpty())
@@ -519,7 +519,7 @@ class ToolPermissionPolicyEngineTest {
 
     @Test
     fun shizuku_denyRuleStillAsks() = runTest {
-        // Shizuku 一律走 forceAsk 分支（弹窗且不可记忆），DENY 规则不参与 → 结果为 ASK
+        // Shizuku always takes the forceAsk branch (prompt, not rememberable); the DENY rule plays no part -> the result is ASK
         val e = engine(PermissionRule("Shizuku", "pm", PermissionDecision.DENY))
         val r = e.evaluate(tool(ToolCapability.EXECUTE_COMMANDS), "Shizuku", shizuku("pm list packages"), AgentMode.BUILD)
         assertEquals(ToolPermissionPolicyEngine.Verdict.ASK, r.verdict)
@@ -528,7 +528,7 @@ class ToolPermissionPolicyEngineTest {
 
     @Test
     fun shizuku_fullAccess_asks() = runTest {
-        // 完全权限不豁免 Shizuku 逐次确认
+        // Full access does not exempt Shizuku from per-run confirmation
         val e = engine(level = CommandAuthLevel.FULL_ACCESS)
         val r = e.evaluate(tool(ToolCapability.EXECUTE_COMMANDS), "Shizuku", shizuku("pm list packages"), AgentMode.BUILD)
         assertEquals(ToolPermissionPolicyEngine.Verdict.ASK, r.verdict)
@@ -538,7 +538,7 @@ class ToolPermissionPolicyEngineTest {
 
     @Test
     fun shizuku_safetyDisabled_allows() = runTest {
-        // 「禁用安全拦截」对全部模式与挡位生效：Shizuku 也不再逐次确认
+        // "Disable safety interception" applies to all modes and tiers: Shizuku no longer needs per-run confirmation either
         val e = engine(safetyDisabled = true, level = CommandAuthLevel.FULL_ACCESS)
         val r = e.evaluate(tool(ToolCapability.EXECUTE_COMMANDS), "Shizuku", shizuku("pm list packages"), AgentMode.BUILD)
         assertEquals(ToolPermissionPolicyEngine.Verdict.ALLOW, r.verdict)
@@ -551,7 +551,7 @@ class ToolPermissionPolicyEngineTest {
         assertEquals(ToolPermissionPolicyEngine.Verdict.DENY, r.verdict)
     }
 
-    // ── 非 shell 工具 ───────────────────────────────────────────────
+    // ── Non-shell tools ───────────────────────────────────────────────
 
     @Test
     fun genericTool_wholeRuleAllows() = runTest {
@@ -573,7 +573,7 @@ class ToolPermissionPolicyEngineTest {
 
     @Test
     fun genericTool_wholeDenyRule_asks() = runTest {
-        // 非 shell 工具只认「整工具 ALLOW」记忆，DENY 规则不产生硬拒绝 → 落到默认的整工具 ASK
+        // Non-shell tools only honor whole-tool ALLOW remembering; DENY rules produce no hard deny -> it falls through to the default whole-tool ASK
         val e = engine(
             PermissionRule("writeFile", PermissionRule.WHOLE_TOOL, PermissionDecision.DENY)
         )
@@ -582,7 +582,7 @@ class ToolPermissionPolicyEngineTest {
         assertEquals(listOf(PermissionRule.WHOLE_TOOL), r.rememberablePatterns)
     }
 
-    // ── remember：去重后逐条落库 ────────────────────────────────────
+    // ── remember: dedupe then persist one by one ────────────────────────────────────
 
     @Test
     fun remember_dedupesAndAddsEach() = runTest {
@@ -597,7 +597,7 @@ class ToolPermissionPolicyEngineTest {
         coVerify { repo.add(PermissionScope.PROJECT, PermissionRule("Bash", "ls", PermissionDecision.ALLOW)) }
     }
 
-    // ── 「规则拦截」挡位：命中高危规则 → 人工确认；普通命令直接放行 ─────────────
+    // ── "Rule-based" tier: high-risk hit -> manual confirmation; ordinary commands allowed outright ─────────────
 
     @Test
     fun ruleBased_highRiskHit_asksWithRuleTitle() = runTest {
@@ -605,14 +605,14 @@ class ToolPermissionPolicyEngineTest {
         val r = e.evaluate(tool(ToolCapability.EXECUTE_COMMANDS), "Bash", bash("rm -rf /tmp/build"), AgentMode.BUILD)
         assertEquals(ToolPermissionPolicyEngine.Verdict.ASK, r.verdict)
         assertTrue(r.askTitle?.startsWith("High-risk rule") == true)
-        // 递归删除不可记忆
+        // recursive deletion is not rememberable
         assertTrue(r.rememberablePatterns.isEmpty())
         assertNotNull(r.rememberDisabledReason)
     }
 
     @Test
     fun ruleBased_nonRecursiveRmWithoutRuleHit_allows() = runTest {
-        // 裸 rm 单文件不在高危规则覆盖范围内（高危只管递归/通配/批量），可静态判定 → 放行
+        // Bare single-file rm is outside high-risk rule coverage (they only cover recursive/wildcard/bulk), and is statically analyzable -> allowed
         val e = engine()
         val r = e.evaluate(tool(ToolCapability.EXECUTE_COMMANDS), "Bash", bash("rm file.txt"), AgentMode.BUILD)
         assertEquals(ToolPermissionPolicyEngine.Verdict.ALLOW, r.verdict)
@@ -620,7 +620,7 @@ class ToolPermissionPolicyEngineTest {
 
     @Test
     fun ruleBased_allRulesDisabled_allows() = runTest {
-        // 用户停用全部高危规则后，可静态判定的普通命令直接放行
+        // With all high-risk rules disabled by the user, statically analyzable ordinary commands are allowed outright
         val e = engine(highRiskRules = HighRiskRulePresets.RULES.map { it.copy(enabled = false) })
         val r = e.evaluate(tool(ToolCapability.EXECUTE_COMMANDS), "Bash", bash("rm file.txt"), AgentMode.BUILD)
         assertEquals(ToolPermissionPolicyEngine.Verdict.ALLOW, r.verdict)
@@ -628,7 +628,7 @@ class ToolPermissionPolicyEngineTest {
 
     @Test
     fun ruleBased_unanalyzableBenign_allowed() = runTest {
-        // 未命中高危规则且不可静态判定（含命令替换）→ 对原文做破坏特征扫描，无命中则放行
+        // No high-risk hit and not statically analyzable (contains command substitution) -> scan the raw text for destructive traits; allowed if nothing hits
         val e = engine()
         val r = e.evaluate(tool(ToolCapability.EXECUTE_COMMANDS), "Bash", bash("echo $(whoami)"), AgentMode.BUILD)
         assertEquals(ToolPermissionPolicyEngine.Verdict.ALLOW, r.verdict)
@@ -636,14 +636,14 @@ class ToolPermissionPolicyEngineTest {
 
     @Test
     fun ruleBased_unanalyzableDestructive_asks() = runTest {
-        // 不可静态判定且原文含破坏特征 → 人工确认，且不可记忆
+        // Not statically analyzable and the raw text has destructive traits -> manual confirmation, not rememberable
         val e = engine()
         val r = e.evaluate(tool(ToolCapability.EXECUTE_COMMANDS), "Bash", bash("rm -rf $(echo /tmp/x)"), AgentMode.BUILD)
         assertEquals(ToolPermissionPolicyEngine.Verdict.ASK, r.verdict)
         assertTrue(r.rememberablePatterns.isEmpty())
     }
 
-    // ── 「完全权限」挡位：直接放行，仅保留灾难防护与可选兜底 ──────────────────
+    // ── "Full access" tier: allow directly, keeping only the catastrophic guard and the optional fallback ──────────────────
 
     @Test
     fun fullAccess_allowsHighRiskCommand() = runTest {
@@ -654,7 +654,7 @@ class ToolPermissionPolicyEngineTest {
 
     @Test
     fun fullAccess_unanalyzableDestructive_isAllowed() = runTest {
-        // 「完全权限」按字面执行：灾难防护之外一律放行，不再有第二道兜底拦截
+        // "Full access" executes verbatim: everything except the catastrophic guard is allowed, with no second fallback interception
         val e = engine(level = CommandAuthLevel.FULL_ACCESS)
         val r = e.evaluate(tool(ToolCapability.EXECUTE_COMMANDS), "Bash", bash("cat > /etc/passwd"), AgentMode.BUILD)
         assertEquals(ToolPermissionPolicyEngine.Verdict.ALLOW, r.verdict)
@@ -669,8 +669,8 @@ class ToolPermissionPolicyEngineTest {
 
     @Test
     fun fullAccess_allowsNonDestructiveCommandWithStderrRedirect() = runTest {
-        // 回归：此前 looksDestructive 把任何含 `>` 的命令判成破坏性，
-        // 导致「不可静态判定 + 2>/dev/null」这类与删除无关的排查命令被硬拒绝。
+        // Regression: looksDestructive used to flag any command containing `>` as destructive,
+        // so "not statically analyzable + 2>/dev/null" diagnostic commands unrelated to deletion got hard-denied.
         val e = engine(level = CommandAuthLevel.FULL_ACCESS)
         val r = e.evaluate(
             tool(ToolCapability.EXECUTE_COMMANDS),
@@ -683,13 +683,13 @@ class ToolPermissionPolicyEngineTest {
 
     @Test
     fun fullAccess_safetyDisabled_allowsCatastrophicRm() = runTest {
-        // 「禁用安全拦截」现对全部模式与挡位生效（原 AUTO 专属开关随 AUTO 退场）
+        // "Disable safety interception" now applies to all modes and tiers (the AUTO-only switch went away with AUTO)
         val e = engine(level = CommandAuthLevel.FULL_ACCESS, safetyDisabled = true)
         val r = e.evaluate(tool(ToolCapability.EXECUTE_COMMANDS), "Bash", bash("rm -rf /"), AgentMode.BUILD)
         assertEquals(ToolPermissionPolicyEngine.Verdict.ALLOW, r.verdict)
     }
 
-    // ── 「自主执行」挡位：统一标记 aiReviewable 交工作流层 AI 审查 ─────────────
+    // ── "Autonomous" tier: uniformly marks aiReviewable for AI review at the workflow layer ─────────────
 
     @Test
     fun autonomous_marksAiReviewable() = runTest {
@@ -697,14 +697,14 @@ class ToolPermissionPolicyEngineTest {
         val r = e.evaluate(tool(ToolCapability.EXECUTE_COMMANDS), "Bash", bash("git clone https://x"), AgentMode.BUILD)
         assertEquals(ToolPermissionPolicyEngine.Verdict.ASK, r.verdict)
         assertTrue(r.aiReviewable)
-        // 命令的「始终允许」记忆已下线，一律只支持单次放行
+        // "Always allow" remembering for commands is gone; only single-run approval is supported
         assertTrue(r.rememberablePatterns.isEmpty())
         assertNotNull(r.rememberDisabledReason)
     }
 
     @Test
     fun autonomous_safeCommand_stillAutoAllowed() = runTest {
-        // 内置白名单优先于挡位分流：ls 仍直接放行，不进入 AI 审查
+        // The built-in allowlist takes precedence over tier routing: ls is still allowed outright, skipping AI review
         val e = engine(level = CommandAuthLevel.AUTONOMOUS)
         val r = e.evaluate(tool(ToolCapability.EXECUTE_COMMANDS), "Bash", bash("ls -la"), AgentMode.BUILD)
         assertEquals(ToolPermissionPolicyEngine.Verdict.ALLOW, r.verdict)
@@ -722,7 +722,7 @@ class ToolPermissionPolicyEngineTest {
 
     @Test
     fun autonomous_catastrophicRm_stillDenied() = runTest {
-        // 灾难防护在挡位分流之前，自主执行也不能硬闯
+        // The catastrophic guard runs before tier routing; autonomous execution cannot bulldoze through it
         val e = engine(level = CommandAuthLevel.AUTONOMOUS)
         val r = e.evaluate(tool(ToolCapability.EXECUTE_COMMANDS), "Bash", bash("rm -rf /etc"), AgentMode.BUILD)
         assertEquals(ToolPermissionPolicyEngine.Verdict.DENY, r.verdict)

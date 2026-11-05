@@ -6,8 +6,8 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 /**
- * [TerminalThemePreset] 预设主题：
- * companion 预设完整性、id 唯一性、ansiColors 长度与「仅按 id 判等」的语义。
+ * [TerminalThemePreset] preset themes:
+ * companion preset completeness, id uniqueness, ansiColors length, and the "equality by id only" semantics.
  */
 class TerminalThemePresetTest {
 
@@ -38,7 +38,7 @@ class TerminalThemePresetTest {
     @Test
     fun every_preset_has_16_ansi_colors() {
         TerminalThemePreset.ALL_PRESETS.forEach { preset ->
-            assertEquals("${preset.id} 的 ANSI 调色板应为 16 色", 16, preset.ansiColors.size)
+            assertEquals("${preset.id} should have a 16-color ANSI palette", 16, preset.ansiColors.size)
         }
     }
 
@@ -50,7 +50,7 @@ class TerminalThemePresetTest {
     @Test
     fun every_preset_has_existing_name_resource() {
         TerminalThemePreset.ALL_PRESETS.forEach { preset ->
-            assertTrue("${preset.id} 的 nameRes 应为有效资源 id", preset.nameRes != 0)
+            assertTrue("${preset.id} should have a valid resource id for nameRes", preset.nameRes != 0)
         }
     }
 

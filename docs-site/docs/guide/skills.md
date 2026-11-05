@@ -1,93 +1,93 @@
-# 技能
+# Skills
 
-技能是为 AI 提供的「专项能力扩展包」——把某类任务的标准流程、最佳实践与专属知识沉淀为规范指南，AI 遇到相关任务时会自动按需加载执行，无需你在每次对话中反复交代背景规则。
+Skills are "specialist extension packs" for the AI — standard procedures, best practices and domain know-how for a class of tasks distilled into a guideline the AI loads on demand when it meets a related task, so you never have to repeat background rules in every conversation.
 
-入口在「设置 → 技能」。已启用的技能会出现在对话输入框的 `/` 菜单里，可以直接用 `/技能名` 触发，也可以带参数（如 `/pdf-report a4`），详见[对话与消息](./chat.md)的〈斜杠命令〉。
+The entry point is "Settings → Skills". Enabled skills appear in the `/` menu of the chat input box — trigger one directly with `/skill-name`, optionally with arguments (e.g. `/pdf-report a4`); see the "Slash commands" section of [Chat & messages](./chat.md).
 
-## 技能从哪里来
+## Where skills come from
 
-一个技能就是一个目录，其中有 `SKILL.md`（或兼容的 `CLAUDE.md`）即会被自动识别。分两级：
+A skill is just a directory — as long as it contains `SKILL.md` (or a compatible `CLAUDE.md`) it is recognized automatically. There are two levels:
 
-- **全局技能**：放在 `~/.xencode/skills/`，跨项目共享，App 升级不丢失。跟随执行环境：本地模式下是容器内 `/root/.xencode/skills/`（映射至手机 App 私有目录），远程模式下指**服务器**上的 `~/.xencode/skills/`，读写经由 SSH 完成。
-- **项目级技能**：放在 `<工作区>/.xencode/skills/`，只在当前工作区生效，可以随项目提交到 git。远程模式下这里指的是**服务器上**的工作区，读写经由 SSH 完成。
+- **Global skills**: live in `~/.xencode/skills/`, shared across projects and never lost on app upgrades. They follow the execution environment: in local mode that is `/root/.xencode/skills/` inside the container (mapped to the app's private directory on the phone); in remote mode it means `~/.xencode/skills/` on the **server**, with reads and writes going over SSH.
+- **Project-level skills**: live in `<workspace>/.xencode/skills/`, effective only in the current workspace, and can be committed to git with the project. In remote mode this means the workspace **on the server**, with reads and writes going over SSH.
 
-同名技能项目级优先。
+For same-named skills, project-level wins.
 
-你可以直接在 App 里新建技能（见下文），也可以在容器里手工创建技能目录，或交由 AI 从 GitHub 安装。本地模式下 App 会监听技能目录，手工添加、删除、改名后列表几秒内自动刷新，无需重进页面。远程模式下不会监听服务器上的文件变化，手工修改后需退出并重新进入设置页刷新列表。
+You can create skills directly in the app (see below), create skill directories by hand in the container, or let the AI install them from GitHub. In local mode the app watches the skill directories — after manual adds, deletes or renames the list refreshes within seconds without re-entering the page. In remote mode changes on the server are not watched; after manual edits you must leave and re-enter the settings page to refresh the list.
 
-## 列表页
+## List page
 
-按「当前项目 / 全局」两个可折叠分组显示，点分组标题展开或收起。
+Skills are shown in two collapsible groups, "Current project / Global"; tap a group title to fold or unfold.
 
-每行是一个技能：图标、名称、描述摘要，名称右侧的彩色勋章表示启用或禁用状态。点行进详情；左滑露出删除按钮，删除会弹确认框——它会直接移除技能目录，**不可恢复**。
+Each row is a skill: icon, name and summary; the colored badge next to the name shows enabled or disabled. Tap a row for details; swipe left to reveal delete — deleting asks for confirmation and removes the skill directory outright, **irrecoverably**.
 
-右上角「＋」添加技能（见下文〈添加技能〉）。
+The "+" at the top-right adds a skill (see "Adding a skill" below).
 
-## 添加技能
+## Adding a skill
 
-点右上角「＋」弹出底部选择单，先选**作用域**（全局 / 当前项目，默认全局），再选添加方式：
+Tap "+" at the top-right to open a bottom sheet; first pick the **scope** (global / current project, global by default), then how to add:
 
-- **手动新建**：进入编辑页，填写名称、描述与正文，从头创建一个技能。
-- **从文件导入**：选择一个 `.md` 文件（`.markdown` / `.txt` 也可）。App 读取文件内容，按其 frontmatter 的 `name`/`description` 建技能，缺 `name` 时用文件名兜底，写入 `<作用域>/skills/<名称>/SKILL.md`。
-- **从压缩包导入**：选择一个 `.zip`。App 解压后识别包内所有含 `SKILL.md`（或 `CLAUDE.md`）的目录，逐个导入——一个包可以包含多个技能，常见于 GitHub 仓库的打包下载。
-- **技能市场**：打开内置的在线技能市场挑选现成技能（见下文〈技能市场〉）。
+- **Create manually**: open the edit page and fill in name, description and body to build a skill from scratch.
+- **Import from file**: pick a `.md` file (`.markdown` / `.txt` also work). The app reads the content, builds the skill from its frontmatter `name`/`description` (falling back to the file name when `name` is missing), and writes `<scope>/skills/<name>/SKILL.md`.
+- **Import from archive**: pick a `.zip`. The app extracts it and recognizes every directory inside containing `SKILL.md` (or `CLAUDE.md`), importing them one by one — one archive can carry several skills, as with GitHub repo download bundles.
+- **Skill market**: open the built-in online market to browse ready-made skills (see "Skill market" below).
 
-导入与手动新建等价：文件一律归一化为 `SKILL.md` 落盘，之后同样可以用编辑器或容器命令修改。
+Importing is equivalent to creating manually: files are always normalized to `SKILL.md` on disk, and afterwards can be modified with the editor or container commands just the same.
 
-**几种会被跳过的情况**（会弹窗逐个列出原因，不影响其余技能）：
+**Cases that get skipped** (a dialog lists each reason; other skills are unaffected):
 
-- 技能名称不合法（含 `/` `:` 等不能做目录名的字符、为空或过长）；
-- 目标作用域下已有同名技能（不会覆盖）；
-- 技能正文为空；
-- 压缩包里没有任何含 `SKILL.md` 的目录（整体失败）。
+- Invalid skill name (characters that cannot appear in a directory name like `/` `:`, empty, or too long);
+- A same-named skill already exists in the target scope (never overwritten);
+- Empty skill body;
+- The archive contains no directory with `SKILL.md` (the whole import fails).
 
-## 技能市场
+## Skill market
 
-「＋ → 技能市场」是在线技能目录：内置一批按分类整理的现成技能（后端、前端、UI/UX、测试、DevOps、效率工具等），挑中即可一键装进当前项目。
+"+ → Skill market" is an online skill catalog: a set of ready-made skills organized by category (backend, frontend, UI/UX, testing, DevOps, productivity, etc.) — pick one and install it into the current project with a tap.
 
-页面自上而下是：
+Top to bottom the page has:
 
-- **分类筛选条**：页面顶部横向排列的「全部」与各分类标签，点按即切换，下方列表随之刷新。
-- **技能列表**：分类下的技能行（图标、名称、一句话描述），滚动接近底部会自动加载下一页；列表为空时提示该分类暂无技能；右上角刷新按钮可整页重拉。
+- **Category filter bar**: the "All" and category chips laid out horizontally at the top; tap to switch and the list below refreshes.
+- **Skill list**: rows under a category (icon, name, one-line description); scrolling near the bottom auto-loads the next page; an empty list shows that the category has no skills yet; the refresh button at the top-right reloads the whole page.
 
-点任意一行弹出**详情底部弹层**：技能名、作者、发布时间与版本号、描述，以及「将保存到当前项目」的提示。点**安装**即下载技能正文并写入当前项目的 `.xencode/skills/` 目录，成功后弹提示、关闭弹层，技能列表随后自动刷新；装好的技能与手工创建的完全等价，可以继续编辑、启停或左滑删除。
+Tapping any row opens a **details bottom sheet**: skill name, author, release time and version, description, plus a note that it will be saved to the current project. Tap **Install** to download the skill body and write it into the current project's `.xencode/skills/`; on success a toast shows, the sheet closes, and the skill list refreshes. An installed skill is fully equivalent to a hand-made one — keep editing it, toggle it, or swipe left to delete.
 
-几点说明：
+A few notes:
 
-- 市场技能**一律装到当前项目作用域**（细节见上文〈技能从哪里来〉），不会动你的全局技能；与已有技能同名时会自动追加序号（如 `Rest Api Design Review 2`），不会覆盖。
-- 安装失败（连不上服务器、名字不合法等）会以气泡提示原因，可直接重试。
-- 市场列表从内置服务（`https://xencodepro.onrender.com`）拉取，地址也可以在应用源码的 `MarketplaceConfig` 中修改；网络不通或服务无响应时会整页提示重试。
+- Market skills are **always installed into the current project scope** (details above under "Where skills come from") and never touch your global skills; on a name clash an index is appended automatically (e.g. `Rest Api Design Review 2`) — nothing is overwritten.
+- Failed installs (server unreachable, invalid name, etc.) show the reason in a toast and can be retried directly.
+- The market list is fetched from a built-in service (`https://xencodepro.onrender.com`); the URL can also be changed in `MarketplaceConfig` in the app source. When the network is down or the service is unresponsive, the page shows a retry prompt.
 
-## 详情页
+## Details page
 
-三张卡片：「是否启用」（名称、来源和启停开关）、「摘要」（描述）、「正文」（`SKILL.md` 的完整内容，等宽字体，可以选中复制）。
+Three cards: "Enabled" (name, source and the enable toggle), "Summary" (the description), and "Body" (the full content of `SKILL.md` in monospace, selectable and copyable).
 
-右上角的铅笔按钮进入编辑页。
+The pencil button at the top-right opens the edit page.
 
-## 新建与编辑
+## Creating & editing
 
-编辑页有两组内容：
+The edit page has two groups:
 
-- **基本信息**：名称、描述、作用域。名称就是 AI 加载技能时使用的标识，建议使用英文小写加连字符（如 `pdf-report`）；描述写明「何时该使用它」，AI 依据这句话判断是否需要加载；作用域选「当前项目」或「全局」，决定技能目录落在哪一级。
-- **指令正文**：技能的完整指令，支持 Markdown。写清这类任务的标准流程、约束与注意事项。
+- **Basics**: name, description, scope. The name is the identifier the AI uses when loading the skill — lowercase English with hyphens is recommended (e.g. `pdf-report`); the description should state "when to use it" and the AI decides whether to load it based on that sentence; the scope — "current project" or "global" — decides at which level the skill directory lands.
+- **Instruction body**: the skill's full instructions, in Markdown. Spell out the standard procedure, constraints and caveats for this kind of task.
 
-名称和正文都填写后才能点击右上角「保存」。保存后会写成 `<技能目录>/SKILL.md`，与手写的技能完全等价，之后同样可以用文本编辑器或容器命令修改。
+The "Save" button at the top-right unlocks only after both name and body are filled. Saving writes `<skill directory>/SKILL.md` — fully equivalent to a hand-written skill, and afterwards editable with a text editor or container commands just the same.
 
-几个需要留意的地方：
+A few things to watch:
 
-- **作用域只能在新建时选**。已有技能的作用域是灰的——更换作用域等于搬迁目录，需要自行在容器里移动。
-- **改名只改 `SKILL.md` 里的 `name`，不动目录名**。技能正文里常按 `~/.xencode/skills/<目录>/run.py` 引用同目录脚本，目录跟着改名会把这些引用打断。
-- 编辑的是从 GitHub 装来的技能时，如果它用的是 `CLAUDE.md` 而不是 `SKILL.md`，保存会写回原来那个文件，不会多出一份。
-- 同一作用域下已有同名技能、名称含 `/` `:` 等不能做目录名的字符、或正文为空时，保存会失败并在页面顶部给出红色提示。
+- **Scope can only be chosen at creation**. For existing skills the scope is greyed out — changing scope means relocating the directory, which you must do yourself inside the container.
+- **Renaming only changes `name` inside `SKILL.md`, not the directory name**. Skill bodies often reference sibling scripts as `~/.xencode/skills/<directory>/run.py`; renaming the directory too would break those references.
+- When editing a skill installed from GitHub that uses `CLAUDE.md` instead of `SKILL.md`, saving writes back to the original file — no extra copy appears.
+- Saving fails — with a red banner at the top of the page — when a same-named skill already exists in the scope, the name contains characters like `/` `:` that cannot appear in a directory name, or the body is empty.
 
-## 启用与禁用
+## Enabling & disabling
 
-详情页的开关控制该技能是否参与 AI 会话。禁用后它不再出现在系统提示的可用技能清单里，AI 也无法加载，可减少上下文占用——技能数量较多时这个开关很有用。
+The toggle on the details page controls whether the skill takes part in AI sessions. Disabled, it disappears from the available-skills list in the system prompt and the AI cannot load it, saving context — very useful when you have many skills.
 
-禁用名单写在 `skills.json` 里：全局名单位于当前执行环境的 `~/.xencode/skills.json`，本地模式保存在手机 App 私有目录，远程模式保存在服务器上；两者独立，不会自动迁移或同步。项目级名单在本地模式位于 `<工作区>/.xencode/skills.json`，远程模式仍保存在手机 App 私有目录，按服务器和工作区隔离。格式是：
+The disable list is written to `skills.json`: the global list lives at `~/.xencode/skills.json` in the current execution environment — in local mode stored in the app's private directory on the phone, in remote mode stored on the server; the two are independent and never migrated or synced automatically. The project-level list is at `<workspace>/.xencode/skills.json` in local mode; in remote mode it still lives in the app's private directory on the phone, isolated per server and per workspace. Format:
 
 ```json
-{ "disabled": ["技能名"] }
+{ "disabled": ["skill-name"] }
 ```
 
-两级取并集，任一作用域禁用即生效。也可以直接手工编辑名单，下次读取时生效；本地模式下列表几秒内自动刷新，远程模式下手工修改服务器上的名单后需退出并重新进入设置页刷新列表。
+The two levels are unioned — disabled in either scope means disabled. You can also hand-edit the list; it takes effect on the next read. In local mode the list refreshes within seconds; in remote mode, after hand-editing the list on the server you must leave and re-enter the settings page to refresh.

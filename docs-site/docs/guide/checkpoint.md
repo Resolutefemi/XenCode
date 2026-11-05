@@ -1,29 +1,29 @@
-# 检查点与撤销
+# Checkpoints & Undo
 
-在 AI 执行文件修改操作前，XenCode 会自动保存改动前的文件快照并创建检查点。如果生成结果未达预期或引入了意外问题，可随时一键回退到指定节点。该机制完全自动运行，无需手动干预。
+Before the AI performs file modification operations, XenCode automatically saves snapshots of the files about to change and creates a checkpoint. If the generated result misses the mark or introduces unexpected problems, you can rewind to a given point at any time with one tap. The mechanism runs fully automatically and needs no manual intervention.
 
-## 回滚方式
+## How to Roll Back
 
-在聊天记录里找到你想退回的那条**你自己发的消息**，其左侧有一个撤销图标，点开即该检查点的操作菜单。
+In the chat history, find the **message you sent** that you want to go back to; it has an undo icon on its left. Tap it to open that checkpoint's action menu.
 
-菜单里有三个选择：
+The menu has three choices:
 
-| 操作 | 代码 | 对话 |
+| Action | Code | Conversation |
 | --- | --- | --- |
-| 恢复代码与对话 | 回到这条消息之前的状态 | 删掉这条之后的消息，原来的提问会填回输入框 |
-| 仅恢复对话 | 保持现状不变 | 删掉这条之后的消息 |
-| 仅恢复代码 | 回到这条消息之前的状态 | 保持完整不变 |
+| Restore code and conversation | Return to the state before this message | Delete the messages after this one and refill the original prompt into the input box |
+| Restore conversation only | Leave everything as is | Delete the messages after this one |
+| Restore code only | Return to the state before this message | Keep everything intact |
 
-常用的是第一个：相当于「这一轮重来」，代码和对话一起回到起点，你可以修改提问后再发一次。
+The first is the most common: it amounts to "redo this round"—code and conversation both return to the starting point, and you can revise your prompt and send it again.
 
-恢复对话会删除所选消息及后续消息，撤销现有压缩摘要，并恢复回退点之前保留的原始对话，避免摘要带入后续事实。「仅恢复代码」不改变对话。恢复后历史过长时，下一次发送前会重新压缩；已经发生的调用用量不会清零。旧版已经截断或缺失的内容无法凭回退补回。
+Restoring the conversation deletes the selected message and the ones after it, discards the existing compression summary, and restores the original conversation retained before the rewind point, preventing the summary from carrying later facts forward. "Restore code only" does not touch the conversation. If the restored history is very long, it is compressed again before the next send; usage already incurred is not reset. Content that was already truncated or missing in older versions cannot be recovered by rewinding.
 
-如果只是想让 AI 忘掉走偏的几轮讨论、但保留它已经写好的代码，用「仅恢复对话」。反之，代码想丢弃、讨论过程想留着复盘，用「仅恢复代码」。
+If you just want the AI to forget a few rounds of discussion that went off track but keep the code it already wrote, use "Restore conversation only". Conversely, to throw the code away but keep the discussion for review, use "Restore code only".
 
-## 适用边界与限制
+## Scope and Limitations
 
-检查点只记录 AI **通过文件工具**做的修改。如果文件是被终端里的命令改掉或删掉的（`rm`、`mv`、`sed` 这类，无论是你自己输入的还是 AI 执行的），检查点无法精确还原。
+Checkpoints only record modifications the AI makes **through file tools**. If a file was changed or deleted by a command in the terminal (`rm`, `mv`, `sed` and the like—whether you typed it or the AI ran it), checkpoints cannot restore it precisely.
 
-这种情况下建议通过 Git 恢复：只要文件曾被 Git 跟踪过（提交过一次即可），去 Git 页的状态标签页长按该文件，选「恢复文件」或「回退改动」即可取回，与它是怎么被删的无关。反之，从没提交过的新文件不在这层保护里。
+In that case, restoring via Git is recommended: as long as the file was ever tracked by Git (committed once is enough), go to the Status tab on the Git page, long-press the file, and choose "Restore file" or "Revert changes" to get it back—regardless of how it was deleted. Conversely, new files that were never committed are outside this safety net.
 
-重要的项目建议同时用 Git 管理，检查点适合处理单轮改动的回退，Git 才是完整的版本安全网。
+For important projects, manage them with Git as well. Checkpoints are good for rolling back a single round of changes; Git is the complete version-control safety net.

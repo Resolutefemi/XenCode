@@ -14,14 +14,14 @@ import okhttp3.RequestBody.Companion.toRequestBody
 import java.util.concurrent.atomic.AtomicLong
 
 /**
- * MCP「Streamable HTTP」传输实现。
+ * MCP "Streamable HTTP" transport implementation.
  *
- * 单一端点 POST JSON-RPC；server 可回 `application/json`（单条响应）或
- * `text/event-stream`（SSE，我们读取其中首条带 id 的 message 事件即可，因为本传输是
- * 一问一答、不维持服务端推送通道）。`initialize` 响应里的 `Mcp-Session-Id` 头会被记下，
- * 之后每条请求都带上（spec 要求）。
+ * POSTs JSON-RPC to a single endpoint; the server replies with `application/json` (a single response) or
+ * `text/event-stream` (SSE — reading the first id-carrying message event is enough, since this transport is
+ * strictly request/response and keeps no server-push channel). The `Mcp-Session-Id` header from the `initialize` response is remembered
+ * and sent with every subsequent request (as the spec requires).
  *
- * SSE 的解析方式与 AnthropicAdapter 一致——手动读 `data:` 行，避免引入 okhttp-sse。
+ * SSE parsing matches AnthropicAdapter — reading `data:` lines manually, avoiding an okhttp-sse dependency.
  */
 class StreamableHttpTransport(
     private val endpoint: String,
@@ -55,7 +55,7 @@ class StreamableHttpTransport(
 
             val httpReq = buildRequest(bodyJson)
             client.newCall(httpReq).execute().use { resp ->
-                // 会话 id 在首个响应（initialize）里下发，记下供后续请求复用。
+                // The session id arrives in the first response (initialize); remember it for later requests.
                 resp.header("Mcp-Session-Id")?.let { if (it.isNotBlank()) sessionId = it }
 
                 if (!resp.isSuccessful) {
@@ -80,9 +80,9 @@ class StreamableHttpTransport(
         val bodyJson = json.encodeToString(JsonRpcNotification.serializer(), payload)
         FileLogger.d(TAG, "→ notify [$method]")
         client.newCall(buildRequest(bodyJson)).execute().use { resp ->
-            // 通知按 spec 服务端通常返回 202 且无 body；非 2xx 仅记日志，不阻断流程。
+            // Per spec the server usually answers notifications with 202 and no body; non-2xx is only logged and does not block the flow.
             if (!resp.isSuccessful) {
-                FileLogger.w(TAG, "通知 $method 返回 HTTP ${resp.code}")
+                FileLogger.w(TAG, "Notification $method returned HTTP ${resp.code}")
             }
         }
     }
@@ -94,7 +94,7 @@ class StreamableHttpTransport(
     private fun buildRequest(bodyJson: String): Request {
         val headers = Headers.Builder().apply {
             add("Content-Type", "application/json")
-            // 同时接受两种响应，让 server 自行决定单条 JSON 还是 SSE。
+            // Accept both response types and let the server choose single JSON or SSE.
             add("Accept", "application/json, text/event-stream")
             sessionId?.let { add("Mcp-Session-Id", it) }
             extraHeaders.forEach { (k, v) -> add(k, v) }
@@ -107,8 +107,8 @@ class StreamableHttpTransport(
             .build()
     }
 
-    /** 从 SSE 流里取第一条 `data:` 负载（可能跨多行），拼成完整 JSON 文本。
-     * 多行 data 属于同一事件，按 SSE 规范以换行连接（JSON 允许空白，拼接后仍可解析）。 */
+    /** Take the first `data:` payload (possibly spanning lines) from the SSE stream and assemble the full JSON text.
+     * Multi-line data belongs to one event and is joined with newlines per the SSE spec (JSON tolerates whitespace, so it still parses). */
     private fun extractSseJson(reader: java.io.BufferedReader?): String? {
         reader ?: return null
         val data = StringBuilder()
@@ -134,7 +134,7 @@ class StreamableHttpTransport(
             throw McpException(rpcCode = it.code, message = "$method returned an error [${it.code}] ${it.message}")
         }
         if (response.id != null && response.id != expectedId) {
-            FileLogger.w(TAG, "响应 id 不匹配: 期望 $expectedId, 实际 ${response.id}")
+            FileLogger.w(TAG, "Response id mismatch: expected $expectedId, got ${response.id}")
         }
         return response
     }

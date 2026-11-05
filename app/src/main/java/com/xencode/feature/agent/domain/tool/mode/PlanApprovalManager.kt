@@ -13,9 +13,9 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 
 /**
- * 管理计划审查流程的挂起/恢复：
- * 当 AI 从 PLAN 模式切回 BUILD 模式时，workflow 调用 [awaitApproval] 挂起，
- * 等 UI 上的计划审查面板得到用户决策后恢复。
+ * Manages the suspend/resume flow of plan review:
+ * when the AI switches from PLAN mode back to BUILD mode, the workflow calls [awaitApproval] to suspend,
+ * resuming once the plan-review panel in the UI receives the user's decision.
  */
 @Singleton
 class PlanApprovalManager @Inject constructor(
@@ -28,7 +28,7 @@ class PlanApprovalManager @Inject constructor(
     private var currentDecision: CompletableDeferred<PlanApprovalChoice>? = null
     private var currentSessionId: String? = null
 
-    /** 挂起等待用户在计划审查面板中的决策。 */
+    /** Suspends waiting for the user's decision in the plan-review panel. */
     suspend fun awaitApproval(reason: String, sessionId: String? = null): PlanApprovalChoice {
         val decision = CompletableDeferred<PlanApprovalChoice>()
         currentDecision = decision
@@ -38,8 +38,8 @@ class PlanApprovalManager @Inject constructor(
         try {
             return decision.await()
         } catch (e: CancellationException) {
-            // 用户未批准切换（点「停止」等取消路径）：PlanModeTool 已把目标模式写入 DB，
-            // 取消意味着未获批准，需回滚，否则模式会未经批准直接切过去。
+            // The user did not approve the switch (canceled via "Stop" or similar): PlanModeTool already wrote the target mode to the DB,
+            // and cancellation means it was not approved, so roll back — otherwise the mode would switch without approval.
             rollbackModeToPlan(sessionId)
             throw e
         } finally {
@@ -49,11 +49,11 @@ class PlanApprovalManager @Inject constructor(
         }
     }
 
-    /** UI 回传用户选择，唤醒挂起的 [awaitApproval]。 */
+    /** The UI reports the user's choice, waking the suspended [awaitApproval]. */
     fun resolve(choice: PlanApprovalChoice) {
         _pendingApproval.value = null
 
-        // 用户拒绝时，回滚数据库中的模式到 PLAN（PlanModeTool 已写入目标模式）
+        // If the user declines, roll the mode in the database back to PLAN (PlanModeTool already wrote the target mode)
         if (choice == PlanApprovalChoice.REFINE) {
             rollbackModeToPlan(currentSessionId)
         }
@@ -61,7 +61,7 @@ class PlanApprovalManager @Inject constructor(
         currentDecision?.complete(choice)
     }
 
-    /** 回滚会话模式到 PLAN（PlanModeTool 已提前写入目标模式，未获批准时还原）。 */
+    /** Rolls the session mode back to PLAN (PlanModeTool wrote the target mode up front; restore it when unapproved). */
     private fun rollbackModeToPlan(sessionId: String?) {
         val sid = sessionId ?: return
         scope.launch {
@@ -76,8 +76,8 @@ class PlanApprovalManager @Inject constructor(
 data class PlanApprovalRequest(val reason: String)
 
 enum class PlanApprovalChoice {
-    /** 批准计划，切换到 BUILD 模式执行 */
+    /** Approve the plan and switch to BUILD mode for execution */
     APPROVE,
-    /** 拒绝，留在 PLAN 模式继续反馈 */
+    /** Decline and stay in PLAN mode for further feedback */
     REFINE
 }

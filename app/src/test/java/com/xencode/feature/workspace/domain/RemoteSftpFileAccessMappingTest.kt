@@ -5,14 +5,14 @@ import org.junit.Assert.assertEquals
 import org.junit.Test
 
 /**
- * 远程模式下 AI 路径 ↔ 远程真实路径的映射，以及 SFTP 权限位格式化（[RemoteSftpFileAccess] 的纯逻辑部分）。
+ * Mapping AI paths ↔ real remote paths in remote mode, plus SFTP permission-bit formatting (the pure-logic part of [RemoteSftpFileAccess]).
  */
 class RemoteSftpFileAccessMappingTest {
 
     private val wsRoot = "/data/user/0/com.xencode/files/projects/demo"
     private val home = "/home/dev"
 
-    // ---------- remotePathFor：AI 路径 → 远程真实路径 ----------
+    // ---------- remotePathFor: AI path → real remote path ----------
 
     @Test
     fun workspace_root_maps_to_configured_root() {
@@ -47,14 +47,14 @@ class RemoteSftpFileAccessMappingTest {
 
     @Test
     fun home_unknown_falls_back_to_tilde_form() {
-        // remoteHome 未获取到时 ~/workspace 前缀仍能映射（wsRoot 回退为字面 ~/workspace）
+        // When remoteHome is unavailable, the ~/workspace prefix still maps (wsRoot falls back to the literal ~/workspace)
         assertEquals(wsRoot, remotePathFor("~/workspace", wsRoot, null))
         assertEquals("$wsRoot/foo.txt", remotePathFor("~/workspace/foo.txt", wsRoot, null))
-        // 非工作区前缀的 ~ 路径不会展开，按现状挂到根下
+        // ~ paths outside the workspace prefix are not expanded and hang under the root as-is
         assertEquals("$wsRoot/~/other", remotePathFor("~/other", wsRoot, null))
     }
 
-    // ---------- displayPathFor：远程真实路径 → AI 视角路径 ----------
+    // ---------- displayPathFor: real remote path → AI-view path ----------
 
     @Test
     fun display_root_maps_to_container_root() {
@@ -67,7 +67,7 @@ class RemoteSftpFileAccessMappingTest {
         assertEquals("/etc/passwd", displayPathFor("/etc/passwd", wsRoot))
     }
 
-    // ---------- formatPermissions：SFTP 权限集合 → rwx 字符串 ----------
+    // ---------- formatPermissions: SFTP permission set → rwx string ----------
 
     @Test
     fun format_permissions_typical_file() {

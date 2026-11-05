@@ -19,9 +19,9 @@ import javax.inject.Inject
 import javax.inject.Singleton
 
 /**
- * 把镜像 rootfs 下载到 App 私有目录 filesDir/rootfs_images/（与手动导入镜像的副本同目录），
- * 返回 file:// uri，后续由 [com.xencode.feature.agent.domain.container.ContainerInstaller] 解压。
- * 协程取消时同步 cancel 底层 call，半成品文件一并清理。
+ * Downloads an image rootfs to the app-private directory filesDir/rootfs_images/ (same directory as copies of manually imported images),
+ * returning a file:// uri to be extracted later by [com.xencode.feature.agent.domain.container.ContainerInstaller].
+ * Cancels the underlying call when the coroutine is cancelled, cleaning up partial files as well.
  */
 @Singleton
 class ContainerImageDownloader @Inject constructor(

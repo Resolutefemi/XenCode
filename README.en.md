@@ -4,7 +4,6 @@
   <p align="center">
     Universal AI Coding Agent for Android · Linux dev environment · Local & remote SSH
     <br />
-    <a href="README.md">中文</a> · <a href="README.en.md">English</a>
   </p>
 </p>
 

@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
-"""CI 定时执行：抓取 models.dev 的完整模型元数据并保存到 data/models.json。
+"""Run on a CI schedule: fetch full model metadata from models.dev and save it to data/models.json.
 
-仅抓取与保存全量元数据，不触碰 app 内置的 api.official.json。
-网络或解析失败以非零退出，不覆盖旧文件。
+Only fetches and saves the full metadata; never touches the app's built-in api.official.json.
+Exits non-zero on network or parse failure, without overwriting the old file.
 """
 
 import json
@@ -18,7 +18,7 @@ UA = "xencode-models-sync"
 
 
 def fetch_remote() -> dict:
-    print(f"拉取 {MODELS_DEV_URL} ...")
+    print(f"Fetching {MODELS_DEV_URL} ...")
     req = urllib.request.Request(MODELS_DEV_URL, headers={"User-Agent": UA})
     with urllib.request.urlopen(req, timeout=30) as resp:
         return json.loads(resp.read().decode("utf-8"))
@@ -28,11 +28,11 @@ def main() -> int:
     try:
         remote = fetch_remote()
     except Exception as e:
-        print(f"拉取或解析 models.dev 失败: {e}")
+        print(f"Failed to fetch or parse models.dev: {e}")
         return 1
 
     if not isinstance(remote, dict) or not remote:
-        print("远端返回非字典或空数据，放弃写入")
+        print("Remote returned a non-dict or empty payload; aborting the write")
         return 1
 
     os.makedirs(os.path.dirname(TARGET_PATH), exist_ok=True)
@@ -44,8 +44,8 @@ def main() -> int:
         for v in remote.values()
         if isinstance(v, dict)
     )
-    print(f"已成功同步完整元数据至 {TARGET_PATH}")
-    print(f"包含 {len(remote)} 个供应商，共计 {total_models} 个模型")
+    print(f"Full metadata synced to {TARGET_PATH}")
+    print(f"{len(remote)} providers with {total_models} models in total")
     return 0
 
 

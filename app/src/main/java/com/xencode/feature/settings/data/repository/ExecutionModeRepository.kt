@@ -16,23 +16,23 @@ private val Context.executionModeDataStore by preferencesDataStore(
     corruptionHandler = preferencesCorruptionHandler
 )
 
-/** 执行环境模式。 */
+/** Execution environment mode. */
 enum class ExecutionMode {
-    /** 本地 PRoot 容器（原有行为）。 */
+    /** Local PRoot container (original behavior). */
     LOCAL_PROOT,
-    /** 远程 SSH 服务器。 */
+    /** Remote SSH server. */
     REMOTE_SSH,
-    /** 真机 ROOT：命令经 `su` 直接在本机以 root 身份执行（需要设备已 ROOT）。 */
+    /** Device ROOT: commands run directly on this device as root via `su` (requires a rooted device). */
     DEVICE_ROOT
 }
 
 /**
- * 持久化当前执行模式（本地 PRoot / 远程 SSH）。
+ * Persists the current execution mode (local PRoot / remote SSH).
  *
- * 远程连接参数不再在此持久化，改由
- * [com.xencode.feature.agent.domain.container.ActiveRemoteConnectionResolver] 按当前激活容器 profile 实时解析。
- * 切换模式时由 DI 层据此注入对应的 [com.xencode.feature.agent.domain.container.CommandEngine]
- * 与 [com.xencode.feature.workspace.domain.FileAccessProvider] 实现。
+ * Remote connection parameters are no longer persisted here; instead
+ * [com.xencode.feature.agent.domain.container.ActiveRemoteConnectionResolver] resolves them in real time from the currently active container profile.
+ * When the mode switches, the DI layer injects the corresponding [com.xencode.feature.agent.domain.container.CommandEngine]
+ * and [com.xencode.feature.workspace.domain.FileAccessProvider] implementations accordingly.
  */
 @Singleton
 class ExecutionModeRepository @Inject constructor(
@@ -42,7 +42,7 @@ class ExecutionModeRepository @Inject constructor(
         val MODE_KEY = stringPreferencesKey("execution_mode")
     }
 
-    /** 当前执行模式；无值时默认本地 PRoot。 */
+    /** Current execution mode; defaults to local PRoot when unset. */
     val executionModeFlow: Flow<ExecutionMode> = context.executionModeDataStore.data.map { prefs ->
         prefs[MODE_KEY]?.let {
             runCatching { ExecutionMode.valueOf(it) }.getOrNull()
@@ -55,9 +55,9 @@ class ExecutionModeRepository @Inject constructor(
 }
 
 /**
- * 归一化远程工作区根路径。旧版把默认值硬编码为 `/home/<用户名>/workspace`（对 home 不在
- * `/home/<用户名>` 的用户，如 root 的 `/root`，是错的）；`~/workspace` 则是符号链接占用的路径，
- * 不能当工作区根（会与链接相撞形成自引用）。这两类残留值与空值一律改回默认值。
+ * Normalizes the remote workspace root path. The old version hardcoded the default as `/home/<username>/workspace` (wrong for users
+ * whose home is not `/home/<username>`, e.g. root's `/root`); `~/workspace` is the path occupied by a symlink
+ * and cannot serve as the workspace root (it would collide with the link, forming a self-reference). Both kinds of leftover values, and empty values, are reset to the default.
  */
 internal fun normalizeRemoteWorkspacePath(stored: String?, username: String): String {
     val v = stored?.trim().orEmpty()
@@ -69,7 +69,7 @@ internal fun normalizeRemoteWorkspacePath(stored: String?, username: String): St
 }
 
 /**
- * 远程工作区根目录的默认值。**不能用 `~/workspace`**——那是「当前工作区」符号链接占用的路径，
- * 同名会让根目录与链接相撞。
+ * Default value for the remote workspace root directory. **Must not use `~/workspace`** — that is the path occupied by the "current workspace" symlink,
+ * and using the same name would make the root directory collide with the link.
  */
 internal const val DEFAULT_REMOTE_WORKSPACE_ROOT = "~/.xencode/workspaces"

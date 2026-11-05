@@ -28,7 +28,7 @@ class StorageUsageScannerTest {
         assertEquals(500L, StorageUsageScanner.dirSize(root))
     }
 
-    /** rootfs 与 node_modules 里到处是符号链接，跟随会重复计数甚至陷入环。 */
+    /** rootfs and node_modules are full of symlinks; following them double-counts or even loops forever. */
     @Test
     fun doesNotFollowSymlinks() {
         val root = temp.newFolder("root")
@@ -68,7 +68,7 @@ class StorageUsageScannerTest {
 
         val total = StorageUsageScanner.dirSize(root, cancelled = { true })
 
-        // 取消在访问首个文件之后生效，因此最多只累加一个文件。
-        assertTrue("提前取消却统计了 $total 字节", total <= 1000L)
+        // Cancellation takes effect after the first file is visited, so at most one file is counted.
+        assertTrue("cancelled early yet counted $total bytes", total <= 1000L)
     }
 }

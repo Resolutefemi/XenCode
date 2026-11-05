@@ -11,13 +11,13 @@ class MarkdownPreprocessorTest {
 
     @Test
     fun `plain text unchanged`() {
-        val t = "普通文本，没有特殊标记。"
+        val t = "Plain text with no special markers."
         assertEquals(t, process(t))
     }
 
     @Test
     fun `inline math becomes math image link`() {
-        val out = process("质能方程 \$E = mc^2\$ 很有名")
+        val out = process("The mass-energy equation \$E = mc^2\$ is famous")
         assertTrue(out.contains(MarkdownPreprocessor.MATH_INLINE_SCHEME))
         val link = Regex("""!\[]\((xencode-math-inline://[^)]+)\)""").find(out)!!.groupValues[1]
         val (latex, block) = MarkdownPreprocessor.decodeMathLink(link)!!
@@ -27,7 +27,7 @@ class MarkdownPreprocessorTest {
 
     @Test
     fun `block math becomes block math image link`() {
-        val out = process("公式：\n\$\$\\int_a^b f(x)dx\$\$\n完")
+        val out = process("Formula:\n\$\$\\int_a^b f(x)dx\$\$\nend")
         val link = Regex("""!\[]\((xencode-math-block://[^)]+)\)""").find(out)!!.groupValues[1]
         val (latex, block) = MarkdownPreprocessor.decodeMathLink(link)!!
         assertEquals("\\int_a^b f(x)dx", latex)
@@ -42,14 +42,14 @@ class MarkdownPreprocessorTest {
 
     @Test
     fun `math inside inline code is not extracted`() {
-        val out = process("行内 `\$x\$` 不处理")
+        val out = process("inline `\$x\$` is left alone")
         assertTrue(out.contains("`\$x\$`"))
         assertFalse(out.contains(MarkdownPreprocessor.MATH_INLINE_SCHEME))
     }
 
     @Test
     fun `latex paren inline math becomes math image link`() {
-        val out = process("""令 \(S=a+b+c\)。算法只需枚举较小的因子 \(b\)：""")
+        val out = process("""Let \(S=a+b+c\). The algorithm only needs to enumerate the smaller factor \(b\):""")
         assertTrue(out.contains(MarkdownPreprocessor.MATH_INLINE_SCHEME))
         val matches = Regex("""!\[]\((xencode-math-inline://[^)]+)\)""").findAll(out).toList()
         assertEquals(2, matches.size)
@@ -63,7 +63,7 @@ class MarkdownPreprocessorTest {
 
     @Test
     fun `latex bracket block math becomes block math image link`() {
-        val out = process("""公式：\[\sum_{i=1}^n i = \frac{n(n+1)}{2}\]完""")
+        val out = process("""Formula:\[\sum_{i=1}^n i = \frac{n(n+1)}{2}\]end""")
         assertTrue(out.contains(MarkdownPreprocessor.MATH_BLOCK_SCHEME))
         val link = Regex("""!\[]\((xencode-math-block://[^)]+)\)""").find(out)!!.groupValues[1]
         val (latex, block) = MarkdownPreprocessor.decodeMathLink(link)!!
@@ -73,14 +73,14 @@ class MarkdownPreprocessorTest {
 
     @Test
     fun `html tags are kept as literal text`() {
-        assertEquals("<\u200Bb>粗<\u200B/b>", process("<b>粗</b>"))
-        assertEquals("<\u200Bi>斜<\u200B/i>", process("<i>斜</i>"))
-        assertEquals("<\u200Bstrong>强<\u200B/strong>", process("<strong>强</strong>"))
+        assertEquals("<\u200Bb>bold<\u200B/b>", process("<b>bold</b>"))
+        assertEquals("<\u200Bi>italic<\u200B/i>", process("<i>italic</i>"))
+        assertEquals("<\u200Bstrong>strong<\u200B/strong>", process("<strong>strong</strong>"))
     }
 
     @Test
     fun `br tag is kept as literal text`() {
-        assertEquals("第一行<\u200Bbr>第二行", process("第一行<br>第二行"))
+        assertEquals("line one<\u200Bbr>line two", process("line one<br>line two"))
     }
 
     @Test
@@ -92,23 +92,23 @@ class MarkdownPreprocessorTest {
     @Test
     fun `inline tags are kept as literal text`() {
         assertEquals(
-            "<\u200Bspan style=\"color:red\">红色文字<\u200B/span>",
-            process("""<span style="color:red">红色文字</span>"""),
+            "<\u200Bspan style=\"color:red\">red text<\u200B/span>",
+            process("""<span style="color:red">red text</span>"""),
         )
     }
 
     @Test
     fun `block tags are kept as literal text`() {
         assertEquals("<\u200Bhr>", process("<hr>"))
-        assertEquals("<\u200Bul><\u200Bli>一<\u200B/li><\u200Bli>二<\u200B/li><\u200B/ul>", process("<ul><li>一</li><li>二</li></ul>"))
-        assertEquals("<\u200Bblockquote>引用内容<\u200B/blockquote>", process("<blockquote>引用内容</blockquote>"))
-        assertEquals("<\u200Bimg src=\"test.png\" alt=\"测试图\">", process("""<img src="test.png" alt="测试图">"""))
-        assertEquals("<\u200Ba href=\"https://x.com\">点这<\u200B/a>", process("""<a href="https://x.com">点这</a>"""))
+        assertEquals("<\u200Bul><\u200Bli>one<\u200B/li><\u200Bli>two<\u200B/li><\u200B/ul>", process("<ul><li>one</li><li>two</li></ul>"))
+        assertEquals("<\u200Bblockquote>quoted content<\u200B/blockquote>", process("<blockquote>quoted content</blockquote>"))
+        assertEquals("<\u200Bimg src=\"test.png\" alt=\"test image\">", process("""<img src="test.png" alt="test image">"""))
+        assertEquals("<\u200Ba href=\"https://x.com\">click here<\u200B/a>", process("""<a href="https://x.com">click here</a>"""))
     }
 
     @Test
     fun `html entities are decoded`() {
-        // `&lt;` 先被解码为 `<`，再被 neutralizeHtmlOpenBracket 插入零宽空格
+        // `&lt;` is first decoded to `<`, then neutralizeHtmlOpenBracket inserts a zero-width space
         assertEquals("a <\u200B b & c > d", process("a &lt; b &amp; c &gt; d"))
     }
 

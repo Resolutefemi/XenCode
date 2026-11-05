@@ -5,9 +5,9 @@ import javax.inject.Inject
 import javax.inject.Singleton
 
 /**
- * 全局子代理定义来源：`~/.xencode/agents`，跨项目共享。以容器路径经 [FileAccessProvider] 访问，
- * 跟随当前执行环境——本地模式落 App 私有 `filesDir/xencode/agents`（容器内 `/root/.xencode/agents`），
- * 远程模式经 SSH 落服务器用户 home 下的 `.xencode/agents`。远程是独立执行环境，读写均以远端为准。
+ * Global sub-agent definition source: `~/.xencode/agents`, shared across projects. Accessed via [FileAccessProvider] with container paths,
+ * following the current execution environment — in local mode it lands in the app-private `filesDir/xencode/agents` (`/root/.xencode/agents` inside the container),
+ * in remote mode it lands under the server user's home via SSH at `.xencode/agents`. Remote is a separate execution environment; reads and writes follow the remote side.
  */
 @Singleton
 class GlobalDirectoryAgentSource @Inject constructor(

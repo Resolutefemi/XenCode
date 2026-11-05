@@ -5,15 +5,16 @@ import java.io.File
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
 
-/** 变更所属的监听根：工作区、AI 配置目录（`~/.xencode`），或订阅方指定的其它宿主目录。 */
+/** The watched root a change belongs to: the workspace, the AI config directory (`~/.xencode`), or another host directory specified by the subscriber. */
 enum class ChangeRoot { WORKSPACE, XENCODE, OTHER }
 
-/** 单条变更的类型。同一路径在一个批量窗口内多次变更会被合并为一条。 */
+/** The type of a single change. Multiple changes to the same path within one batch window are merged into one. */
 enum class ChangeKind { CREATED, MODIFIED, DELETED }
 
 /**
- * 一条文件变更。[containerPath] 是容器视角路径（AI / 终端看到的），供消费方直接使用；
- * 按宿主路径匹配的消费方（如同步引擎）用 [hostPath]。
+ * A single file change. [containerPath] is the container-view path (what the AI /
+ * terminal sees), ready for consumers to use directly; consumers that match by host path
+ * (e.g. the sync engine) use [hostPath].
  */
 data class FileChange(
     val root: ChangeRoot,
@@ -23,8 +24,9 @@ data class FileChange(
 )
 
 /**
- * 一个批量窗口内收集到的变更。[changes] 已按路径去重（同路径只出现一次，kind 已合并）；
- * [truncated] 为 true 表示明细超过窗口上限被截断，仅保证「该范围内有变更」这一信号。
+ * Changes collected within one batch window. [changes] is de-duplicated by path (each path
+ * appears once, kinds merged); [truncated] = true means the details exceeded the window cap
+ * and were truncated — only the "something changed in this scope" signal is guaranteed.
  */
 data class FileChangeBatch(
     val changes: List<FileChange>,
@@ -32,11 +34,15 @@ data class FileChangeBatch(
 )
 
 /**
- * 订阅侧过滤规则：只影响「递归向下时是否进入某目录」与「该目录内事件是否上报」。
- * 判定只针对父路径段、不含最后一段——被剪枝目录自身的增删仍会上报，父目录列表才看得到它。
+ * Subscriber-side filter rules: only affects "whether recursion enters a directory" and
+ * "whether events inside it are reported".
+ * The check applies to parent path segments only, excluding the last one — additions/removals
+ * of the pruned directory itself are still reported, since only the parent's listing can see
+ * it.
  *
- * 刻意不含任何内置忽略名单：剪枝依据完全来自订阅方（[ignoredNames] / [extraPatterns]）
- * 与订阅根的 .gitignore（[followGitignore]）。
+ * Deliberately contains no built-in ignore list: pruning derives entirely from the
+ * subscriber ([ignoredNames] / [extraPatterns]) and the subscription root's .gitignore
+ * ([followGitignore]).
  */
 data class WatchFilter(
     val ignoredNames: Set<String> = emptySet(),
@@ -48,12 +54,12 @@ data class WatchFilter(
     }
 }
 
-/** 目录剪枝判定（纯逻辑，便于单测）。 */
+/** Directory pruning check (pure logic, easy to unit-test). */
 class IgnoreRules internal constructor(
     private val ignoredNames: Set<String>,
     private val patterns: List<String>
 ) {
-    /** [relativeParts] 为相对订阅根的路径段（调用方只传父段，不含最后一段）。 */
+    /** [relativeParts] are path segments relative to the subscription root (callers pass only the parent segments, excluding the last one). */
     fun isIgnoredDir(relativeParts: List<String>): Boolean {
         if (relativeParts.isEmpty()) return false
         if (ignoredNames.isNotEmpty() && relativeParts.any { it in ignoredNames }) return true
@@ -66,19 +72,20 @@ class IgnoreRules internal constructor(
     }
 }
 
-/** 仅需「有变更」这一信号的 UI 订阅用；批量窗口已把同一目录的密集变更合并为一次。 */
+/** For UI subscriptions that only need the "something changed" signal; the batch window has already merged a directory's burst of changes into one. */
 fun Flow<FileChangeBatch>.asDirtySignal(): Flow<Unit> = map { }
 
-/** 把宿主绝对路径转成相对 [root] 的路径段。 */
+/** Converts a host absolute path into path segments relative to [root]. */
 internal fun relativePartsOf(root: File, path: File): List<String> {
     val rootPath = root.absolutePath.trimEnd(File.separatorChar)
     val abs = path.absolutePath
-    // 前缀后可能跟 `/`（Android/Linux）或 `\`（Windows JVM，如单元测试），两种都吃掉
+    // The prefix may be followed by `/` (Android/Linux) or `\` (Windows JVM, e.g. unit
+    // tests); strip both
     val rel = if (abs == rootPath) "" else abs.removePrefix(rootPath).trimStart('/', '\\')
     return rel.split(File.separatorChar, '/').filter { it.isNotEmpty() }
 }
 
-/** 读取订阅根的 .gitignore（去空行与注释、去尾斜杠）；不存在或不可读返回空。 */
+/** Reads the subscription root's .gitignore (dropping blank lines, comments, and trailing slashes); returns empty if missing or unreadable. */
 internal fun readGitignorePatterns(root: File): List<String> {
     val file = File(root, ".gitignore")
     if (!file.isFile) return emptyList()
@@ -91,8 +98,10 @@ internal fun readGitignorePatterns(root: File): List<String> {
 }
 
 /**
- * 目录单层快照：子项名 → 标记。文件记 mtime+size，目录只记类型（目录自身的 mtime 会随其内部
- * 增删而变，纳入比对只会与子目录自己的事件重复上报）。
+ * Single-level snapshot of a directory: child name → marker. Files record mtime+size;
+ * directories record only their type (a directory's own mtime changes with its internal
+ * additions/removals, and including it in the comparison would only duplicate the events of
+ * the subdirectory itself).
  */
 internal fun snapshotDir(dir: File): Map<String, String> {
     val children = dir.listFiles() ?: return emptyMap()
@@ -104,7 +113,7 @@ internal fun snapshotDir(dir: File): Map<String, String> {
     return map
 }
 
-/** 对比前后快照，产出子项名 → 变更类型。 */
+/** Compares two snapshots, producing child name → change kind. */
 internal fun diffSnapshot(
     prev: Map<String, String>,
     now: Map<String, String>
@@ -124,7 +133,7 @@ internal fun diffSnapshot(
     return out
 }
 
-/** 同一路径在一个窗口内先后发生多次变更时的合并规则。 */
+/** Merge rules for multiple successive changes to the same path within one window. */
 internal fun mergeKind(prev: ChangeKind, next: ChangeKind): ChangeKind = when {
     prev == next -> prev
     (prev == ChangeKind.CREATED && next == ChangeKind.DELETED) ||

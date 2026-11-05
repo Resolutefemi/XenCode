@@ -8,7 +8,7 @@ import org.junit.Assert.assertFalse
 import org.junit.Test
 
 /**
- * /usage 命令：菜单元数据与执行行为。
+ * The /usage command: menu metadata and execution behavior.
  */
 class UsageCommandHandlerTest {
 
@@ -18,7 +18,7 @@ class UsageCommandHandlerTest {
     fun metadata_valuesAreCorrect() {
         assertEquals("usage", handler.name)
         assertEquals(R.string.slash_command_usage_desc, handler.descriptionRes)
-        assertFalse("默认不接受参数", handler.acceptsArgs)
+        assertFalse("does not accept arguments by default", handler.acceptsArgs)
     }
 
     @Test

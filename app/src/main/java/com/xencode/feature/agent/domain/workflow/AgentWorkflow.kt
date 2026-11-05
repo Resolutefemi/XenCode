@@ -8,95 +8,95 @@ import com.xencode.feature.agent.domain.tool.ToolCall
 import kotlinx.coroutines.flow.Flow
 
 /**
- * Agent 执行过程中向 UI 推送的分步事件。
- * 每个事件对应聊天里的一条（或对一条的更新），由 ViewModel 落库并渲染。
+ * Step events pushed to the UI during Agent execution.
+ * Each event corresponds to one chat entry (or an update to one); the ViewModel persists and renders them.
  */
 sealed class AgentEvent {
-    /** 模型产出的一段文字回复（可能同时伴随工具调用）。[reasoning] 为本轮思考过程，落库供历史展示，空串表示无。 */
+    /** A text reply produced by the model (possibly alongside tool calls). [reasoning] is this turn's thinking process, persisted for history display; empty string means none. */
     data class AssistantText(
         val content: String,
         val toolCalls: List<ToolCall> = emptyList(),
         val reasoning: String = "",
-        /** Anthropic extended thinking 的加密签名，随 reasoning 落库，供工具循环回传。其他 provider 为空串。 */
+        /** Encrypted signature of Anthropic extended thinking, persisted with reasoning for tool-loop passback. Empty string for other providers. */
         val signature: String = "",
         val inputTokens: Int = 0,
         val outputTokens: Int = 0,
         val cachedInputTokens: Int = 0,
-        /** Anthropic thinking / redacted_thinking 内容块的原样快照（JSON 数组文本），随 reasoning 落库供后续轮原样回传。 */
+        /** Verbatim snapshot of Anthropic thinking / redacted_thinking content blocks (JSON array text), persisted with reasoning for passback verbatim in later turns. */
         val thinkingBlocksJson: String = "",
-        /** 模型直出图片（Gemini 图像模型）落盘后构造的文件卡片，随消息落库供 UI 渲染。 */
+        /** File cards constructed after persisting model-emitted images (Gemini image models), stored with the message for the UI to render. */
         val attachments: List<com.xencode.feature.agent.presentation.AgentAttachment> = emptyList(),
         val messageId: String = java.util.UUID.randomUUID().toString(),
         val persisted: kotlinx.coroutines.CompletableDeferred<Unit>? = null
     ) : AgentEvent()
 
-    /** 流式过程中模型逐字吐出的文字（[accumulated] 为本轮已累积的完整文本，用于 UI 实时渲染，不落库）。 */
+    /** Text streamed token by token during the run ([accumulated] is the full text accumulated this turn, for live UI rendering; not persisted). */
     data class AssistantDelta(val accumulated: String) : AgentEvent()
 
-    /** 流式过程中模型逐字吐出的思考过程（[accumulated] 为本轮已累积的完整思考，用于 UI 实时渲染，不落库）。 */
+    /** Thinking process streamed token by token during the run ([accumulated] is the full thinking accumulated this turn, for live UI rendering; not persisted). */
     data class ReasoningDelta(val accumulated: String) : AgentEvent()
 
-    /** 模型决定调用某工具（执行前）。 */
+    /** The model decided to call a tool (before execution). */
     data class ToolCallStarted(val id: String, val toolName: String, val argsPreview: String) : AgentEvent()
 
     /**
-     * 模型刚开始产出某次工具调用、工具名已知（参数还在流式传输中）。
+     * The model has just started producing a tool call and the tool name is known (arguments are still streaming in).
      *
-     * 长参数工具（写整份文件、长命令）的参数流式可能持续好几秒，期间既没有正文也没有思考增量，
-     * UI 只能显示笼统的「正在思考」。这条事件让 UI 提前把状态说具体，不落库、不参与执行判定。
+     * For long-argument tools (writing a whole file, long commands), argument streaming can last several seconds during which there is neither body text nor thinking deltas,
+     * so the UI can only show a generic "Thinking". This event lets the UI make the status concrete sooner; not persisted, not part of execution decisions.
      */
     data class ToolCallPreparing(val toolName: String) : AgentEvent()
 
-    /** 工具执行过程中的实时累积输出（仅流式工具产生，用于 UI 实时渲染，不落库）。 */
+    /** Live accumulated output while a tool runs (produced only by streaming tools, for live UI rendering; not persisted). */
     data class ToolCallProgress(val id: String, val toolName: String, val accumulated: String) : AgentEvent()
 
-    /** 工具执行完成的结果（成功、失败或被用户拒绝）。 */
+    /** The tool's finished result (success, failure, or rejected by the user). */
     data class ToolCallFinished(
         val id: String,
         val toolName: String,
         val result: String,
         val isError: Boolean,
         val argsPreview: String? = null,
-        /** 仅 sendFile 等展示型工具：随结果附带的文件卡片元数据，落库供 UI 渲染，不回放进模型上下文。 */
+        /** Display-only tools such as sendFile: file-card metadata attached to the result, persisted for UI rendering, not fed back into the model context. */
         val attachments: List<com.xencode.feature.agent.presentation.AgentAttachment> = emptyList(),
         val persisted: kotlinx.coroutines.CompletableDeferred<Unit>? = null
     ) : AgentEvent()
 
-    /** 网络请求正在重试（首字节前失败触发自动重试）。仅用于 UI 实时展示，不落库。[error] 为触发重试的错误摘要。 */
+    /** A network request is retrying (auto retry triggered by a pre-first-byte failure). For live UI display only, not persisted. [error] is a summary of the error that triggered the retry. */
     data class Retrying(val attempt: Int, val maxRetries: Int, val error: RetryErrorInfo) : AgentEvent()
 
-    /** 多 Key 自动切换：当前 Key 不可用，已改用第 [newIndex]/[total] 个 Key 重发本次请求。仅用于 UI 实时展示，不落库。 */
+    /** Multi-key auto-switch: the current key is unusable, so this request is being resent with key [newIndex] of [total]. For live UI display only, not persisted. */
     data class KeySwitched(val newIndex: Int, val total: Int) : AgentEvent()
 
-    /** 正在进行上下文压缩。仅用于 UI 实时展示，不落库。 */
+    /** Context compaction in progress. For live UI display only, not persisted. */
     data class CompactionStarted(val estimatedTokens: Int) : AgentEvent()
 
-    /** 上下文压缩流程已结束（成功或失败）。仅用于 UI 实时展示，不落库。 */
+    /** The context compaction flow has ended (success or failure). For live UI display only, not persisted. */
     object CompactionFinished : AgentEvent()
 
     data class ContextUsage(val inputTokens: Int, val inputBudget: Int, val estimated: Boolean) : AgentEvent()
 
-    /** 上下文压缩失败（如压缩模型不可用）。携带失败原因，UI 展示为可展开的失败卡片；不落库。 */
+    /** Context compaction failed (e.g. the compaction model is unavailable). Carries the failure reason, shown by the UI as an expandable failure card; not persisted. */
     data class CompactionFailed(val reason: String) : AgentEvent()
 
     /**
-     * 整个流程因错误终止（如流式请求被网络中断、达到迭代上限）。与 [Completed] 区别：携带错误，UI 应展示错误而非成功。
-     * [reasonCode] 为服务端给出的类型码（如 Anthropic 的 refusal / model_context_window_exceeded），
-     * 供 UI 换成本地化说明；null 时直接展示 [error]。
+     * The whole flow terminated due to an error (e.g. the streaming request was cut off by the network, or the iteration cap was reached). Unlike [Completed]: carries an error, and the UI should show an error, not success.
+     * [reasonCode] is the server-provided type code (e.g. Anthropic's refusal / model_context_window_exceeded),
+     * which the UI can map to a localized message; when null, show [error] directly.
      */
     data class Failed(val error: String, val reasonCode: String? = null) : AgentEvent()
 
-    /** 整个流程结束。 */
+    /** The whole flow has ended. */
     object Completed : AgentEvent()
 
-    /** 模式已切换（由 AI 调用 planMode 触发），UI 据此展示计划审查面板等。 */
+    /** The mode has switched (triggered by the AI calling planMode); the UI shows the plan-review panel etc. accordingly. */
     data class ModeChanged(val newMode: AgentMode, val reason: String) : AgentEvent()
 }
 
 interface AgentWorkflow {
     /**
-     * 运行 Agent 循环并以事件流的形式分步推送进度：
-     * 模型回复 → （可能的）工具调用 → 工具结果 → 再回复 …… 直至模型不再调用工具。
+     * Runs the Agent loop and pushes progress step by step as an event flow:
+     * model reply → (possible) tool calls → tool results → reply again …… until the model calls no more tools.
      */
     fun executeEvents(
         userRequest: String,
@@ -105,25 +105,25 @@ interface AgentWorkflow {
     ): Flow<AgentEvent>
 
     /**
-     * 手动触发指定会话的上下文压缩（供 /compress 命令调用）。
-     * 复用自动压缩逻辑：解析当前生效 provider，对历史消息调用 ContextCompactor。
-     * 压缩结果由 ContextCompactor 内部持久化，通过 [onEvent] 回调推送压缩进度事件。
-     * @return 是否实际触发了压缩（历史未超阈值时返回 false，不改动）。
+     * Manually triggers context compaction for the given session (invoked by the /compress command).
+     * Reuses the auto-compaction logic: resolves the currently active provider and runs ContextCompactor over the message history.
+     * The compaction result is persisted inside ContextCompactor, and compaction progress events are pushed via the [onEvent] callback.
+     * @return Whether compaction was actually triggered (false when history is under the threshold, with no changes made).
      */
     suspend fun compactSession(sessionId: String, onEvent: suspend (AgentEvent) -> Unit = {}): Boolean
 
     /**
-     * 为新建会话生成标题（供首条用户消息后异步调用）。
-     * 默认跟随当前聊天模型；若配置了标题总结专用模型且可用则用之。
-     * 生成失败或取不到标题时返回 null（调用方保留临时标题）。
+     * Generates a title for a newly created session (called asynchronously after the first user message).
+     * Follows the current chat model by default; uses the dedicated title-summary model if configured and available.
+     * Returns null when generation fails or no title is produced (the caller keeps the temporary title).
      */
     suspend fun generateTitle(sessionId: String, request: String): String?
 
     /**
-     * 根据 Git 差异文本生成符合 Conventional Commits 规范的提交信息。
-     * 默认使用全局生效的 AI 供应商及默认模型。
-     * @param diff 变更内容差异文本（`git diff --cached` 或工作区差异）
-     * @return 建议的提交说明，失败返回 null。
+     * Generates a Conventional Commits-compliant commit message from a Git diff.
+     * Uses the globally active AI provider and default model by default.
+     * @param diff The change diff text (`git diff --cached` or the working-tree diff)
+     * @return The suggested commit message, or null on failure.
      */
     suspend fun generateCommitMessage(diff: String): String?
 }

@@ -8,7 +8,7 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 /**
- * 每轮任务总耗时的划分（[computeTaskDurations]）与展示格式（[formatTaskDuration]）。
+ * Per-turn total task duration split ([computeTaskDurations]) and display format ([formatTaskDuration]).
  */
 class TaskDurationTest {
 
@@ -97,7 +97,7 @@ class TaskDurationTest {
 
     @Test
     fun assistant_without_a_preceding_user_message_is_skipped() {
-        // 分页只加载到助手消息时，找不到本轮起点，不显示耗时
+        // When paging only loads up to an assistant message, no turn start is found and no duration is shown
         val messages = listOf(assistant("a1", 2_000))
         assertTrue(computeTaskDurations(messages, lastTurnFinished = true).isEmpty())
     }

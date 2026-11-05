@@ -23,14 +23,14 @@ import java.util.concurrent.CopyOnWriteArrayList
 import java.util.concurrent.Executors
 
 /**
- * [ToolInvoker] 单元测试。重点保障「工具执行不占调用方线程」这一线上崩溃修复语义：
- * workflow 的收集方是 `viewModelScope.launch` 的 Main 单线程，若工具执行不切 IO，
- * 并行批次的阻塞 IO（su fork + waitFor / runCommandSync）会串行占死主线程。
+ * [ToolInvoker] unit tests. Focus: the crash-fix semantics of "tool execution never occupies the caller's thread" —
+ * the workflow collector runs on the single Main thread of `viewModelScope.launch`; if tool execution does not switch to IO,
+ * the blocking IO of parallel batches (su fork + waitFor / runCommandSync) serially starves the main thread.
  */
 class ToolInvokerTest {
 
     private val toolOutputStore: ToolOutputStore = mockk<ToolOutputStore>(relaxed = true).also { store ->
-        // process 原样返回输入（裁剪/落盘是 ToolOutputStore 自身职责，此处聚焦线程与包装语义）
+        // process returns the input unchanged (trimming/persisting is ToolOutputStore's own duty; this file focuses on threading and wrapping semantics)
         every { store.process(any(), any(), any()) } answers { thirdArg() }
     }
     private val invoker = ToolInvoker(toolOutputStore)
@@ -68,11 +68,11 @@ class ToolInvokerTest {
     }
 
     /**
-     * 模拟线上调用环境：调用方是单线程「主」调度器（对应 Dispatchers.Main.immediate）。
-     * 修复前工具执行占满该线程（=ANR/闪退）；修复后全部落到 IO 池线程。
+     * Simulates the production calling environment: the caller is a single-thread "main" dispatcher (mimicking Dispatchers.Main.immediate).
+     * Before the fix, tool execution saturated that thread (= ANR/crash); after the fix, everything lands on IO pool threads.
      */
     @Test
-    fun runSync_在单线程主调度器上也落到IO线程() = runBlocking {
+    fun runSync_hopsToIoThreadsEvenOnSingleThreadMainDispatcher() = runBlocking {
         val mainSim = Executors.newSingleThreadExecutor { r -> Thread(r, "main-sim") }
         val dispatcher = mainSim.asCoroutineDispatcher()
         val execThreads = CopyOnWriteArrayList<String>()
@@ -92,19 +92,19 @@ class ToolInvokerTest {
         } finally {
             mainSim.shutdownNow()
         }
-        assertEquals("应执行 4 次", 4, execThreads.size)
+        assertEquals("should execute 4 times", 4, execThreads.size)
         assertTrue(
-            "任何一次工具执行都不得占用调用方线程，实际: $execThreads",
+            "no tool execution may run on the caller's thread, actual: $execThreads",
             execThreads.none { it.contains("main-sim") }
         )
     }
 
     /**
-     * 并行性回归：4 个各阻塞 300ms 的工具，在 IO 池上应远小于串行的 1200ms。
-     * 旧行为（Main 单线程串行）下总耗时必然 >= 1200ms，测试失败。
+     * Parallelism regression: 4 tools each blocking 300ms should finish far faster than the serial 1200ms on the IO pool.
+     * Under the old behavior (Main single-thread serial) the total would necessarily be >= 1200ms and the test fails.
      */
     @Test
-    fun runSync_并行批次在IO池上真正并发() = runBlocking {
+    fun runSync_parallelBatchesRunConcurrentlyOnIoPool() = runBlocking {
         val startedAt = System.currentTimeMillis()
         runBlocking(Executors.newSingleThreadExecutor { r -> Thread(r, "main-sim") }.asCoroutineDispatcher()) {
             coroutineScope {
@@ -119,21 +119,21 @@ class ToolInvokerTest {
             }
         }
         val elapsed = System.currentTimeMillis() - startedAt
-        assertTrue("并行 4×300ms 应远快于串行 1200ms，实际 ${elapsed}ms", elapsed < 900)
+        assertTrue("4 parallel 300ms tools should beat the serial 1200ms, actual ${elapsed}ms", elapsed < 900)
     }
 
     @Test
-    fun runSync_工具抛异常时包装为执行失败() = runBlocking {
+    fun runSync_wrapsToolExceptionsAsExecutionFailure() = runBlocking {
         val result = invoker.runSync(FakeTool("Bash") {
             throw IllegalStateException("boom")
         }, call(), context)
         assertTrue(result.isError)
-        assertTrue("应含错误码，实际: ${result.raw}", result.raw.contains("TOOL_EXECUTION_FAILED"))
+        assertTrue("should contain the error code, actual: ${result.raw}", result.raw.contains("TOOL_EXECUTION_FAILED"))
         assertTrue(result.raw.contains("boom"))
     }
 
     @Test
-    fun runSync_Cancellation异常原样穿透不包装() {
+    fun runSync_cancellationPassesThroughUnwrapped() {
         val tool = FakeTool("Bash") { throw CancellationException("cancelled") }
         var caught: Throwable? = null
         runBlocking {
@@ -143,19 +143,19 @@ class ToolInvokerTest {
                 caught = e
             }
         }
-        assertTrue("CancellationException 必须重新抛出", caught is CancellationException)
+        assertTrue("CancellationException must be rethrown", caught is CancellationException)
     }
 
     @Test
-    fun runSync_工具不存在时返回未找到错误() = runBlocking {
-        val result = invoker.runSync(null, call(name = "不存在的工具"), context)
+    fun runSync_unknownToolReturnsNotFoundError() = runBlocking {
+        val result = invoker.runSync(null, call(name = "nonexistent-tool"), context)
         assertTrue(result.isError)
         assertTrue(result.raw.contains("TOOL_NOT_FOUND"))
     }
 
-    /** sendFile 结果：attachments 带宿主本地路径，喂模型的 transport 串剥掉 local_path。 */
+    /** sendFile result: attachments carry the host-local path; the transport string fed to the model strips local_path. */
     @Test
-    fun runSync_提取附件并剥离本地路径() = runBlocking {
+    fun runSync_extractsAttachmentsAndStripsLocalPaths() = runBlocking {
         val files = JsonArray(listOf(JsonObject(mapOf(
             "path" to JsonPrimitive("/root/workspace/a.txt"),
             "local_path" to JsonPrimitive("/data/user/0/com.xencode/files/ws/a.txt"),
@@ -174,13 +174,13 @@ class ToolInvokerTest {
         assertFalse(result.isError)
         assertEquals(1, result.attachments.size)
         assertEquals("/data/user/0/com.xencode/files/ws/a.txt", result.attachments[0].localPath)
-        assertTrue("模型侧不得看到 local_path", !result.raw.contains("local_path"))
-        assertTrue("应带容器路径", result.raw.contains("/root/workspace/a.txt"))
-        assertTrue("应标记已附文件", result.raw.contains("files_attached"))
+        assertTrue("the model side must not see local_path", !result.raw.contains("local_path"))
+        assertTrue("should carry the container path", result.raw.contains("/root/workspace/a.txt"))
+        assertTrue("should flag files as attached", result.raw.contains("files_attached"))
     }
 
     @Test
-    fun runStream_进度事件回传且最终结果非错误() = runBlocking {
+    fun runStream_forwardsProgressEventsAndEndsWithNonErrorResult() = runBlocking {
         val progressThreads = CopyOnWriteArrayList<String>()
         val events = listOf(
             ToolStreamEvent.Progress(JsonPrimitive("line-1").toString()),
@@ -198,11 +198,11 @@ class ToolInvokerTest {
         }
         assertFalse(result.isError)
         assertTrue(result.raw.contains("done"))
-        assertTrue("进度事件应至少回传一次", progressThreads.isNotEmpty())
+        assertTrue("progress events should be delivered at least once", progressThreads.isNotEmpty())
     }
 
     @Test
-    fun runStream_同样不占调用方单线程() = runBlocking {
+    fun runStream_alsoDoesNotOccupyCallerSingleThread() = runBlocking {
         val mainSim = Executors.newSingleThreadExecutor { r -> Thread(r, "main-sim") }
         val eventThreads = CopyOnWriteArrayList<String>()
         try {
@@ -223,13 +223,13 @@ class ToolInvokerTest {
         }
         assertTrue(eventThreads.isNotEmpty())
         assertTrue(
-            "流式执行与事件回传都不得占用调用方线程，实际: $eventThreads",
+            "neither streaming execution nor event delivery may occupy the caller's thread, actual: $eventThreads",
             eventThreads.none { it.contains("main-sim") }
         )
     }
 
     @Test
-    fun runStream_流式工具未返回Completed结果时报缺失错误() = runBlocking {
+    fun runStream_missingCompletedResultReportsMissingError() = runBlocking {
         val result = invoker.runStream(
             FakeStreamTool("Bash", listOf(ToolStreamEvent.Progress(JsonPrimitive("x").toString()))),
             call(),

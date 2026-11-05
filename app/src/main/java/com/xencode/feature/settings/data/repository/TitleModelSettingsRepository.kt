@@ -13,10 +13,10 @@ private val Context.titleModelDataStore by preferencesDataStore(
 )
 
 /**
- * 持久化「标题总结专用模型」选择（providerId + model 两字符串）。
+ * Persists the "dedicated title summarization model" selection (two strings: providerId + model).
  *
- * 新建会话生成标题默认跟随当前聊天模型；当用户在此指定一个专用模型后，
- * 标题生成会临时切换到该专用模型发送请求，发完恢复。providerId 为空（未配置）即视为「跟随当前聊天模型」。
+ * Title generation for new sessions follows the current chat model by default; once the user designates a dedicated model here,
+ * title generation temporarily switches to that model to send the request, then restores. A blank providerId (not configured) means "follow the current chat model".
  */
 @Singleton
 class TitleModelSettingsRepository @Inject constructor(
@@ -25,15 +25,15 @@ class TitleModelSettingsRepository @Inject constructor(
     context.titleModelDataStore, "title_provider_id", "title_model"
 ) {
 
-    /** 写入标题总结专用模型（设空字符串即等同 [clear]）。 */
+    /** Writes the dedicated title summarization model (setting an empty string is equivalent to [clear]). */
     suspend fun setTitleModel(providerId: String, model: String) = setSelection(providerId, model)
 
-    /** 清空配置——回退到「跟随当前聊天模型」。 */
+    /** Clears the configuration — falls back to "follow the current chat model". */
     suspend fun clear() = clearSelection()
 
-    /** 读取一次当前标题总结专用 providerId（冷读用）。 */
+    /** Reads the current dedicated title summarization providerId once (for cold reads). */
     suspend fun getTitleProviderId(): String = readProviderId()
 
-    /** 读取一次当前标题总结专用 model（冷读用）。 */
+    /** Reads the current dedicated title summarization model once (for cold reads). */
     suspend fun getTitleModel(): String = readModel()
 }

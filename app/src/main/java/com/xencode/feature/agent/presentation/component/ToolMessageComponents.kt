@@ -121,30 +121,30 @@ internal val DiffRemoveText: Color
 internal const val DIFF_COLLAPSE_THRESHOLD = 20
 internal const val TOOL_SECTION_LINE_LIMIT = 20
 
-/** 静态（非 live）工具输出渲染的字符上限：视口限高 240dp 本就看不完超长输出，但
- *  Text 会按全文做布局测量（O 字符数）——50KB 输出的卡片滚入视口时单次布局可达 10ms+，
- *  是快速滑动聊天记录时组合尖峰/掉帧的直接来源。超限截断展示，完整内容走原始记录。 */
+/** Character cap for rendering static (non-live) tool output: the 240dp viewport cap already makes over-long output unreadable, yet
+ *  Text measures layout over the full text (O number of chars) — a card with 50KB of output can take 10ms+ for a single layout pass as it scrolls into view,
+ *  a direct source of composition spikes/dropped frames while flinging through chat history. Over-cap content is truncated for display; the full content lives in the raw record. */
 private const val TOOL_SECTION_CHAR_LIMIT = 16_000
 
-/** 工具「指令 / 结果」展开窗口的最大高度：超出后在窗口内滚动，不再无限撑高。 */
+/** Max height of the tool "instruction / result" expanded window: beyond it, scroll inside the window instead of growing unbounded. */
 private val ToolSectionMaxHeight = 240.dp
 
-/** 工具窗口底部渐隐遮罩高度（仅当内容还可继续下滚时显示）。 */
+/** Height of the bottom fade mask in the tool window (shown only while more content can scroll down). */
 private val ToolSectionFadeHeight = 24.dp
 
 /**
- * 工具消息（DSH 扁平行）：一行「工具图标 + 工具名 + 路径 + 增删统计 + 箭头」，行上方一条
- * 1px 细线做分隔，不再套描边卡片；点击展开查看「指令 / 结果」，或对 editFile / writeFile
- * 展开为白底描边的差异卡（头部路径 + 复制，页脚增删统计）。
+ * Tool message (DSH flat row): one row of "tool icon + tool name + path + add/remove stats + chevron" with a
+ * 1px hairline above it as a separator, no outlined card; tap to expand the "instruction / result", or for editFile / writeFile
+ * expand into a white outlined diff card (header path + copy, footer add/remove stats).
  *
- * 状态不再只用颜色表达：运行中图标脉冲、失败额外挂一个警示图标，读屏另有状态语义。
- * [liveOutput] 非空时进入「实时输出」模式：显示逐行累积输出。
+ * Status is no longer color-only: the icon pulses while running, a failure additionally hangs a warning icon, and screen readers get separate status semantics.
+ * A non-null [liveOutput] enters "live output" mode: shows output accumulating line by line.
  *
- * 展开态由 [expandedOverride] + [onExpandedChange] 受控（宿主持久化，见
- * [com.xencode.feature.agent.presentation.AIAgentViewModel.toolExpansionOverrides]）：
- * 从前用 `remember(message.id)` 存在这里，item 滚出视口被 LazyColumn 回收、或全屏路由
- * 把整棵聊天组合 dispose 后就会缩回默认态。null 表示用户还没手动开关过——此时**默认收起**，
- * 所有工具（含差异卡、待办卡）一视同仁，看细节要点开。
+ * The expanded state is controlled via [expandedOverride] + [onExpandedChange] (persisted by the host, see
+ * [com.xencode.feature.agent.presentation.AIAgentViewModel.toolExpansionOverrides]):
+ * it used to live here in `remember(message.id)`, which snapped back to the default once the item scrolled out of view and was recycled by the LazyColumn, or a fullscreen route
+ * disposed the whole chat composition. null means the user hasn't toggled it manually — then it's **collapsed by default**,
+ * all tools (diff cards and todo cards included) treated alike; details are one tap away.
  */
 @Composable
 internal fun ToolMessageBody(
@@ -174,7 +174,7 @@ internal fun ToolMessageBody(
     val webSearchData = if (message.toolName == "websearch" && !running && !message.isError) {
         remember(message.id, message.content) { parseWebSearchResult(message.content) }
     } else null
-    // 后台任务/子代理完成通知：搭车在本次工具结果里送给 AI 的，同时常显给用户看。
+    // Background task/sub-agent completion notifications: piggybacked on this tool result for the AI, and always shown to the user too.
     val notifications = if (!running) {
         remember(message.id, message.content) { parseToolNotifications(message.content) }
     } else emptyList()
@@ -183,17 +183,17 @@ internal fun ToolMessageBody(
         remember(message.id, message.content) { parseRenderLayoutResult(message.content) }
     } else null
 
-    // 执行中也可折叠/展开（如 bash 刷屏时可收起只看标题行），无论当前是否有输出；无输出时折叠态无内容，但保持可点击与箭头一致
+    // Collapsible/expandable even while running (e.g. collapse a spammy bash run to just the header row), regardless of current output; with no output the collapsed state has no content but stays clickable, consistent with the chevron
     val hasLiveOutput = !liveOutput.isNullOrBlank()
     val expandable = streaming || (!running && (edit != null || !resultText.isNullOrBlank() || !argsFull.isNullOrBlank()
             || (todoData != null && todoData.items.isNotEmpty()) || webSearchData != null || renderData != null))
-    // 工具调用一律默认收起（差异卡、待办卡也不例外）：要不要看细节由用户点开，
-    // 手动开关过（expandedOverride 非 null）就以用户的选择为准。展开态由宿主保管，
-    // 因此滚出视口、切页返回都不会再丢。
+    // Tool calls are collapsed by default (diff cards and todo cards included): the user taps to see details;
+    // once toggled manually (expandedOverride non-null), the user's choice wins. The expanded state is kept by the host,
+    // so scrolling out of view or switching pages and back no longer loses it.
     val effectiveExpanded = expandedOverride == true
 
     val toolLabel = message.toolName ?: stringResource(R.string.common_tool)
-    // 文件相关工具：从结构化 diff 或工具参数里取路径，统一按「工具名 + 路径 + 文件名」展示
+    // File-related tools: take the path from the structured diff or the tool args, displayed uniformly as "tool name + path + file name"
     val filePath = if (edit != null) {
         edit.path
     } else {
@@ -229,7 +229,7 @@ internal fun ToolMessageBody(
                         overflow = TextOverflow.Ellipsis
                     )
                     Spacer(Modifier.width(Spacing.xs))
-                    // 路径段（可省略）+ 文件名段（永远完整，优先级最高）：等宽字，与代码卡头部一致
+                    // Path segment (omittable) + file name segment (always complete, top priority): monospace, matching the code card header
                     val monoLabel = MaterialTheme.typography.labelSmall.copy(
                         fontFamily = FontFamily.Monospace
                     )
@@ -275,9 +275,9 @@ internal fun ToolMessageBody(
                 }
             }
             if (running) {
-                // 运行中的这条：行尾用统一的涟漪场景文案说明「正在做什么」。工具名在开始执行前
-                // 就已到达（AgentEvent.ToolCallStarted），所以不必停在笼统的「执行中」；
-                // 折叠态也看得见，不必展开才知道它在跑。
+                // The running one: the row's tail uses the unified ripple scene label to say "what it's doing". The tool name arrives
+                // before execution starts (AgentEvent.ToolCallStarted), so there's no need to settle for a generic "running";
+                // it's visible even collapsed — no need to expand to know it's working.
                 Spacer(Modifier.width(Spacing.sm))
                 RippleText(text = stringResource(toolRunningLabelRes(message.toolName)))
             }
@@ -305,8 +305,8 @@ internal fun ToolMessageBody(
             }
         }
         if (streaming) {
-            // 展开态与落库卡片同构：先「指令」（工具参数），再「结果」（实时输出尾部）；
-            // 折叠态只保留标题行。「还在跑」由标题行行尾的涟漪场景文案表达，不在这里重复一遍。
+            // Expanded state mirrors the persisted card: first "instruction" (tool args), then "result" (tail of the live output);
+            // collapsed keeps only the header row. "Still running" is conveyed by the ripple scene label at the header row's tail, not repeated here.
             AnimatedVisibility(
                 visible = effectiveExpanded,
                 enter = expandVertically(expandFrom = Alignment.Top) + fadeIn(),
@@ -345,7 +345,7 @@ internal fun ToolMessageBody(
                     Spacer(Modifier.height(Spacing.xs))
                     WebSearchResultCard(result = webSearchData)
                 } else if (edit != null) {
-                    // 差异卡：头部给路径与「复制」，页脚给增删统计（DSH 那块白底描边卡）
+                    // Diff card: header carries the path and "copy", footer carries add/remove stats (that white outlined DSH card)
                     Spacer(Modifier.height(Spacing.xs))
                     ChatCodeCard(
                         title = edit.path.ifBlank { null },
@@ -383,7 +383,7 @@ internal fun ToolMessageBody(
             Spacer(Modifier.height(Spacing.sm))
             notifications.forEach { ToolNotificationRow(it) }
         }
-        // 文件列表：工具结束后常显在消息底部，一行一个文件，点击用系统 app 打开。
+        // File list: after the tool finishes, always shown at the bottom of the message, one file per row, tap to open with a system app.
         if (!running && message.attachments.isNotEmpty()) {
             val opener = LocalAttachmentOpener.current
             MessageAttachmentList(
@@ -397,8 +397,8 @@ internal fun ToolMessageBody(
 internal data class ToolNotificationInfo(val summary: String, val succeeded: Boolean, val isMessage: Boolean = false)
 
 /**
- * 从工具结果 transport JSON 顶层的 `notifications` 字段提取搭车通知（后台任务/子代理完成）。
- * 该字段由 [com.xencode.feature.agent.domain.workflow.StatefulAgentWorkflow] 在 AI 忙碌时注入。
+ * Extracts piggybacked notifications (background task/sub-agent completions) from the top-level `notifications` field of a tool result's transport JSON.
+ * The field is injected by [com.xencode.feature.agent.domain.workflow.StatefulAgentWorkflow] while the AI is busy.
  */
 internal fun parseToolNotifications(raw: String): List<ToolNotificationInfo> {
     val array = parseToolTransport(raw.withoutToolStatusPrefix())?.get("notifications") as? JsonArray
@@ -416,7 +416,7 @@ internal fun parseToolNotifications(raw: String): List<ToolNotificationInfo> {
     }
 }
 
-/** 工具卡片底部的搭车通知提示条：状态点 + 摘要。 */
+/** Piggybacked notification strip at the bottom of a tool card: status dot + summary. */
 @Composable
 private fun ToolNotificationRow(info: ToolNotificationInfo) {
     Row(
@@ -561,15 +561,15 @@ private fun String.takeLastLines(maxLines: Int): String {
 }
 
 /**
- * 双击折叠检测：detectTapGestures 的 awaitFirstDown 默认 requireUnconsumed=true，
- * 而展开区内容包在 SelectionContainer / clickable 里会消费 down，导致首击被忽略、
- * 双击永远不触发。这里首击不要求未消费，只做「快速连点两次」判定。
+ * Double-tap-to-collapse detection: detectTapGestures' awaitFirstDown defaults to requireUnconsumed=true,
+ * but the expanded content wrapped in SelectionContainer / clickable consumes the down, so the first tap gets ignored and
+ * the double tap never fires. Here the first tap doesn't require unconsumed; it only checks for "two quick taps in a row".
  */
 private suspend fun PointerInputScope.detectDoubleTapToCollapse(onDoubleTap: () -> Unit) {
     val viewConfig = viewConfiguration
     awaitEachGesture {
         val firstDown = awaitFirstDown(requireUnconsumed = false)
-        // 两次点击期间若发生明显位移（用户在滑动），放弃双击判定
+        // If a noticeable movement happens between the two taps (the user is swiping), give up on the double-tap detection
         if (!awaitTapOrSwipe(firstDown.id, firstDown.position, viewConfig.touchSlop)) return@awaitEachGesture
         val secondDown = withTimeoutOrNull(viewConfig.doubleTapTimeoutMillis) {
             awaitFirstDown(requireUnconsumed = false)
@@ -585,7 +585,7 @@ private suspend fun PointerInputScope.detectDoubleTapToCollapse(onDoubleTap: () 
     }
 }
 
-/** 等待指定指针抬起；期间若位移超过 slop（发生滑动），返回 false。 */
+/** Waits for the given pointer to lift; returns false if movement exceeds slop (a swipe) meanwhile. */
 private suspend fun AwaitPointerEventScope.awaitTapOrSwipe(
     pointerId: PointerId,
     downPosition: Offset,
@@ -600,11 +600,11 @@ private suspend fun AwaitPointerEventScope.awaitTapOrSwipe(
 }
 
 /**
- * 工具状态图标：按工具类型给出字形（文件 / 终端 / 搜索 / 任务…），并按状态着色——
- * 运行中脉冲、失败整枚图标转红、成功回到中性色（满屏绿色会抢注意力）。
+ * Tool status icon: picks a glyph by tool type (file / terminal / search / task…), colored by state —
+ * pulsing while running, the whole icon turning red on failure, back to neutral on success (a screen full of green steals attention).
  *
- * 失败不再额外挂一枚警示图标：行首图标格保持一枚字形，状态只由颜色与读屏语义表达，
- * 免得同一行出现两个图标、行首位置还随成败跳动。色弱用户靠 [statusLabel]（读屏）分辨成败。
+ * Failures no longer hang an extra warning icon: the leading icon slot keeps a single glyph, with state carried by color and screen-reader semantics alone,
+ * avoiding two icons on one row and the leading position jumping with success/failure. Color-blind users rely on [statusLabel] (screen reader) to tell outcomes apart.
  */
 @Composable
 internal fun ToolStatusIcon(running: Boolean, isError: Boolean, toolName: String?) {
@@ -637,14 +637,14 @@ internal fun ToolStatusIcon(running: Boolean, isError: Boolean, toolName: String
             contentDescription = statusLabel,
             tint = tint,
             modifier = Modifier
-                // 与思考行同一格宽：两行的图标中心与后续文字左边缘才对得齐
+                // Same cell width as the reasoning row: only then do both rows' icon centers align with the left edge of the following text
                 .size(ChatStyle.rowIconSize)
                 .graphicsLayer { alpha = pulseAlpha }
         )
     }
 }
 
-/** 工具名字形映射：键与 [com.xencode.feature.agent.domain.tool.ToolRegistry] 注册名一致（比对时忽略大小写）。 */
+/** Tool name to glyph mapping: keys match the names registered in [com.xencode.feature.agent.domain.tool.ToolRegistry] (case-insensitive comparison). */
 private fun toolIcon(toolName: String?): ImageVector = when (toolName?.lowercase()) {
     "editfile", "writefile", "generateimage" -> FeatherIcons.Edit3
     "readfile", "list", "sendfile", "viewimage" -> FeatherIcons.FileText
@@ -657,13 +657,13 @@ private fun toolIcon(toolName: String?): ImageVector = when (toolName?.lowercase
 }
 
 /**
- * 工具执行中的场景文案：把工具名归成用户一眼能懂的「正在做什么」，供统一忙碌指示器
- * （[AgentBusyIndicator] / [RippleText]）使用。
+ * Scene labels for tools in execution: bucket tool names into an at-a-glance "what it's doing" for the unified busy indicator
+ * ([AgentBusyIndicator] / [RippleText]).
  *
- * 键与 [toolIcon] 一致（工具注册名，忽略大小写）。归类原则是「用户视角」而不是「实现视角」：
- * 读文件与列目录都算「正在读取文件」，联网搜索与抓网页都算「正在联网搜索」。工具名在执行前
- * 就已到达（`AgentEvent.ToolCallStarted`），所以文案能跟着实际动作走，而不必停在「正在思考」。
- * MCP 动态注册工具、自定义工具等未归类的，一律回落 [R.string.chat_status_calling_tool]。
+ * Keys match [toolIcon] (tool registry names, case-insensitive). Bucketing follows the "user's view", not the "implementation view":
+ * reading a file and listing a directory both count as "reading files"; web search and fetching a page both count as "searching the web". The tool name arrives
+ * before execution starts (`AgentEvent.ToolCallStarted`), so the label tracks the actual action instead of stalling at "thinking".
+ * MCP dynamically registered tools, custom tools and other unbucketed ones all fall back to [R.string.chat_status_calling_tool].
  */
 @StringRes
 internal fun toolRunningLabelRes(toolName: String?): Int = when (toolName?.lowercase()) {
@@ -680,8 +680,8 @@ internal fun toolRunningLabelRes(toolName: String?): Int = when (toolName?.lower
 }
 
 /**
- * 工具是否仍在执行：实时输出中，或结果仍是 pending 占位。
- * [AIChatPanel] 判定工具调用分组是否要保持展开时复用这一条，避免两处判定漂移。
+ * Whether the tool is still executing: mid live output, or the result is still a pending placeholder.
+ * [AIChatPanel] reuses this when deciding whether a tool-call group must stay expanded, avoiding drift between two checks.
  */
 internal fun AgentUIMessage.isToolRunning(liveOutput: String?): Boolean =
     liveOutput != null ||
@@ -689,13 +689,13 @@ internal fun AgentUIMessage.isToolRunning(liveOutput: String?): Boolean =
         content.startsWith(SessionUseCase.LEGACY_PENDING_TOOL_MARKER)
 
 /**
- * 「N 次工具调用」分组头：DSH 把一轮任务里连续的工具调用折成一行，**默认收起**，
- * 点一下手动展开/收起（运行中也不自动弹开）。
- * 布局对齐思考行：左侧工具图标（锤子/施工） + 中间调用计数 + 折叠箭头。
+ * "N tool calls" group header: DSH folds consecutive tool calls within one turn into a single row, **collapsed by default**;
+ * one tap expands/collapses manually (it never pops open on its own while running).
+ * Layout mirrors the reasoning row: tool icon on the left (hammer/construction) + call count in the middle + collapse chevron.
  *
- * [running] 为真时给「N 次工具调用」这行文案本身走涟漪高光，表示这批调用还在跑。
- * 不再另挂三个跳动的点，也不在这里重复场景文案（「正在编辑文件」这类说的是**具体哪个工具**，
- * 展开后由每条工具行的运行状态给出，见 [ToolMessageBody]）。
+ * When [running] is true, the "N tool calls" label itself gets the ripple highlight, indicating this batch of calls is still going.
+ * No extra bouncing dots, and no scene label repeated here (things like "editing a file" describe **which specific tool**,
+ * given per tool row by its running state once expanded; see [ToolMessageBody]).
  */
 @Composable
 internal fun ToolCallGroupHeader(
@@ -711,7 +711,7 @@ internal fun ToolCallGroupHeader(
             .heightIn(min = ChatStyle.toolRowMinHeight)
             .clip(ChatStyle.panelShape)
             .clickable(
-                // 无障碍：点这一行会展开还是收起，读屏能念出来（展开状态本身由 count 文本表达）
+                // Accessibility: screen readers can announce whether tapping this row expands or collapses (the expanded state itself is conveyed by the count text)
                 onClickLabel = stringResource(
                     if (expanded) R.string.common_collapse_action else R.string.common_expand
                 ),
@@ -726,8 +726,8 @@ internal fun ToolCallGroupHeader(
             modifier = Modifier.size(ChatStyle.rowIconSize)
         )
         Spacer(Modifier.width(Spacing.sm))
-        // 权重挂在外层占位，涟漪画在文字自身的尺寸上：光带只扫「N 次工具调用」这几个字，
-        // 不会在整行空白里慢慢爬（见 Modifier.rippleHighlight）。
+        // The weight sits on the outer spacer while the ripple draws at the text's own size: the band sweeps only the "N tool calls" words,
+        // not slowly crawling across the row's blank space (see Modifier.rippleHighlight).
         Row(modifier = Modifier.weight(1f), verticalAlignment = Alignment.CenterVertically) {
             RippleText(
                 text = stringResource(R.string.chat_tool_calls_count, count),
@@ -743,7 +743,7 @@ internal fun ToolCallGroupHeader(
     }
 }
 
-/** 展开区的一段带小标题的内容块（如「指令」「结果」）：弱底等宽小面板，超出限高后在窗口内滚动。 */
+/** A small titled content block in the expanded area (e.g. "instruction", "result"): muted monospace panel, scrolling inside the window beyond the height cap. */
 @Composable
 internal fun ToolSection(label: String, content: String, live: Boolean = false) {
     Text(
@@ -774,7 +774,7 @@ internal fun ToolSection(label: String, content: String, live: Boolean = false) 
         if (!live || (followLive && !scrollState.isScrollInProgress)) displayedContent = content
     }
     val fadeColor = MaterialTheme.colorScheme.background
-    // 静态超长输出截断（见 TOOL_SECTION_CHAR_LIMIT）；live 已由调用方 takeLastLines 控制。
+    // Static over-long output is truncated (see TOOL_SECTION_CHAR_LIMIT); live is already controlled by the caller's takeLastLines.
     val renderContent = remember(content, live) {
         if (!live && content.length > TOOL_SECTION_CHAR_LIMIT) {
             content.take(TOOL_SECTION_CHAR_LIMIT) + "\n…(output too long, truncated)"
@@ -799,7 +799,7 @@ internal fun ToolSection(label: String, content: String, live: Boolean = false) 
                 )
             }
         }
-        // 底部渐隐：只有还能继续往下滚时才盖一层，提示“下面还有内容”
+        // Bottom fade: only cover a layer while more content can scroll down, hinting "more content below"
         if (scrollState.canScrollForward) {
             Box(
                 modifier = Modifier
@@ -812,7 +812,7 @@ internal fun ToolSection(label: String, content: String, live: Boolean = false) 
     }
 }
 
-/** 增删统计胶囊：绿色「+N」与红色「−M」。 */
+/** Add/remove stat pill: green "+N" and red "−M". */
 @Composable
 internal fun DiffStat(added: Int, removed: Int) {
     Row(verticalAlignment = Alignment.CenterVertically) {
@@ -837,7 +837,7 @@ internal fun DiffStat(added: Int, removed: Int) {
 }
 
 /**
- * 彩色行级差异视图
+ * Colored line-level diff view
  */
 @Composable
 internal fun DiffView(diff: String, startLine: Int) {
@@ -856,9 +856,9 @@ internal fun DiffView(diff: String, startLine: Int) {
     val gutterColor = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f)
 
     Column(modifier = Modifier.fillMaxWidth()) {
-        // 横向滚动容器在外层、文本选择在内层：滚动手势优先，
-        // 避免 SelectionContainer 偶发抢占左右滑动（选择模式激活后拖动被选词消费）。
-        // 底色与圆角由外层 ChatCodeCard 提供，这里只负责行渲染与横滑。
+        // Horizontal scroll container outside, text selection inside: the scroll gesture wins,
+        // avoiding SelectionContainer occasionally stealing left/right swipes (once selection mode activates, drags are consumed by the selected word).
+        // Background and corners come from the outer ChatCodeCard; this handles only row rendering and horizontal scrolling.
         Column(
             modifier = Modifier
                 .fillMaxWidth()
@@ -913,7 +913,7 @@ internal fun DiffView(diff: String, startLine: Int) {
     }
 }
 
-/** 长差异的页脚切换 */
+/** Footer toggle for long diffs */
 @Composable
 internal fun DiffExpandToggle(expanded: Boolean, hiddenCount: Int, onToggle: () -> Unit) {
     Row(
@@ -941,10 +941,10 @@ internal fun DiffExpandToggle(expanded: Boolean, hiddenCount: Int, onToggle: () 
     }
 }
 
-/** editFile 单处编辑的差异片段。 */
+/** Diff hunk for a single editFile edit. */
 internal data class EditHunk(val startLine: Int, val diff: String)
 
-/** editFile 结果中解析出的结构化差异 */
+/** Structured diff parsed from an editFile result */
 internal data class EditDiff(
     val path: String,
     val added: Int,
@@ -953,7 +953,7 @@ internal data class EditDiff(
 )
 
 /**
- * 从持久化的 TOOL 内容中解析 editFile / writeFile 的结构化差异
+ * Parse the structured diff of editFile / writeFile from persisted TOOL content
  */
 internal fun parseEditDiff(content: String): EditDiff? {
     val dataObj = extractToolDataObject(content)
@@ -987,7 +987,7 @@ private fun parseEditDiffObject(obj: JsonObject): EditDiff? {
 }
 
 /**
- * 把落库的原始工具结果清洗成可读文本
+ * Cleanse a persisted raw tool result into readable text
  */
 internal fun formatToolResult(raw: String): String {
     val s = raw.withoutToolStatusPrefix()
@@ -1057,7 +1057,7 @@ internal fun String.withoutToolStatusPrefix(): String = trim()
     .trim()
 
 /**
- * 把 `data=` 里的 JsonElement 文本渲染成可读结果
+ * Render the JsonElement text inside `data=` into a readable result
  */
 internal fun formatJsonData(jsonStr: String): String? = runCatching {
     when (val el = Json.parseToJsonElement(jsonStr.trim())) {
@@ -1067,7 +1067,7 @@ internal fun formatJsonData(jsonStr: String): String? = runCatching {
     }
 }.getOrNull()
 
-/** 把传入参数 JSON 列成 `key: value` 多行 */
+/** List the input args JSON as multi-line `key: value` */
 internal fun formatToolArgs(argsJson: String?): String? {
     if (argsJson.isNullOrBlank()) return null
     return runCatching {
@@ -1080,7 +1080,7 @@ internal fun formatToolArgs(argsJson: String?): String? {
     }.getOrNull() ?: argsJson.trim()
 }
 
-/** 标题行内联的参数摘要 */
+/** Inline arg summary in the header row */
 internal fun toolArgHint(argsJson: String?): String? {
     if (argsJson.isNullOrBlank()) return null
     return runCatching {
@@ -1092,7 +1092,7 @@ internal fun toolArgHint(argsJson: String?): String? {
     }.getOrNull()
 }
 
-/** 从工具参数 JSON 中提取文件路径（readFile/editFile/writeFile 的 path 参数）。 */
+/** Extract the file path from the tool args JSON (the path arg of readFile/editFile/writeFile). */
 private fun extractFilePathArg(argsJson: String?): String? {
     if (argsJson.isNullOrBlank()) return null
     return runCatching {

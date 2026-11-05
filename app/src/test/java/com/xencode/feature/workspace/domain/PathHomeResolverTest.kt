@@ -11,15 +11,15 @@ import org.junit.Test
 import java.io.File
 
 /**
- * PathHomeResolver：home 取源（远程/真机/本地/回退）与 ~ 前缀展开。
- * ExecutionModeHolder 用真实实现（纯内存，无 Android 依赖），RemoteSshConnection 用 mockk 控制 remoteHome，
- * Context 用 mockk 控制 filesDir（真机 ROOT 模式的 home）。
+ * PathHomeResolver: home source selection (remote/device-root/local/fallback) and ~ prefix expansion.
+ * ExecutionModeHolder uses the real implementation (pure in-memory, no Android dependencies), RemoteSshConnection is a mockk controlling remoteHome,
+ * and Context is a mockk controlling filesDir (the home for device ROOT mode).
  */
 class PathHomeResolverTest {
 
     private val remoteSshConnection: RemoteSshConnection = mockk()
 
-    /** 真机 ROOT 模式下 home 即 App 私有 filesDir（期望值随平台路径分隔符走，Windows 下为 `C:\data\...`）。 */
+    /** Under device ROOT mode the home is the app's private filesDir (expected values follow the platform path separator; on Windows it becomes `C:\data\...`). */
     private val filesDirFile = File("/data/user/0/com.xencode")
     private val filesDirPath = filesDirFile.absolutePath
     private val context: Context = mockk {
@@ -31,7 +31,7 @@ class PathHomeResolverTest {
         return PathHomeResolver(context, holder, remoteSshConnection)
     }
 
-    // ---------- home()：取源与回退 ----------
+    // ---------- home(): source selection and fallback ----------
 
     @Test
     fun home_localMode_containerHomeUnknown_fallsBackToRoot() {
@@ -44,7 +44,7 @@ class PathHomeResolverTest {
     @Test
     fun home_localMode_returnsContainerHome() {
         val resolver = newResolver(ExecutionMode.LOCAL_PROOT)
-        // 远程 home 即使有值，本地模式也不采用
+        // Even when a remote home exists, local mode does not use it
         every { remoteSshConnection.remoteHome } returns "/home/remote"
         resolver.containerHome = "/data/container-home"
         assertEquals("/data/container-home", resolver.home())
@@ -54,7 +54,7 @@ class PathHomeResolverTest {
     fun home_remoteMode_remoteHomeUnknown_fallsBackToRoot() {
         val resolver = newResolver(ExecutionMode.REMOTE_SSH)
         every { remoteSshConnection.remoteHome } returns null
-        // 本地 containerHome 即使有值，远程模式也不采用
+        // Even when a local containerHome exists, remote mode does not use it
         resolver.containerHome = "/data/container-home"
         assertEquals("/root", resolver.home())
     }
@@ -69,7 +69,7 @@ class PathHomeResolverTest {
     @Test
     fun home_deviceRootMode_returnsAppFilesDir() {
         val resolver = newResolver(ExecutionMode.DEVICE_ROOT)
-        // 真机模式下不采用容器/远程 home
+        // Device-root mode ignores container/remote home
         every { remoteSshConnection.remoteHome } returns "/home/dev"
         resolver.containerHome = "/root"
         assertEquals(filesDirPath, resolver.home())
@@ -77,7 +77,7 @@ class PathHomeResolverTest {
         assertEquals("$filesDirPath/workspace", resolver.expandHome("~/workspace"))
     }
 
-    // ---------- xencodeRoot()：执行环境 AI 配置根 ----------
+    // ---------- xencodeRoot(): execution-environment AI config root ----------
 
     @Test
     fun xencodeRoot_localMode() {
@@ -93,7 +93,7 @@ class PathHomeResolverTest {
         assertEquals("/home/dev/.xencode", resolver.xencodeRoot())
     }
 
-    // ---------- expandHome()：~ 展开 ----------
+    // ---------- expandHome(): ~ expansion ----------
 
     @Test
     fun expandHome_tildeOnly_returnsHome() {

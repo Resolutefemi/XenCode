@@ -21,7 +21,7 @@ private val Context.containerDataStore by preferencesDataStore(
     corruptionHandler = preferencesCorruptionHandler
 )
 
-/** 下载镜像页里已下载/已安装的镜像记录，跨重启保留。 */
+/** Record of downloaded/installed images on the image download page, persisted across restarts. */
 @Serializable
 data class DownloadedImageRecord(
     val entryId: String,
@@ -30,10 +30,10 @@ data class DownloadedImageRecord(
 )
 
 /**
- * 持久化当前选中的容器 profile 与用户自定义 profile 列表。
+ * Persists the currently selected container profile and the user's custom profile list.
  *
- * DataStore 用法与 [ThemeSettingsRepository] 一致（构造注入即可，无需 DI module）。
- * 无 [ACTIVE_PROFILE_ID_KEY] 时返回 [ContainerProfile.BUILTIN_ID]，等同改动前——默认内置 Alpine。
+ * DataStore usage matches [ThemeSettingsRepository] (constructor injection suffices, no DI module needed).
+ * Without [ACTIVE_PROFILE_ID_KEY] it returns [ContainerProfile.BUILTIN_ID], same as before the change — built-in Alpine by default.
  */
 @Singleton
 class ContainerSettingsRepository @Inject constructor(
@@ -42,30 +42,30 @@ class ContainerSettingsRepository @Inject constructor(
     private companion object {
         val ACTIVE_PROFILE_ID_KEY = stringPreferencesKey("active_profile_id")
         val CUSTOM_PROFILES_KEY = stringPreferencesKey("custom_profiles_json")
-        /** 远程工作区模式下本地 MCP stdio 等服务的运行容器；无值时默认内置 Alpine。 */
+        /** Container that runs local services such as MCP stdio in remote workspace mode; built-in Alpine by default when unset. */
         val DEFAULT_CONTAINER_ID_KEY = stringPreferencesKey("default_container_profile_id")
-        /** 首次启动是否已写入内置 Alpine 默认项；置位后用户删光列表不再自动补回。 */
+        /** Whether the built-in Alpine default entry has been written on first launch; once set, an emptied list is no longer auto-restored. */
         val INITIALIZED_KEY = booleanPreferencesKey("initialized")
-        /** 「容器与镜像」页使用说明公告已展示内容的哈希；无值或与当前内容哈希不一致时重新弹出。 */
+        /** Hash of the usage-notice announcement content already shown on the "Containers & Images" page; shown again when unset or mismatching the current content hash. */
         val ANNOUNCEMENT_SHOWN_HASH_KEY = stringPreferencesKey("container_announcement_shown_hash")
-        /** 下载镜像页已下载/已安装的记录（JSON 列表）。 */
+        /** Downloaded/installed records on the image download page (JSON list). */
         val DOWNLOADED_IMAGES_KEY = stringPreferencesKey("downloaded_images_json")
         val downloadedImageSerializer = ListSerializer(DownloadedImageRecord.serializer())
         val profileSerializer = ListSerializer(ContainerProfile.serializer())
         val json = Json { ignoreUnknownKeys = true }
     }
 
-    /** 当前选中的 profile id；无值时默认内置 Alpine。 */
+    /** Currently selected profile id; built-in Alpine by default when unset. */
     val activeProfileIdFlow: Flow<String> = context.containerDataStore.data.map { prefs ->
         prefs[ACTIVE_PROFILE_ID_KEY]?.takeIf { it.isNotBlank() } ?: ContainerProfile.BUILTIN_ID
     }
 
-    /** 远程模式下的默认容器 id；无值时默认内置 Alpine。 */
+    /** Default container id in remote mode; built-in Alpine by default when unset. */
     val defaultContainerIdFlow: Flow<String> = context.containerDataStore.data.map { prefs ->
         prefs[DEFAULT_CONTAINER_ID_KEY]?.takeIf { it.isNotBlank() } ?: ContainerProfile.BUILTIN_ID
     }
 
-    /** 用户自定义 profile 列表（不含内置）。解析失败回退空列表。 */
+    /** User's custom profile list (built-in excluded). Falls back to an empty list on parse failure. */
     val customProfilesFlow: Flow<List<ContainerProfile>> = context.containerDataStore.data.map { prefs ->
         prefs[CUSTOM_PROFILES_KEY]?.let { raw ->
             runCatching { json.decodeFromString(profileSerializer, raw) }.getOrNull()
@@ -81,9 +81,9 @@ class ContainerSettingsRepository @Inject constructor(
     }
 
     /**
-     * 首次启动（或旧版本升级）兜底：把内置 Alpine 补入列表（若缺），保证列表始终有内置项。
-     * 置位初始化标记后不再自动补回——用户后续删光列表由空态手动恢复。
-     * 存量设备已配自定义镜像时同样补入（旧版列表始终含内置项，升级不能让它消失）。
+     * First-launch (or upgrade from an old version) fallback: adds the built-in Alpine to the list if missing, guaranteeing the list always contains the built-in entry.
+     * Once the initialization flag is set it is no longer auto-restored — if the user later empties the list, recovery is manual via the empty state.
+     * Existing devices with custom images configured also get it added (the old version's list always contained the built-in entry, and upgrading must not make it disappear).
      */
     suspend fun ensureBuiltinDefault() {
         context.containerDataStore.edit { prefs ->
@@ -100,7 +100,7 @@ class ContainerSettingsRepository @Inject constructor(
         }
     }
 
-    /** 已展示公告内容的哈希；无值表示从未展示过。 */
+    /** Hash of the announcement content already shown; unset means never shown. */
     val announcementShownHashFlow: Flow<String?> = context.containerDataStore.data.map { prefs ->
         prefs[ANNOUNCEMENT_SHOWN_HASH_KEY]
     }
@@ -109,7 +109,7 @@ class ContainerSettingsRepository @Inject constructor(
         context.containerDataStore.edit { it[ANNOUNCEMENT_SHOWN_HASH_KEY] = hash }
     }
 
-    /** 已下载镜像记录列表（按 entryId 去重，最新覆盖旧的）。 */
+    /** List of downloaded image records (deduplicated by entryId, newest overwriting older). */
     val downloadedImagesFlow: Flow<List<DownloadedImageRecord>> = context.containerDataStore.data.map { prefs ->
         prefs[DOWNLOADED_IMAGES_KEY]?.let { raw ->
             runCatching { json.decodeFromString(downloadedImageSerializer, raw) }.getOrNull()
@@ -137,9 +137,9 @@ class ContainerSettingsRepository @Inject constructor(
     }
 
     /**
-     * 新增或覆盖同名 id 的自定义 profile。
-     * createdAt 规则：传入非 0 则用传入值；为 0 时若原记录存在（编辑场景，表单重建丢了时间）保留原时间，
-     * 否则视为新增写入当前时间——保证编辑保存后不改变排序位置。
+     * Adds or overwrites the custom profile with the same id.
+     * createdAt rule: a non-zero passed-in value is used; when 0, if the original record exists (edit scenario where the rebuilt form lost the time) the original time is kept,
+     * otherwise it is treated as new and the current time is written — so saving an edit does not change the sort position.
      */
     suspend fun upsertCustomProfile(profile: ContainerProfile) {
         context.containerDataStore.edit { prefs ->

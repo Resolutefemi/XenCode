@@ -95,14 +95,14 @@ fun GitScreen(
     embedded: Boolean = false
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
-    // 真机模式（DEVICE_ROOT）：设备 root 环境没有 git 二进制，本页降级为「快照回退」指引。
+    // Device mode (DEVICE_ROOT): the device root environment has no git binary, so this page degrades to a "snapshot rewind" guide.
     val deviceRootMode by viewModel.deviceRootMode.collectAsStateWithLifecycle()
     val snackbarHostState = remember { SnackbarHostState() }
     val clipboard = LocalClipboard.current
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
 
-    // toast → Snackbar 一次性消费。
+    // toast → Snackbar, consumed once.
     LaunchedEffect(state.toast) {
         state.toast?.let {
             snackbarHostState.showSnackbar(it)
@@ -114,7 +114,7 @@ fun GitScreen(
     var showPullConfirm by remember { mutableStateOf(false) }
     var showMasterRenameConfirm by remember { mutableStateOf(false) }
 
-    // 三个 tab 的滚动状态统一提升到页面层，聚合出「是否正在滚动」用于底部 tab 栏滚动弱化。
+    // The three tabs' scroll states are hoisted to the page level, aggregating an "is scrolling" flag to dim the bottom tab bar while scrolling.
     val statusListState = rememberLazyListState()
     val branchesListState = rememberLazyListState()
     val logListState = rememberLazyListState()
@@ -129,7 +129,7 @@ fun GitScreen(
         }
     }
 
-    // diff 视图：独立全屏页，不进入下方 GitScreen 的 Scaffold，避免双层顶栏。
+    // Diff view: a standalone full-screen page outside the GitScreen Scaffold below, avoiding double top bars.
     if (state.diffVisible) {
         DiffViewerScreen(
             diffData = state.diffData,
@@ -272,8 +272,8 @@ fun GitScreen(
                 }
             }
 
-            // 底部渐变蒙版 + 悬浮 tab 组：内容可滚动到屏幕底部穿过 tab 栏，被渐变遮罩（同主页输入框）。
-            // 仅仓库态显示：加载中/非仓库态时 HorizontalPager 未组合，点击 tab 无内容可切换。
+            // Bottom gradient mask + floating tab group: content can scroll to the screen bottom through the tab bar, masked by the gradient (like the home input box).
+            // Shown only in repo state: while loading or not in a repo, the HorizontalPager is not composed and tapping tabs would switch nothing.
             if (!state.loading && !state.notARepo) {
                 FloatingTabBar(
                     pagerState = pagerState,
@@ -349,12 +349,12 @@ fun GitScreen(
 }
 
 /**
- * 真机模式（DEVICE_ROOT）下 Git 页的内容：快照回退指引。
+ * Content of the Git page in device mode (DEVICE_ROOT): the snapshot-rewind guide.
  *
- * 设备 root 环境不带 git 二进制，无法像容器模式那样做版本管理；改用逐轮对话的检查点快照
- * （[com.xencode.feature.agent.domain.checkpoint.CheckpointManager]）——与 Cursor / Trae 的
- * checkpoint rewind 同思路：每发一条消息就快照被改动文件的原始内容，需要时在对话里点到那条
- * 消息上回退，代码即复原到当时的状态（改过的还原、新建的删除）。
+ * The device root environment ships no git binary, so versioning like container mode is impossible; instead it
+ * uses per-turn checkpoint snapshots ([com.xencode.feature.agent.domain.checkpoint.CheckpointManager]) - the same
+ * idea as Cursor / Trae's checkpoint rewind: every sent message snapshots the original content of changed files,
+ * and rewinding from that message restores the code to that moment (modified files restored, new ones deleted).
  */
 @Composable
 private fun SnapshotRewindGuide(
@@ -592,22 +592,22 @@ internal fun SectionHeader(text: String) {
 }
 
 /**
- * 状态码 → 配色（容器色 + 前景色）。
+ * Status code → colors (container color + foreground color).
  *
- * 与多数 Git 客户端约定一致：新增=绿、修改=琥珀、删除=红、重命名/复制=蓝、未跟踪=灰、
- * 冲突=紫红、类型变更=青。仅取首字符判定，porcelain 的 X/Y 两列统一映射。
- * 前景色根据背景亮度自适应，避免浅灰等高明度背景配白字导致对比度不足。
+ * Matches most Git clients' conventions: added=green, modified=amber, deleted=red, renamed/copied=blue, untracked=gray,
+ * conflict=magenta, type-changed=cyan. Judged by the first character only; porcelain's X/Y columns map uniformly.
+ * The foreground adapts to background luminance, avoiding low-contrast white text on high-lightness backgrounds like light gray.
  */
 private fun statusColor(code: String): Pair<Color, Color> {
     val bg = when (code.firstOrNull()) {
-        'A' -> GitStatusColors.Added            // 新增
-        'M' -> GitStatusColors.Modified         // 修改
-        'D' -> GitStatusColors.Deleted          // 删除
-        'R', 'C' -> GitStatusColors.Renamed     // 重命名/复制
-        '?' -> GitStatusColors.Untracked        // 未跟踪
-        'U' -> GitStatusColors.Conflict         // 冲突
-        'T' -> GitStatusColors.TypeChanged      // 类型变更
-        else -> GitStatusColors.Default         // 兜底
+        'A' -> GitStatusColors.Added            // added
+        'M' -> GitStatusColors.Modified         // modified
+        'D' -> GitStatusColors.Deleted          // deleted
+        'R', 'C' -> GitStatusColors.Renamed     // renamed/copied
+        '?' -> GitStatusColors.Untracked        // untracked
+        'U' -> GitStatusColors.Conflict         // conflict
+        'T' -> GitStatusColors.TypeChanged      // type changed
+        else -> GitStatusColors.Default         // fallback
     }
     val fg = if (bg.luminance() > 0.45f) Color(0xFF0F172A) else Color.White
     return bg to fg
@@ -791,7 +791,7 @@ private fun CommitDialog(
                     style = MaterialTheme.typography.titleMedium,
                     fontWeight = FontWeight.SemiBold
                 )
-                // AI 生成按钮置于标题栏右侧，如同工具栏动作，轻量精致
+                // The AI-generate button sits at the title row's right end, like a toolbar action: light and refined
                 Surface(
                     color = if (isGenerating) MaterialTheme.colorScheme.primary.copy(alpha = 0.12f)
                     else MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.65f),
@@ -836,7 +836,7 @@ private fun CommitDialog(
         },
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(Spacing.md)) {
-                // 快捷前缀 Chip 胶囊列表（带微边框与圆角，选中/匹配当前前缀时高亮）
+                // Quick-prefix chip pills (thin border and rounded corners; highlighted when selected/matching the current prefix)
                 val chipScrollState = rememberScrollState()
                 Row(
                     modifier = Modifier
@@ -878,7 +878,7 @@ private fun CommitDialog(
                     }
                 }
 
-                // 提交信息输入框
+                // Commit message input field
                 AppTextField(
                     value = message,
                     onValueChange = { message = it },
@@ -889,7 +889,7 @@ private fun CommitDialog(
                     colors = dialogTextFieldColors()
                 )
 
-                // 底部轻量设置栏：amend 开关
+                // Lightweight settings bar at the bottom: amend toggle
                 Surface(
                     color = MaterialTheme.semanticColors.mutedSurface,
                     shape = RoundedCornerShape(Radius.md),

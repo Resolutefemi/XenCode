@@ -11,16 +11,22 @@ import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.ui.unit.IntOffset
 
 /**
- * 整页切换的过渡规范（Material「shared axis X」）：两个页面**同向**横移，前进时一起向左推、
- * 返回时一起向右退，配合错开的淡出/淡入。顶层路由（NavHost）与设置页内部分区共用同一份，
- * 免得两处各写一套参数、动画节奏不一致。
+ * Page transition spec (Material "shared axis X"): the two pages move **in the same
+ * direction** — pushed left together when going forward, pulled right together when going
+ * back — paired with staggered fade-out/fade-in. Top-level routes (NavHost) and the settings
+ * screen's internal sections share this one spec, so the two places don't each define their
+ * own parameters with mismatched animation rhythm.
  *
- * 为什么是同向小位移而不是 iOS 那种「新页盖住旧页 / 旧页抽走露出下层」：
- * `AnimatedContent` 里**入场内容恒被放在最上层**（同 zIndex 时 target 最后放置），而
- * navigation-compose 的 NavHost 不暴露 `targetContentZIndex`，返回时没法把被弹出的页面盖在上面。
- * 同向平移不依赖 z 序，任何方向都不会出现「该露出的页面被遮住」。
+ * Why a small same-direction slide instead of the iOS style of "new page covering the old /
+ * old page sliding away to reveal the layer beneath": in `AnimatedContent` the **incoming
+ * content is always placed on top** (with equal zIndex, target is placed last), and
+ * navigation-compose's NavHost doesn't expose `targetContentZIndex`, so on back navigation
+ * there's no way to place the popped page on top. A same-direction slide doesn't depend on
+ * z-order, so in either direction the page that should be revealed is never covered.
  *
- * 淡出比淡入快且淡入延后一点，两页几乎不同时可见，避免重叠期两层内容混色发糊。
+ * The fade-out is faster than the fade-in and the fade-in is delayed a bit, so the two pages
+ * are almost never visible at once, avoiding muddy blended colors from the two layers during
+ * the overlap.
  */
 const val PAGE_MOTION_MS = 260
 
@@ -28,7 +34,7 @@ private const val PAGE_FADE_IN_MS = 200
 private const val PAGE_FADE_IN_DELAY_MS = 60
 private const val PAGE_FADE_OUT_MS = 90
 
-/** 横移幅度占容器宽度的比例。整屏位移在大屏上像「甩」页，取四分之一足够表达方向。 */
+/** Slide distance as a fraction of container width. A full-screen shift feels like flinging the page on large screens; a quarter is enough to convey direction. */
 private const val PAGE_SLIDE_FRACTION = 0.25f
 
 private val PageSlideSpec = tween<IntOffset>(
@@ -37,7 +43,8 @@ private val PageSlideSpec = tween<IntOffset>(
 )
 
 /**
- * 入场页过渡：[forward] 为 true（进入下一层）时从右侧滑入，false（返回上一层）时从左侧滑入。
+ * Enter transition: with [forward] = true (going one level deeper) it slides in from the
+ * right; false (going back one level) slides in from the left.
  */
 fun pageEnter(forward: Boolean): EnterTransition =
     slideInHorizontally(PageSlideSpec) { width ->
@@ -45,7 +52,7 @@ fun pageEnter(forward: Boolean): EnterTransition =
         if (forward) offset else -offset
     } + fadeIn(tween(PAGE_FADE_IN_MS, delayMillis = PAGE_FADE_IN_DELAY_MS))
 
-/** 退场页过渡：与 [pageEnter] 同向，前进时向左退出、返回时向右退出。 */
+/** Exit transition: same direction as [pageEnter] — exits left when going forward, right when going back. */
 fun pageExit(forward: Boolean): ExitTransition =
     slideOutHorizontally(PageSlideSpec) { width ->
         val offset = (width * PAGE_SLIDE_FRACTION).toInt()

@@ -49,7 +49,7 @@ class ErrorUtilsTest {
     fun unknownHostException_friendlyName() {
         val e = java.net.UnknownHostException()
         val msg = e.toUserMessage()
-        assert(msg.contains("DNS") || msg.contains("网络"))
+        assert(msg.contains("DNS") || msg.contains("network"))
     }
 
     @Test

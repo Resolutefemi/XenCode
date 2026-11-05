@@ -13,7 +13,7 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 /**
- * 斜杠命令注册表：菜单合并（内置命令在前 + 技能在后，去重排序）、发送时解析（含参数）与技能提示词构造。
+ * Slash command registry: menu merging (built-in commands first + skills after, deduplicated and sorted), send-time resolution (with arguments), and skill prompt construction.
  */
 class SlashCommandRegistryTest {
 
@@ -39,21 +39,21 @@ class SlashCommandRegistryTest {
         SlashCommandRegistry(handlers.toSet(), skillRepository, context)
 
     private fun prepare(registry: SlashCommandRegistry, skills: List<Skill>) {
-        every { context.getString(R.string.slash_command_usage_desc) } returns "用量"
-        every { context.getString(R.string.slash_command_compress_desc) } returns "压缩上下文"
-        every { context.getString(R.string.slash_command_init_desc) } returns "初始化项目"
+        every { context.getString(R.string.slash_command_usage_desc) } returns "usage"
+        every { context.getString(R.string.slash_command_compress_desc) } returns "compress context"
+        every { context.getString(R.string.slash_command_init_desc) } returns "initialize project"
         every { skillRepository.listSkills() } returns skills
         runBlocking { registry.refresh() }
     }
 
-    // ---- 菜单合并 ----
+    // ---- Menu merging ----
 
     @Test
     fun commands_builtinsFirstThenSkills() {
         val registry = registry(usage, compress, init)
-        prepare(registry, listOf(skill("pdf-report", "生成 PDF 报告"), skill("aaa", "最前")))
+        prepare(registry, listOf(skill("pdf-report", "generate PDF report"), skill("aaa", "first")))
 
-        // 内置命令一组（组内字母序）在前，技能一组（组内字母序）在后，两组不交叉。
+        // Built-in commands as one group (alphabetical within the group) first, skills as another group (alphabetical within the group) after; the two groups never interleave.
         assertEquals(
             listOf("compress", "init", "usage", "aaa", "pdf-report"),
             registry.commands.value.map { it.name }
@@ -63,7 +63,7 @@ class SlashCommandRegistryTest {
     @Test
     fun commands_builtinWinsOverSameNameSkill() {
         val registry = registry(usage)
-        prepare(registry, listOf(skill("usage", "同名技能")))
+        prepare(registry, listOf(skill("usage", "same-name skill")))
 
         val matched = registry.commands.value.filter { it.name == "usage" }
         assertEquals(1, matched.size)
@@ -73,7 +73,7 @@ class SlashCommandRegistryTest {
     @Test
     fun commands_marksKindsAndArgs() {
         val registry = registry(usage)
-        prepare(registry, listOf(skill("pdf-report", "生成 PDF")))
+        prepare(registry, listOf(skill("pdf-report", "generate PDF")))
 
         val builtin = registry.commands.value.first { it.name == "usage" }
         assertEquals(SlashCommandKind.ACTION, builtin.kind)
@@ -84,7 +84,7 @@ class SlashCommandRegistryTest {
         assertTrue(skillCmd.acceptsArgs)
     }
 
-    // ---- 解析 ----
+    // ---- Resolution ----
 
     @Test
     fun resolve_builtinExact() {
@@ -118,7 +118,7 @@ class SlashCommandRegistryTest {
     @Test
     fun resolve_skillCaseInsensitiveWithArgs() {
         val registry = registry()
-        prepare(registry, listOf(skill("pdf-report", "生成 PDF", instructions = "make \$ARGUMENTS")))
+        prepare(registry, listOf(skill("pdf-report", "generate PDF", instructions = "make \$ARGUMENTS")))
 
         val resolved = registry.resolve("/PDF-Report a4")
         assertTrue(resolved is SlashCommandRegistry.ResolvedCommand.SkillCommand)
@@ -129,14 +129,14 @@ class SlashCommandRegistryTest {
     @Test
     fun resolve_unknownOrNonSlash_returnsNull() {
         val registry = registry(usage)
-        prepare(registry, listOf(skill("pdf-report", "生成 PDF")))
+        prepare(registry, listOf(skill("pdf-report", "generate PDF")))
 
         assertNull(registry.resolve("/nope"))
         assertNull(registry.resolve("hello"))
         assertNull(registry.resolve("/"))
     }
 
-    // ---- 技能提示词 ----
+    // ---- Skill prompts ----
 
     @Test
     fun buildSkillPrompt_replacesPlaceholder() {

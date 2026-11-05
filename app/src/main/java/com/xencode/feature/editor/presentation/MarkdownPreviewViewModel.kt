@@ -18,15 +18,15 @@ import java.nio.file.Paths
 import javax.inject.Inject
 
 /**
- * Markdown 预览页（WebView 渲染）的后端：组装渲染 HTML，并为其提供图片资源。
+ * Backend of the Markdown preview screen (WebView rendering): assembles the rendered HTML and serves its images.
  *
- * 预览页资源分两路经 [WebViewAssetLoader] 加载：
- * - `/assets/` 由内置 [WebViewAssetLoader.AssetsPathHandler] 提供渲染所需的 JS/CSS；
- * - `/local/` 由 [LocalAssetPathHandler] 从 [FileAccessProvider] 读取（本地模式直读，远程模式 SFTP 下载），
- *   让 README 这类文档里的相对路径图片在两种执行模式下都能显示。
+ * Preview resources load over [WebViewAssetLoader] via two routes:
+ * - `/assets/` uses the built-in [WebViewAssetLoader.AssetsPathHandler] to serve the rendering JS/CSS;
+ * - `/local/` uses [LocalAssetPathHandler] to read via [FileAccessProvider] (direct read locally, SFTP in remote mode),
+ *   so relative-path images in documents like READMEs display in both execution modes.
  *
- * `/local/` 后面的路径是「相对工作区根」的路径（由 [baseUrl] 以被预览文件所在目录为基准拼出），
- * 不把 `~` 放进 URL——`~` 在部分 WebView 版本里会被当作需要特殊处理的字符，导致相对资源解析异常。
+ * The path after `/local/` is relative to the workspace root (assembled by [baseUrl] from the previewed
+ * file's directory); `~` stays out of URLs - some WebView versions treat it specially and break relative resolution.
  */
 @HiltViewModel
 class MarkdownPreviewViewModel @Inject constructor(
@@ -35,17 +35,17 @@ class MarkdownPreviewViewModel @Inject constructor(
 ) : ViewModel() {
 
     companion object {
-        /** [WebViewAssetLoader] 的默认虚拟 host。 */
+        /** Default virtual host of [WebViewAssetLoader]. */
         const val ASSET_HOST = "appassets.androidplatform.net"
 
         private const val ASSET_BASE = "https://$ASSET_HOST/assets/markdown/"
         private const val LOCAL_PREFIX = "/local/"
         private const val TAG = "MarkdownPreview"
 
-        /** 工作区在容器内的根路径，与 [com.xencode.feature.workspace.domain.WorkspacePathMapper.CONTAINER_ROOT] 一致。 */
+        /** Root path of the workspace inside the container, matching [com.xencode.feature.workspace.domain.WorkspacePathMapper.CONTAINER_ROOT]. */
         private const val WS_ROOT = "~/workspace"
 
-        /** 深色模式下页面底色，与 github-markdown-css 的 dark 主题一致。 */
+        /** Page background in dark mode, matching the github-markdown-css dark theme. */
         private const val BG_DARK = "#0d1117"
         private const val BG_LIGHT = "#ffffff"
     }
@@ -54,7 +54,7 @@ class MarkdownPreviewViewModel @Inject constructor(
         context.assets.open("markdown/preview.html").bufferedReader().use { it.readText() }
     }
 
-    /** 最近一次渲染使用的深浅色，供 [LocalAssetPathHandler] 渲染跳转到的 Markdown 时沿用。 */
+    /** Light/dark mode of the most recent render, reused by [LocalAssetPathHandler] when rendering a navigated-to Markdown. */
     @Volatile
     private var currentDark: Boolean = false
 
@@ -63,7 +63,7 @@ class MarkdownPreviewViewModel @Inject constructor(
         .addPathHandler(LOCAL_PREFIX, LocalAssetPathHandler())
         .build()
 
-    /** 把 markdown 原文注入模板生成预览 HTML；[dark] 决定套用明/暗两套 GitHub 样式。 */
+    /** Injects raw markdown into the template to produce preview HTML; [dark] picks the light/dark GitHub stylesheet. */
     suspend fun buildHtml(text: String, dark: Boolean): String = withContext(Dispatchers.IO) {
         buildHtmlInternal(text, dark)
     }
@@ -80,8 +80,8 @@ class MarkdownPreviewViewModel @Inject constructor(
     }
 
     /**
-     * 预览页 baseUrl：以被预览文件所在目录为基准，markdown 里的相对图片路径（如 `docs/a.png`）
-     * 会解析到 `/local/<相对工作区根的目录>/docs/a.png`，由 [containerPathOf] 还原成容器路径读取。
+     * Preview page baseUrl: based on the previewed file's directory, relative image paths in
+     * markdown (e.g. `docs/a.png`) resolve to `/local/<dir relative to workspace root>/docs/a.png`, which [containerPathOf] maps back to a container path to read.
      */
     fun baseUrl(path: String): String {
         val dir = relativeDirOf(path)
@@ -94,9 +94,9 @@ class MarkdownPreviewViewModel @Inject constructor(
     }
 
     /**
-     * `/local/` 之后的相对路径（相对工作区根）还原为容器路径；解析不出内容时返回 null。
-     * 传入的是 WebViewAssetLoader 去掉注册前缀后的 suffix 路径，不带 `/local/`。
-     * 归一化把 `..` 收在根内，避免请求跳出工作区。
+     * Maps the relative path after `/local/` (relative to the workspace root) back to a container path; returns null when nothing can be resolved.
+     * The input is the suffix path after WebViewAssetLoader strips the registered prefix, without `/local/`.
+     * Normalization keeps `..` within the root to prevent requests escaping the workspace.
      */
     fun containerPathOf(relativePath: String): String? {
         val decoded = runCatching { URLDecoder.decode(relativePath, "UTF-8") }.getOrNull() ?: return null
@@ -107,7 +107,7 @@ class MarkdownPreviewViewModel @Inject constructor(
         return "$WS_ROOT/$trimmed"
     }
 
-    /** 预览页内某个 URL 指向工作区文件时返回其容器路径；非本地 URL 返回 null。 */
+    /** Returns the container path when a URL in the preview page points to a workspace file; null for non-local URLs. */
     fun containerPathForUrl(url: Uri): String? {
         if (url.host != ASSET_HOST) return null
         val path = url.path ?: return null
@@ -115,7 +115,7 @@ class MarkdownPreviewViewModel @Inject constructor(
         return containerPathOf(path.removePrefix(LOCAL_PREFIX))
     }
 
-    /** 被预览文件所在目录相对工作区根的路径（无前后斜杠）；不在工作区内时退回工作区根。 */
+    /** Path of the previewed file's directory relative to the workspace root (no leading/trailing slashes); falls back to the workspace root when outside it. */
     private fun relativeDirOf(path: String): String {
         val parent = fileAccess.parentPath(path)?.trimEnd('/') ?: return ""
         return when {
@@ -128,16 +128,16 @@ class MarkdownPreviewViewModel @Inject constructor(
     private inner class LocalAssetPathHandler : WebViewAssetLoader.PathHandler {
         override fun handle(path: String): WebResourceResponse? {
             val containerPath = containerPathOf(path)
-            FileLogger.v(TAG, "预览本地资源: $path -> ${containerPath ?: "null"}")
+            FileLogger.v(TAG, "Preview local resource: $path -> ${containerPath ?: "null"}")
             if (containerPath == null) {
-                FileLogger.w(TAG, "预览资源路径无法解析: $path")
+                FileLogger.w(TAG, "Preview resource path failed to resolve: $path")
                 return notFound()
             }
             val bytes = runCatching { fileAccess.readBytes(containerPath) }
-                .onFailure { FileLogger.w(TAG, "读取预览资源失败: $containerPath", it) }
+                .onFailure { FileLogger.w(TAG, "Failed to read preview resource: $containerPath", it) }
                 .getOrNull()
             if (bytes == null) return notFound()
-            // 预览页里点击本地 Markdown 链接时，直接把目标文件渲染成预览页（浏览器式导航）
+            // When a local Markdown link is tapped in the preview, render the target file as a preview page (browser-style navigation)
             if (isMarkdown(containerPath)) {
                 val html = buildHtmlInternal(bytes.toString(Charsets.UTF_8), currentDark)
                 return WebResourceResponse(
@@ -152,7 +152,7 @@ class MarkdownPreviewViewModel @Inject constructor(
     private fun isMarkdown(path: String): Boolean =
         path.substringAfterLast('.', "").lowercase() in setOf("md", "markdown")
 
-    /** 已命中 `/local/` 但取不到内容：返回 404 而非 null，避免 WebView 当作未拦截而回退去访问网络。 */
+    /** Matched `/local/` but content unavailable: return 404 rather than null, so WebView does not treat it as un-intercepted and fall back to the network. */
     private fun notFound(): WebResourceResponse =
         WebResourceResponse("text/plain", "utf-8", 404, "Not Found", emptyMap(), ByteArrayInputStream(ByteArray(0)))
 
@@ -164,7 +164,7 @@ class MarkdownPreviewViewModel @Inject constructor(
         "bmp" -> "image/bmp"
         "svg" -> "image/svg+xml"
         "ico" -> "image/x-icon"
-        // 文本类（含无扩展名的 LICENSE / README 等）按纯文本返回，预览页里能直接显示而不被当成下载
+        // Text-like files (including extension-less LICENSE / README) are served as plain text so they display inline in the preview instead of being treated as downloads
         "txt", "text", "log", "json", "jsonc", "yml", "yaml", "toml", "ini", "conf", "cfg", "properties",
         "xml", "html", "htm", "css", "js", "mjs", "ts", "tsx", "jsx", "kt", "kts", "java", "py", "rb",
         "go", "rs", "c", "h", "cpp", "hpp", "cs", "php", "swift", "sh", "bash", "zsh", "sql", "gradle",

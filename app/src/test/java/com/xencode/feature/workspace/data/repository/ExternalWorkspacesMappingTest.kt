@@ -29,7 +29,7 @@ class ExternalWorkspacesMappingTest {
             listOf(record("proj", "/storage/emulated/0/proj")),
             isDir = { false }
         )
-        // 失联记录保留在列表（置灰而非消失），便于用户查看与移除
+        // Disconnected records stay in the list (grayed out rather than removed) so the user can review and remove them
         assertEquals(1, ws.size)
         assertFalse(ws[0].available)
     }
@@ -53,7 +53,7 @@ class ExternalWorkspacesMappingTest {
             isDir = { exists }
         )
         assertFalse(ws[0].available)
-        // 目录恢复后再次映射应重新可用
+        // Once the directory recovers, mapping again should mark it available
         exists = true
         val again = WorkspaceRepository.mapExternalWorkspaces(
             listOf(record("proj", "/storage/emulated/0/proj")),
@@ -80,7 +80,7 @@ class ExternalWorkspacesMappingTest {
 
     @Test
     fun uniqueName_emptyBaseFallsBack() {
-        // 与 Repository 调用处一致：name 为空白时由调用方保证非空
+        // Consistent with the Repository call site: the caller guarantees a non-blank name
         assertEquals("", WorkspaceRepository.uniqueName("", emptySet()))
     }
 }

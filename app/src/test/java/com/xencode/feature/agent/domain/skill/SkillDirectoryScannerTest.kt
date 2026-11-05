@@ -22,9 +22,9 @@ class SkillDirectoryScannerTest {
             """
             ---
             name: my-skill
-            description: 我的技能
+            description: my skill
             ---
-            技能正文
+            skill body
             """.trimIndent()
         )
 
@@ -32,14 +32,14 @@ class SkillDirectoryScannerTest {
 
         assertEquals(1, skills.size)
         assertEquals("my-skill", skills[0].name)
-        assertEquals("我的技能", skills[0].description)
-        assertTrue(skills[0].instructions.contains("技能正文"))
+        assertEquals("my skill", skills[0].description)
+        assertTrue(skills[0].instructions.contains("skill body"))
     }
 
     @Test
     fun scan_fallsBackToClaudeMd() {
         val skillDir = tempFolder.newFolder("legacy-skill")
-        File(skillDir, "CLAUDE.md").writeText("---\nname: legacy-skill\n---\n正文")
+        File(skillDir, "CLAUDE.md").writeText("---\nname: legacy-skill\n---\nbody")
 
         val skills = SkillDirectoryScanner.scan(provider, tempFolder.root.absolutePath)
 
@@ -50,7 +50,7 @@ class SkillDirectoryScannerTest {
     @Test
     fun scan_skipsInvalidDirectories() {
         val emptyDir = tempFolder.newFolder("no-instructions")
-        File(emptyDir, "readme.txt").writeText("不是技能")
+        File(emptyDir, "readme.txt").writeText("not a skill")
 
         assertTrue(SkillDirectoryScanner.scan(provider, tempFolder.root.absolutePath).isEmpty())
     }
@@ -58,7 +58,7 @@ class SkillDirectoryScannerTest {
     @Test
     fun scan_nestedDirectories() {
         val nested = tempFolder.newFolder("repo", "skills", "nested-skill")
-        File(nested, "SKILL.md").writeText("---\nname: nested-skill\n---\n正文")
+        File(nested, "SKILL.md").writeText("---\nname: nested-skill\n---\nbody")
 
         val skills = SkillDirectoryScanner.scan(provider, tempFolder.root.absolutePath)
 
@@ -84,8 +84,8 @@ class SkillDirectoryScannerTest {
     @Test
     fun scan_sameDirectoryWithBothFilesParsedOnce() {
         val skillDir = tempFolder.newFolder("dual-skill")
-        File(skillDir, "SKILL.md").writeText("---\nname: dual-skill\n---\nSKILL 正文")
-        File(skillDir, "CLAUDE.md").writeText("---\nname: dual-skill\n---\nCLAUDE 正文")
+        File(skillDir, "SKILL.md").writeText("---\nname: dual-skill\n---\nSKILL body")
+        File(skillDir, "CLAUDE.md").writeText("---\nname: dual-skill\n---\nCLAUDE body")
 
         val skills = SkillDirectoryScanner.scan(provider, tempFolder.root.absolutePath)
 

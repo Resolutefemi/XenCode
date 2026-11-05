@@ -67,15 +67,15 @@ class ShellCommandParserTest {
         assertTrue(ShellCommandParser.matches("git", listOf("git", "status")))
         assertTrue(ShellCommandParser.matches("git", listOf("git")))
         assertTrue(ShellCommandParser.matches("npm install", listOf("npm", "install", "lodash")))
-        // 不同子命令不命中更具体的前缀规则
+        // A different subcommand does not hit the more specific prefix rule
         assertFalse(ShellCommandParser.matches("git status", listOf("git", "push")))
-        // 字面首 token：路径形式不被裸程序名规则命中
+        // Literal first token: path forms are not matched by the bare program-name rule
         assertFalse(ShellCommandParser.matches("node", listOf("/usr/bin/node", "x.js")))
     }
 
     @Test
     fun rememberablePrefix_dispatcher_includesSubcommand() {
-        // 子命令分发器：连子命令一起记，使 git pull / git clone 各自独立授权。
+        // Subcommand dispatchers: remember the subcommand too, so git pull / git clone each get independent authorization.
         assertEquals("git pull", ShellCommandParser.rememberablePrefix(ShellCommandParser.analyze("git pull").segments[0]))
         assertEquals("git clone", ShellCommandParser.rememberablePrefix(ShellCommandParser.analyze("git clone https://x/y").segments[0]))
         assertEquals("npm install", ShellCommandParser.rememberablePrefix(ShellCommandParser.analyze("npm install lodash --save").segments[0]))
@@ -84,20 +84,20 @@ class ShellCommandParserTest {
 
     @Test
     fun rememberablePrefix_dispatcher_withLeadingFlag_fallsBackToProgram() {
-        // 程序名后紧跟 flag：无法稳定取子命令，退化为仅程序名（不误记带 flag 的怪前缀）。
+        // A flag right after the program name: the subcommand cannot be reliably extracted, so fall back to the program name only (no weird flag-carrying prefix gets remembered).
         assertEquals("git", ShellCommandParser.rememberablePrefix(ShellCommandParser.analyze("git --version").segments[0]))
     }
 
     @Test
     fun rememberablePrefix_nonDispatcher_isProgramOnly() {
-        // 普通程序：仅记程序名，按整程序放行（cat 任意文件）。
+        // Regular programs: remember only the program name, allowing the program as a whole (cat any file).
         assertEquals("cat", ShellCommandParser.rememberablePrefix(ShellCommandParser.analyze("cat README.md").segments[0]))
         assertEquals("ls", ShellCommandParser.rememberablePrefix(ShellCommandParser.analyze("ls -la /tmp").segments[0]))
     }
 
     @Test
     fun rememberablePrefix_distinctSubcommandsAreIndependent() {
-        // 验证记忆的前缀互不串放：git pull 规则不命中 git push。
+        // Verifies remembered prefixes do not cross-apply: the git pull rule does not match git push.
         val pullRule = ShellCommandParser.rememberablePrefix(ShellCommandParser.analyze("git pull").segments[0])
         assertEquals("git pull", pullRule)
         assertFalse(ShellCommandParser.matches(pullRule!!, ShellCommandParser.analyze("git push").segments[0]))
@@ -105,23 +105,23 @@ class ShellCommandParserTest {
 
     @Test
     fun rmCommand_fineGrainedHandling() {
-        // 单文件删除记忆为完整前缀，不记忆为宽泛的 "rm"
+        // Single-file deletion is remembered as the full prefix, not the broad "rm"
         val singleFile = ShellCommandParser.analyze("rm temp.log").segments[0]
         assertEquals("rm temp.log", ShellCommandParser.rememberablePrefix(singleFile))
 
-        // 带选项的单文件删除
+        // Single-file deletion with options
         val forceFile = ShellCommandParser.analyze("rm -f cache.tmp").segments[0]
         assertEquals("rm -f cache.tmp", ShellCommandParser.rememberablePrefix(forceFile))
 
-        // 递归删除不可记忆
+        // Recursive deletion is not rememberable
         val recursiveDir = ShellCommandParser.analyze("rm -rf build").segments[0]
         assertEquals(null, ShellCommandParser.rememberablePrefix(recursiveDir))
 
-        // 通配符删除不可记忆
+        // Wildcard deletion is not rememberable
         val wildcardFile = ShellCommandParser.analyze("rm *.class").segments[0]
         assertEquals(null, ShellCommandParser.rememberablePrefix(wildcardFile))
 
-        // 无目标参数不可记忆
+        // No target argument, not rememberable
         val noTarget = ShellCommandParser.analyze("rm --help").segments[0]
         assertEquals(null, ShellCommandParser.rememberablePrefix(noTarget))
     }

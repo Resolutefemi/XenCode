@@ -1,63 +1,63 @@
-# 免费供应商
+# Free Vendors
 
-希望低成本体验 AI 编程？下列平台提供免费额度或活动 token，注册后即可在 XenCode 中接入使用。免费额度通常有时效，用完或过期后需要充值，具体以各平台规则为准。
+Want to try AI coding on a budget? The platforms below offer free quotas or promotional tokens — register and connect them in XenCode. Free quotas are usually time-limited; once exhausted or expired you may need to top up, per each platform's rules.
 
-## MiMo 开放平台（小米）
+## MiMo Open Platform (Xiaomi)
 
-- **平台**：小米 MiMo 开放平台
-- **注册地址**：[platform.xiaomimimo.com](https://platform.xiaomimimo.com?ref=66QSUD)（邀请码 `66QSUD`）
-- **说明**：小米自研 MiMo 系列模型（MiMo V2.5 等），注册后可申请 API Key 接入。
+- **Platform**: Xiaomi MiMo open platform
+- **Sign-up**: [platform.xiaomimimo.com](https://platform.xiaomimimo.com?ref=66QSUD) (invite code `66QSUD`)
+- **Notes**: Xiaomi's in-house MiMo series (MiMo V2.5 and others). Register to apply for an API Key.
 
-::: tip 新人福利
-通过上方邀请链接注册送 10 元体验金，享首单 9 折；体验金 40 天有效。
+::: tip New user bonus
+Sign up through the referral link above to get ¥10 in trial credit and 10% off the first order; the credit is valid for 40 days.
 :::
 
-## 日日新
+## SenseNova (Riyi Xin)
 
-- **平台**：日日新大模型开放平台（商汤 SenseNova）
-- **注册地址**：[platform.sensenova.cn](https://platform.sensenova.cn/login)
-- **说明**：商汤科技旗下的大模型平台，注册登录后可申请 API Key。
+- **Platform**: SenseNova open platform (SenseTime)
+- **Sign-up**: [platform.sensenova.cn](https://platform.sensenova.cn/login)
+- **Notes**: SenseTime's LLM platform. Register and log in to apply for an API Key.
 
-::: tip 公测免费
-目前处于公测阶段，token plan 免费。
+::: tip Public beta free
+Currently in public beta, the token plan is free.
 :::
 
-## 基元律动（OpenSquilla）
+## TokenRhythm (OpenSquilla)
 
-- **平台**：基元律动 TokenRhythm
-- **官网地址**：[tokenrhythm.studio](https://tokenrhythm.studio/)
-- **说明**：多模型统一 API 接入平台，配套 OpenSquilla 智能路由，注册后可申请 API Key 接入。
+- **Platform**: TokenRhythm
+- **Website**: [tokenrhythm.studio](https://tokenrhythm.studio/)
+- **Notes**: Unified multi-model API platform with the OpenSquilla smart router. Register to apply for an API Key.
 
-::: tip 新人福利
-需先完成实名认证，认证通过后可获得 18 元体验金。
+::: tip New user bonus
+Complete real-name verification first; once verified you receive ¥18 in trial credit.
 :::
 
-## 硅基流动（SiliconFlow）
+## SiliconFlow
 
-- **平台**：硅基流动（SiliconFlow）开放平台
-- **活动地址**：[https://cloud.siliconflow.cn/i/HNDIQWXd](https://cloud.siliconflow.cn/i/HNDIQWXd)
-- **说明**：通过邀请链接注册并完成实名认证可获取免费额度，活动截止到年底，具体以平台公告为准。
+- **Platform**: SiliconFlow open platform
+- **Referral link**: [cloud.siliconflow.cn/i/HNDIQWXd](https://cloud.siliconflow.cn/i/HNDIQWXd)
+- **Notes**: Registering through the referral link and completing real-name verification grants free quota. The campaign runs until the end of the year; check the platform announcement for details.
 
-::: tip 实名认证
-新用户需先注册并完成实名认证，方可获得赠送额度。
+::: tip Real-name verification
+New users must register and complete real-name verification before receiving the bonus quota.
 :::
 
 ## Agnes AI
 
-- **平台**：Agnes AI（新加坡 Sapiens AI 团队）
-- **注册地址**：[platform.agnes-ai.com](https://platform.agnes-ai.com/)
-- **说明**：全模态 AI 平台，文本、图像、视频三大模型 API 无限期免费开放，OpenAI 兼容接口，注册后即可申请 API Key 接入。
+- **Platform**: Agnes AI (Sapiens AI team, Singapore)
+- **Sign-up**: [platform.agnes-ai.com](https://platform.agnes-ai.com/)
+- **Notes**: Full-modality AI platform — text, image and video model APIs are free indefinitely with OpenAI-compatible endpoints. Register and apply for an API Key.
 
-::: tip 全模态免费
-文本、图像、视频模型 API 均免费开放，免费访问有基础速率限制与公平使用配额，具体以平台规则为准。
+::: tip All-modality free
+Text, image and video model APIs are all free, with basic rate limits and fair-use quotas. See platform rules for details.
 :::
 
-## 在 XenCode 中接入
+## Connecting in XenCode
 
-拿到平台的 API Key 和 Base URL 后，按 [AI 供应商与模型](/guide/providers) 的步骤配置即可：
+Once you have a platform's API Key and Base URL, follow [AI Vendors & Models](/guide/providers) to configure it:
 
-1. 打开「设置 → AI 供应商」，点右上角 + 新建。
-2. 填入上游格式、API Key、Base URL（地址不要带 `/v1`）。
-3. 切到「模型」标签页拉取模型，回到主页即可开始对话。
+1. Open "Settings → AI Vendors" and tap + at the top-right.
+2. Fill in the upstream format, API Key and Base URL (the address should not include `/v1`).
+3. Switch to the "Models" tab to fetch models, then head back to the home page to start chatting.
 
-如果平台对上游格式、Base URL 有特殊要求（例如提供 OpenAI 兼容或 Anthropic 兼容端点），以平台文档为准。
+If a platform has special requirements for the upstream format or Base URL (e.g. OpenAI-compatible or Anthropic-compatible endpoints), follow the platform's documentation.

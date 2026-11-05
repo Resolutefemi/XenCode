@@ -14,17 +14,17 @@ import javax.inject.Inject
 import javax.inject.Singleton
 
 /**
- * Git 模块专用的命令引擎：在「真机 ROOT」通道下把命令改投到本地 PRoot 容器，其余通道原样转发。
+ * Git-module command engine: on the "device ROOT" channel, commands are rerouted to the local PRoot container; others forward unchanged.
  *
- * 背景：Android 真机的 root 环境里**没有 git 二进制**（系统不带、Magisk 也不带），而 Debian/Ubuntu
- * 容器镜像内是预装好的。原先 Git 页与其它工具一样走 [CommandEngine] 委托层，切到真机通道后
- * 每条 `git` 都变成 `/system/bin/sh: git: inaccessible or not found`，表现为「初始化仓库失败」。
+ * Background: the root environment of a physical Android device has **no git binary** (neither system nor Magisk
+ * ships one), while Debian/Ubuntu container images preinstall it; the Git page, previously going through the
+ * [CommandEngine] delegation layer like other tools, saw every `git` become `/system/bin/sh: git: inaccessible or not found`.
  *
- * 之所以只回退「真机」这一个通道：
- * - REMOTE_SSH：工作区本身在远程 Linux 上，git 必须在远程执行才看得到仓库，回退到本地反而错；
- * - LOCAL_PROOT：本来就是容器，行为不变。
+ * Only the "device" channel falls back:
+ * - REMOTE_SSH: the workspace is on remote Linux; git must run remotely to see the repo - local fallback would be wrong;
+ * - LOCAL_PROOT: already a container; behavior unchanged.
  *
- * 若容器也尚未安装，[LinuxContainerEngine.notReadyHint] 会返回引导文案，由 Git 页展示给用户。
+ * If the container is not installed either, [LinuxContainerEngine.notReadyHint] returns guidance text the Git page shows.
  */
 @Singleton
 class GitCommandEngine @Inject constructor(
@@ -33,7 +33,7 @@ class GitCommandEngine @Inject constructor(
     private val remoteEngine: com.xencode.feature.agent.domain.container.RemoteSshEngine
 ) : CommandEngine {
 
-    /** 真机通道 → 容器；其余按各通道转发（用户放弃真机执行 git）。 */
+    /** Device channel → container; other channels forward as-is (git is not run on the device itself). */
     private fun delegate(): CommandEngine = when (modeHolder.currentMode()) {
         ExecutionMode.REMOTE_SSH -> remoteEngine
         ExecutionMode.DEVICE_ROOT -> localEngine
@@ -82,7 +82,7 @@ class GitCommandEngine @Inject constructor(
     override fun notReadyHint(): String? = delegate().notReadyHint()
 
     override suspend fun ensureInstalled() {
-        // 真机通道下初始化的是容器（root 无需安装），保证 Git 页也能把容器拉起来。
+        // On the device channel, initialization targets the container (root itself needs no install), so the Git page can bring the container up too.
         localEngine.ensureInstalled()
     }
 }

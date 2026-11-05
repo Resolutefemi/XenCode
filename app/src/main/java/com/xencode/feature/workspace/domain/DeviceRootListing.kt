@@ -4,26 +4,26 @@ import com.xencode.feature.agent.domain.device.DeviceRootEngine
 import java.io.File
 
 /**
- * [DeviceRootFileAccess] 目录列举的脚本生成与输出解析（纯函数，无 Android 依赖，可单测）。
+ * Script generation and output parsing for [DeviceRootFileAccess] directory listings (pure functions, no Android dependency, unit-testable).
  *
- * 为什么重写：旧实现是「一个 su fork + 每项一次 stat fork」——100 项的目录约 100 次进程创建，
- * 在大目录上展开文件树要等数秒。现在一条 `find -printf` 拿回全部属性，进程创建从 N+1 降到 1。
+ * Why the rewrite: the old implementation was "one su fork + one stat fork per item" — a directory of 100 entries meant ~100 process creations,
+ * so expanding the file tree on a large directory took seconds. Now a single `find -printf` fetches all attributes, cutting process creations from N+1 to 1.
  *
- * 输出协议（记录间 `\0` 分隔，字段间 `\t`）：`type \t size \t mtime \t mode \t name`。
- * 选 `\0` 是因为文件名可以含制表符甚至换行（旧实现按行+按 tab 切分会把这些名字解析错，
- * 这是已知限制，本次一并修掉）；name 是最后一段，内部含 tab 由解析端重新拼回。
+ * Output protocol (records separated by `\0`, fields by `\t`): `type \t size \t mtime \t mode \t name`.
+ * `\0` was chosen because filenames may contain tabs or even newlines (the old line+tab splitting parsed such names wrongly —
+ * a known limitation, fixed here as well); name is the last segment, and tabs inside it are re-joined by the parser.
  *
- * 兜底：`find -printf` 依赖 toybox/GNU find（Android 7+ 的 toybox 已支持）。极个别构建不支持时
- * 命令非零退出，调用方回退到 [legacyScript]（旧逐项 stat 语义），行为不变、只是回到慢路径。
+ * Fallback: `find -printf` depends on toybox/GNU find (toybox on Android 7+ already supports it). On the rare build that lacks it,
+ * the command exits non-zero and the caller falls back to [legacyScript] (old per-item stat semantics) — same behavior, just back on the slow path.
  */
 internal object DeviceRootListing {
 
-    /** find 版脚本：cd 失败沿用旧约定的 exit 2（NoSuchFileException）。 */
+    /** find-based script: a failed cd keeps the old exit-2 convention (NoSuchFileException). */
     fun findScript(real: String): String =
         "cd ${DeviceRootEngine.shellQuote(real)} 2>/dev/null || exit 2; " +
             "find -L . -mindepth 1 -maxdepth 1 -printf '%y\\t%s\\t%T@\\t%m\\t%f\\0'"
 
-    /** 旧版脚本（兜底）：cd 后遍历通配，逐项 stat 取 大小|时间|权限。 */
+    /** Legacy script (fallback): cd then glob, stat each item for size|time|permissions. */
     fun legacyScript(real: String): String =
         "cd ${DeviceRootEngine.shellQuote(real)} 2>/dev/null || exit 2; " +
             "for f in * .[!.]* ..?*; do " +
@@ -34,8 +34,8 @@ internal object DeviceRootListing {
             "done"
 
     /**
-     * 解析 [findScript] 的输出。[real] 是目录的真机绝对路径，用于回填 [FileEntry.localFile]。
-     * 非法记录（字段不足、名为空）跳过；统计缺失的字段给 0，权限给 "rwx"（与旧实现默认一致）。
+     * Parses the output of [findScript]. [real] is the directory's real-device absolute path, used to fill in [FileEntry.localFile].
+     * Malformed records (missing fields, empty name) are skipped; missing stat fields default to 0 and permissions to "rwx" (same defaults as the old implementation).
      */
     fun parseFindOutput(output: String, real: String): List<FileEntry> {
         val out = ArrayList<FileEntry>()
@@ -48,7 +48,7 @@ internal object DeviceRootListing {
             if (p1 < 0 || p2 < 0 || p3 < 0 || p4 < 0) continue
             val type = record.substring(0, p1)
             val size = record.substring(p1 + 1, p2).toLongOrNull() ?: 0L
-            // %T@ 形如 "1729165800.0123456789"：只取整秒（毫秒精度对文件树与文件详情足够）
+            // %T@ looks like "1729165800.0123456789": keep whole seconds only (millisecond precision is enough for the file tree and file details)
             val mtime = record.substring(p2 + 1, p3).substringBefore('.').toLongOrNull() ?: 0L
             val mode = record.substring(p3 + 1, p4)
             val name = record.substring(p4 + 1)
@@ -66,8 +66,8 @@ internal object DeviceRootListing {
     }
 
     /**
-     * 解析 [legacyScript] 的输出（旧格式：`type \t size|mtime|perm \t name`，行分隔）。
-     * name 可含 tab（旧实现用 subList 拼回），此处保持同样语义。
+     * Parses the output of [legacyScript] (old format: `type \t size|mtime|perm \t name`, line-separated).
+     * name may contain tabs (the old implementation re-joined them via subList); the same semantics are kept here.
      */
     fun parseLegacyOutput(output: String, real: String): List<FileEntry> {
         return output.lineSequence()
@@ -91,10 +91,10 @@ internal object DeviceRootListing {
     }
 
     /**
-     * `stat`/`find` 的八进制权限串（如 "644"、"40755"）→ owner 位 rwx 三串（如 "rw-"）。
-     * 只取末三位的最高位（owner），与旧实现 `stat -c %A` 后取 `-rwx` 前三位的语义一致；
-     * setuid/sticky 与 group/other 位对文件树与文件详情的展示无意义，不呈现。
-     * 无法解析时返回 "rwx"（root 视角默认可读写执行）。
+     * Converts the octal permission string from `stat`/`find` (e.g. "644", "40755") into the owner's rwx triplet (e.g. "rw-").
+     * Only the top bit of the last three digits (owner) is taken, matching the old semantics of `stat -c %A` then taking the first three chars of `-rwx`;
+     * setuid/sticky and group/other bits are meaningless for the file tree and file details, so they are not shown.
+     * Returns "rwx" when unparseable (root-view default of read/write/execute).
      */
     fun permissionsFromOctal(octal: String): String {
         val digits = octal.filter { it.isDigit() }.takeLast(3)

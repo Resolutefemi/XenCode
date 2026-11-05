@@ -19,9 +19,9 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 /**
- * Interactions 请求体构造（[buildInteractionsTools] / [buildInteractionsInput]）。
- * 覆盖点：工具声明不再套 `functionDeclarations`、历史是扁平 step 时间线、
- * 模型产出 step 原样回放（thought 的 signature 不可重建）、以及工具调用/结果的配对清理。
+ * Interactions request body construction ([buildInteractionsTools] / [buildInteractionsInput]).
+ * Coverage: tool declarations no longer wrap in `functionDeclarations`, history is a flat step timeline,
+ * model-produced steps are replayed verbatim (a thought's signature cannot be rebuilt), and tool call/result pairing is cleaned up.
  */
 class GeminiInteractionsPayloadTest {
 
@@ -37,7 +37,7 @@ class GeminiInteractionsPayloadTest {
     private fun call(id: String, name: String, path: String) =
         ToolCall(id = id, name = name, arguments = mapOf("path" to JsonPrimitive(path)))
 
-    /** step 元素可能是 Map（重建）或 Gson JsonObject（快照原样回放），统一成 JsonObject 再断言。 */
+    /** Step elements may be Maps (rebuilt) or Gson JsonObjects (snapshot replayed verbatim); normalize to JsonObject before asserting. */
     private fun steps(messages: List<AgentMessage>): List<JsonObject> =
         buildInteractionsInput(messages).map { Gson().toJsonTree(it).asJsonObject }
 
@@ -55,7 +55,7 @@ class GeminiInteractionsPayloadTest {
         assertEquals("readFile", def.get("name").asString)
         assertTrue(def.has("description"))
         assertTrue(def.has("parameters"))
-        // generateContent 的 [{functionDeclarations: [...]}] 那层在 Interactions 里不存在
+        // The generateContent-style [{functionDeclarations: [...]}] wrapper layer does not exist in Interactions
         assertFalse(def.has("functionDeclarations"))
     }
 
@@ -78,14 +78,14 @@ class GeminiInteractionsPayloadTest {
     @Test
     fun user_images_become_image_content_blocks() {
         val message = AgentMessage.UserMessage(
-            content = "看图",
+            content = "look at the image",
             images = listOf(AgentImage(mimeType = "image/png", base64Data = "AAA"))
         )
         val content = steps(listOf(message))[0].getAsJsonArray("content")
         assertEquals(2, content.size())
         val image = content[1].asJsonObject
         assertEquals("image", image.get("type").asString)
-        // generateContent 用 inline_data 包一层，Interactions 是平铺的 mime_type / data
+        // generateContent wraps with inline_data; Interactions flattens to mime_type / data
         assertEquals("image/png", image.get("mime_type").asString)
         assertEquals("AAA", image.get("data").asString)
         assertFalse(image.has("inline_data"))
@@ -108,9 +108,9 @@ class GeminiInteractionsPayloadTest {
     fun tool_roundtrip_emits_function_call_then_function_result() {
         val result = steps(
             listOf(
-                AgentMessage.UserMessage(content = "读文件"),
+                AgentMessage.UserMessage(content = "read the file"),
                 AgentMessage.AssistantMessage(content = "", toolCalls = listOf(call("c1", "readFile", "a.kt"))),
-                AgentMessage.ToolResultMessage(id = "c1", toolName = "readFile", result = "内容")
+                AgentMessage.ToolResultMessage(id = "c1", toolName = "readFile", result = "content")
             )
         )
         assertEquals(3, result.size)
@@ -118,22 +118,22 @@ class GeminiInteractionsPayloadTest {
         assertEquals("c1", result[1].get("id").asString)
         assertEquals("readFile", result[1].get("name").asString)
         assertEquals(InteractionStep.FUNCTION_RESULT, result[2].type())
-        // 结果靠 call_id 与调用的 id 配对
+        // Results are paired with calls by call_id against the call's id
         assertEquals("c1", result[2].get("call_id").asString)
-        assertEquals("内容", result[2].getAsJsonObject("result").get("result").asString)
+        assertEquals("content", result[2].getAsJsonObject("result").get("result").asString)
     }
 
     @Test
     fun rebuilt_arguments_are_real_json_not_kotlinx_internals() {
         val result = steps(
             listOf(
-                AgentMessage.UserMessage(content = "读文件"),
+                AgentMessage.UserMessage(content = "read the file"),
                 AgentMessage.AssistantMessage(content = "", toolCalls = listOf(call("c1", "readFile", "a.kt"))),
-                AgentMessage.ToolResultMessage(id = "c1", toolName = "readFile", result = "内容")
+                AgentMessage.ToolResultMessage(id = "c1", toolName = "readFile", result = "content")
             )
         )
         val args = result[1].getAsJsonObject("arguments")
-        // 把 kotlinx 的 JsonObject 直接交给 Gson 会反射出 {"body":...,"isString":true}
+        // Handing kotlinx's JsonObject straight to Gson would reflect out {"body":...,"isString":true}
         assertEquals("a.kt", args.get("path").asString)
         assertFalse(args.has("body"))
     }
@@ -142,11 +142,11 @@ class GeminiInteractionsPayloadTest {
     fun call_without_result_is_dropped_together_with_the_call() {
         val result = steps(
             listOf(
-                AgentMessage.UserMessage(content = "读文件"),
-                AgentMessage.AssistantMessage(content = "好", toolCalls = listOf(call("c1", "readFile", "a.kt")))
+                AgentMessage.UserMessage(content = "read the file"),
+                AgentMessage.AssistantMessage(content = "ok", toolCalls = listOf(call("c1", "readFile", "a.kt")))
             )
         )
-        // 用户拒绝执行时调用无结果，留着调用会因缺 function_result 被服务端拒
+        // When the user refuses execution the call has no result; keeping the call would be rejected by the server for a missing function_result
         assertEquals(2, result.size)
         assertEquals(InteractionStep.MODEL_OUTPUT, result[1].type())
     }
@@ -156,7 +156,7 @@ class GeminiInteractionsPayloadTest {
         val result = steps(
             listOf(
                 AgentMessage.UserMessage(content = "hi"),
-                AgentMessage.ToolResultMessage(id = "gone", toolName = "readFile", result = "内容")
+                AgentMessage.ToolResultMessage(id = "gone", toolName = "readFile", result = "content")
             )
         )
         assertEquals(1, result.size)
@@ -167,17 +167,17 @@ class GeminiInteractionsPayloadTest {
     fun out_of_order_result_is_attached_to_its_call() {
         val result = steps(
             listOf(
-                AgentMessage.UserMessage(content = "两个工具"),
+                AgentMessage.UserMessage(content = "two tools"),
                 AgentMessage.AssistantMessage(
                     content = "",
                     toolCalls = listOf(call("c1", "ask", "x"), call("c2", "readFile", "a.kt"))
                 ),
-                // askUserQuestion 阻塞期间 c2 的结果先落位
-                AgentMessage.ToolResultMessage(id = "c2", toolName = "readFile", result = "内容"),
-                AgentMessage.ToolResultMessage(id = "c1", toolName = "ask", result = "答")
+                // While askUserQuestion is blocked, c2's result lands first
+                AgentMessage.ToolResultMessage(id = "c2", toolName = "readFile", result = "content"),
+                AgentMessage.ToolResultMessage(id = "c1", toolName = "ask", result = "answer")
             )
         )
-        // 两个调用先连续写完，再集中写两个结果（与官方无状态示例的顺序一致）
+        // The two calls are written back-to-back first, then the two results together (matching the official stateless example's order)
         assertEquals(
             listOf(
                 InteractionStep.USER_INPUT,
@@ -200,17 +200,17 @@ class GeminiInteractionsPayloadTest {
         """.trimIndent().replace('\'', '"')
         val result = steps(
             listOf(
-                AgentMessage.UserMessage(content = "读文件"),
+                AgentMessage.UserMessage(content = "read the file"),
                 AgentMessage.AssistantMessage(
                     content = "",
                     toolCalls = listOf(call("c1", "readFile", "a.kt")),
                     thinkingBlocksJson = snapshot
                 ),
-                AgentMessage.ToolResultMessage(id = "c1", toolName = "readFile", result = "内容")
+                AgentMessage.ToolResultMessage(id = "c1", toolName = "readFile", result = "content")
             )
         )
         assertEquals(4, result.size)
-        // signature 不可重建，必须原样回传，否则接不上上一轮推理
+        // The signature cannot be rebuilt and must be replayed verbatim, otherwise the previous turn's reasoning cannot be continued
         assertEquals(InteractionStep.THOUGHT, result[1].type())
         assertEquals("sig-1", result[1].get("signature").asString)
         assertEquals(InteractionStep.FUNCTION_CALL, result[2].type())
@@ -226,17 +226,17 @@ class GeminiInteractionsPayloadTest {
         """.trimIndent().replace('\'', '"')
         val result = steps(
             listOf(
-                AgentMessage.UserMessage(content = "两个工具"),
+                AgentMessage.UserMessage(content = "two tools"),
                 AgentMessage.AssistantMessage(
-                    content = "好",
+                    content = "ok",
                     toolCalls = listOf(call("c1", "ask", "x"), call("c2", "readFile", "a.kt")),
                     thinkingBlocksJson = snapshot
                 ),
-                // c1 被用户拒绝，没有结果
-                AgentMessage.ToolResultMessage(id = "c2", toolName = "readFile", result = "内容")
+                // c1 was refused by the user, no result
+                AgentMessage.ToolResultMessage(id = "c2", toolName = "readFile", result = "content")
             )
         )
-        // 快照里的 signature 会对不上实际发出的调用序列，退回按正文重建
+        // The snapshot's signature no longer matches the actually-sent call sequence, so it falls back to rebuilding from the body
         assertEquals(
             listOf(
                 InteractionStep.USER_INPUT,
@@ -251,7 +251,7 @@ class GeminiInteractionsPayloadTest {
 
     @Test
     fun snapshot_drops_echoed_input_steps() {
-        // 服务端可能把我们发过去的 user_input / function_result 一并回显，留着下一轮就重复了
+        // The server may echo back the user_input / function_result we sent; keeping them would duplicate them next turn
         val steps = listOf(
             json("{'type':'user_input','content':[{'type':'text','text':'hi'}]}"),
             json("{'type':'thought','signature':'sig-1'}"),
@@ -267,7 +267,7 @@ class GeminiInteractionsPayloadTest {
     @Test
     fun pure_text_turn_needs_no_snapshot() {
         val steps = listOf(json("{'type':'model_output','content':[{'type':'text','text':'hello'}]}"))
-        // 纯文本可由正文重建，落库快照只会导致正文双写
+        // Pure text can be rebuilt from the body; persisting a snapshot would only double-write the body
         assertNull(snapshotInteractionSteps(steps))
     }
 
@@ -275,20 +275,20 @@ class GeminiInteractionsPayloadTest {
     fun tool_result_is_emitted_as_plain_result_object_without_images() {
         val result = steps(
             listOf(
-                AgentMessage.UserMessage(content = "截图"),
+                AgentMessage.UserMessage(content = "take a screenshot"),
                 AgentMessage.AssistantMessage(content = "", toolCalls = listOf(call("c1", "shot", "x"))),
                 AgentMessage.ToolResultMessage(
                     id = "c1",
                     toolName = "shot",
-                    result = "已截图",
+                    result = "screenshot taken",
                     images = listOf(AgentImage(mimeType = "image/png", base64Data = "BBB"))
                 )
             )
         )
-        // result 以对象回传（兼容部分中转网关转 generateContent 时对数组型 result 的拒绝）；
-        // 工具产出的图片不回传——图已展示给用户，再进上下文只会膨胀 token。
+        // result is sent back as an object (compatible with relay gateways that reject array-shaped results when converting to generateContent);
+        // images produced by tools are not sent back — they were already shown to the user, and re-entering the context would only bloat tokens.
         val resultObj = result[2].getAsJsonObject("result")
-        assertEquals("已截图", resultObj.get("result").asString)
+        assertEquals("screenshot taken", resultObj.get("result").asString)
         assertFalse(resultObj.has("images"))
     }
 
@@ -296,9 +296,9 @@ class GeminiInteractionsPayloadTest {
     fun assistant_generated_images_are_rebuilt_into_model_output_blocks() {
         val result = steps(
             listOf(
-                AgentMessage.UserMessage(content = "画一只猫"),
+                AgentMessage.UserMessage(content = "draw a cat"),
                 AgentMessage.AssistantMessage(
-                    content = "画好了",
+                    content = "done drawing",
                     images = listOf(AgentImage(mimeType = "image/png", base64Data = "CCC"))
                 )
             )
@@ -308,23 +308,23 @@ class GeminiInteractionsPayloadTest {
         assertEquals(2, content.size())
         assertEquals("text", content[0].asJsonObject.get("type").asString)
         assertEquals("image", content[1].asJsonObject.get("type").asString)
-        // Interactions 的 image block 平铺 mime_type / data（与 generateContent 的 inline_data 不同）
+        // Interactions' image block flattens mime_type / data (unlike generateContent's inline_data)
         assertEquals("image/png", content[1].asJsonObject.get("mime_type").asString)
         assertEquals("CCC", content[1].asJsonObject.get("data").asString)
     }
 
     @Test
     fun assistant_image_turn_abandons_snapshot_to_keep_base64_out_of_db() {
-        // 图片快照若原样回放会携带大 base64（4K 图约 10MB）撑爆数据库行，
-        // 因此有图片的轮放弃快照、按正文+图片重建（签名丢失影响可控）。
+        // Replaying an image snapshot verbatim would carry huge base64 (~10MB for a 4K image) and blow up the DB row,
+        // so turns with images abandon the snapshot and rebuild from body + images (the lost signature has bounded impact).
         val snapshot = """
             [{'type':'thought','signature':'sig-1'}]
         """.trimIndent().replace('\'', '"')
         val result = steps(
             listOf(
-                AgentMessage.UserMessage(content = "画一只猫"),
+                AgentMessage.UserMessage(content = "draw a cat"),
                 AgentMessage.AssistantMessage(
-                    content = "画好了",
+                    content = "done drawing",
                     thinkingBlocksJson = snapshot,
                     images = listOf(AgentImage(mimeType = "image/png", base64Data = "CCC"))
                 )
@@ -341,7 +341,7 @@ class GeminiInteractionsPayloadTest {
     fun assistant_pure_image_turn_emits_model_output_with_image_only() {
         val result = steps(
             listOf(
-                AgentMessage.UserMessage(content = "画一只猫"),
+                AgentMessage.UserMessage(content = "draw a cat"),
                 AgentMessage.AssistantMessage(
                     content = "",
                     images = listOf(AgentImage(mimeType = "image/png", base64Data = "CCC"))

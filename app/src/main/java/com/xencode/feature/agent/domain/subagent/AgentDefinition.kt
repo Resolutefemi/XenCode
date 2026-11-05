@@ -2,32 +2,32 @@ package com.xencode.feature.agent.domain.subagent
 
 import com.xencode.feature.agent.domain.model.AgentMode
 
-/** 子代理定义的来源作用域：全局（跨项目共享）或项目级（仅当前工作区生效，可 git 追踪）。 */
+/** Source scope of a sub-agent definition: global (shared across projects) or project-level (effective only in the current workspace, git-trackable). */
 enum class AgentDefinitionScope { GLOBAL, PROJECT }
 
 /**
- * 子代理系统提示词的可注入片段。省略 `inject` 时使用 [AgentDefinition.DEFAULT_INJECT]。
+ * Injectable fragments of the sub-agent system prompt. Omitting `inject` uses [AgentDefinition.DEFAULT_INJECT].
  *
- * BASE 与 MAIN_RULES 互斥语义上并不强制，同时写则两者都注入（MAIN_RULES 在前）。
+ * BASE and MAIN_RULES are not strictly mutually exclusive; writing both injects both (MAIN_RULES first).
  */
 enum class InjectPart(val token: String) {
-    /** 子代理专用精简基线（`agent/subagent-base.md`）：工具用法、路径约定、安全边界。 */
+    /** Compact sub-agent baseline (`agent/subagent-base.md`): tool usage, path conventions, safety boundaries. */
     BASE("base"),
 
-    /** 主代理的完整静态规则基线（`00`~`70` 全部片段），需要子代理与主代理行为完全一致时使用。 */
+    /** The main agent's full static rule baseline (all `00`~`70` fragments), used when a sub-agent must behave exactly like the main agent. */
     MAIN_RULES("mainRules"),
 
-    /** 可用技能清单（子代理可 loadSkill）。 */
+    /** Available skills list (the sub-agent can loadSkill). */
     SKILLS("skills"),
 
-    /** 全局 + 项目记忆的摘要清单。 */
+    /** Summary list of global + project memories. */
     MEMORY("memory"),
 
-    /** 项目规则（AGENTS.md / CLAUDE.md）。 */
+    /** Project rules (AGENTS.md / CLAUDE.md). */
     PROJECT_RULES("projectRules");
 
     companion object {
-        /** frontmatter 里的宽松写法映射：忽略大小写、连字符与下划线差异。 */
+        /** Lenient token mapping for frontmatter: ignores case and hyphen/underscore differences. */
         fun fromToken(token: String): InjectPart? {
             val normalized = token.trim().lowercase().replace("-", "").replace("_", "")
             return when (normalized) {
@@ -43,19 +43,19 @@ enum class InjectPart(val token: String) {
 }
 
 /**
- * 一个自定义子代理定义，来自 `agents/<name>.md` 的 frontmatter + 正文。
+ * A custom sub-agent definition, from the frontmatter + body of `agents/<name>.md`.
  *
- * @param name 唯一标识，`task(agent="<name>")` 用它派发
- * @param description 何时该派这个子代理，注入主代理提示词供其选择
- * @param providerId 绑定的 provider id；null 表示继承父会话
- * @param model 绑定的模型名；null 表示继承父会话
- * @param reasoningEffort 思考强度（low/medium/high）；null 表示继承父会话
- * @param mode 运行模式（build/plan/auto）；null 表示继承父会话
- * @param allowedTools 工具白名单；空表示继承全量工具
- * @param disallowedTools 工具黑名单，先于白名单生效
- * @param inject 要注入的提示词片段
- * @param prompt agent 自身的系统提示词（正文）
- * @param filePath 定义文件的容器路径，供设置页展示与删除
+ * @param name Unique identifier; `task(agent="<name>")` dispatches with it
+ * @param description When to dispatch this sub-agent; injected into the main agent's prompt for selection
+ * @param providerId Bound provider id; null means inherit from the parent session
+ * @param model Bound model name; null means inherit from the parent session
+ * @param reasoningEffort Reasoning effort (low/medium/high); null means inherit from the parent session
+ * @param mode Run mode (build/plan/auto); null means inherit from the parent session
+ * @param allowedTools Tool allowlist; empty means inherit the full tool set
+ * @param disallowedTools Tool blocklist, applied before the allowlist
+ * @param inject Prompt fragments to inject
+ * @param prompt The agent's own system prompt (body)
+ * @param filePath Container path of the definition file, shown and deleted on the settings page
  */
 data class AgentDefinition(
     val name: String,
@@ -71,10 +71,10 @@ data class AgentDefinition(
     val filePath: String? = null
 ) {
     /**
-     * 按白名单/黑名单裁剪工具名集合。`task` 永远被剔除——子代理不能嵌套派子代理。
+     * Trims the tool-name set by allowlist/blocklist. `task` is always removed — sub-agents must not nest-dispatch sub-agents.
      *
-     * 黑名单先生效，再与白名单取交集；支持 `mcp__server__*` 形式的通配，
-     * 以便一次禁掉某个 MCP server 的全部工具。
+     * The blocklist applies first, then intersects with the allowlist; `mcp__server__*` wildcards are supported
+     * to disable all tools of an MCP server at once.
      */
     fun filterToolNames(all: List<String>): List<String> {
         val afterDeny = all.filterNot { name -> disallowedTools.any { matches(it, name) } }
@@ -94,7 +94,7 @@ data class AgentDefinition(
     }
 
     companion object {
-        /** 省略 `inject` 时的默认注入项：精简基线 + 技能 + 记忆 + 项目规则。 */
+        /** Default injection when `inject` is omitted: compact baseline + skills + memory + project rules. */
         val DEFAULT_INJECT: Set<InjectPart> = setOf(
             InjectPart.BASE,
             InjectPart.SKILLS,
@@ -102,21 +102,21 @@ data class AgentDefinition(
             InjectPart.PROJECT_RULES
         )
 
-        /** 子代理不可嵌套派发，其工具集永远剔除该工具。 */
+        /** Sub-agents must not nest-dispatch; their tool set always drops this tool. */
         const val NESTED_TOOL = "task"
 
-        /** 仅子代理可用的工具（子→主发消息）；主会话工具集剔除它。 */
+        /** Tool only sub-agents may use (child-to-parent messaging); the main session's tool set drops it. */
         const val PARENT_MESSAGE_TOOL = "messageParent"
     }
 }
 
-/** 一个生效的子代理定义条目：定义本体 + 其来源作用域，供 UI 标注「全局/项目」。 */
+/** One effective sub-agent definition entry: the definition itself + its source scope, for the UI to label "global/project". */
 data class AgentDefinitionEntry(
     val definition: AgentDefinition,
     val scope: AgentDefinitionScope
 )
 
-/** 设置页新建/编辑子代理时提交的表单快照。 */
+/** Form snapshot submitted when creating/editing a sub-agent on the settings page. */
 data class AgentDefinitionForm(
     val name: String,
     val description: String,
@@ -130,17 +130,17 @@ data class AgentDefinitionForm(
     val prompt: String = ""
 )
 
-/** 保存子代理定义失败的原因。 */
+/** Reasons saving a sub-agent definition can fail. */
 enum class AgentSaveError {
-    /** 名称为空、过长或含不能做文件名的字符。 */
+    /** Name is empty, too long, or contains characters unusable in a file name. */
     INVALID_NAME,
 
-    /** 提示词正文为空：解析器会直接丢掉这种定义，存下来也用不了。 */
+    /** Prompt body is empty: the parser drops such definitions outright, so saving them is useless. */
     EMPTY_PROMPT,
 
-    /** 同作用域已有同名子代理。 */
+    /** A sub-agent with the same name already exists in this scope. */
     NAME_CONFLICT,
 
-    /** 写盘失败。 */
+    /** Disk write failed. */
     IO_FAILED
 }

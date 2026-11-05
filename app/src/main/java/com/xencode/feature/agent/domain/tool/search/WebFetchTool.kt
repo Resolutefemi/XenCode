@@ -19,9 +19,9 @@ class WebFetchTool @Inject constructor() : AgentTool() {
 
     private companion object {
         const val TAG = "WebFetchTool"
-        // 较新的桌面 Chrome 版本，搭配下方 sec-ch-ua / sec-fetch-* 请求头以贴近真实浏览器指纹
+        // A recent desktop Chrome version, paired with the sec-ch-ua / sec-fetch-* headers below to approximate a real browser fingerprint
         const val USER_AGENT = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/132.0.0.0 Safari/537.36"
-        const val MAX_LENGTH = 100_000 // 限制最大提取字符数，防止撑爆上下文
+        const val MAX_LENGTH = 100_000 // Cap on extracted characters, to avoid blowing up the context
     }
 
     override val name = "webfetch"
@@ -56,14 +56,14 @@ class WebFetchTool @Inject constructor() : AgentTool() {
             try {
                 FileLogger.i(TAG, "fetching page: $url, format=$format")
 
-                // 从顶层捕获非 HTTP 的连接异常（DNS、超时、SSL 等），直接把具体原因回传给 AI，不做兜底猜测
+                // Catch non-HTTP connection exceptions at the top level (DNS, timeout, SSL, etc.) and pass the concrete reason back to the AI; no fallback guessing
                 val doc = try {
                     fetchDocument(url)
                 } catch (e: FetchException) {
                     return@withContext ToolResult.Error(e.detailedMessage(url))
                 }
 
-                // 按要求提取
+                // Extract as requested
                 val resultText = when (format) {
                     "html" -> doc.outerHtml()
                     else -> extractCleanText(doc)
@@ -89,20 +89,20 @@ class WebFetchTool @Inject constructor() : AgentTool() {
                 .userAgent(USER_AGENT)
                 .header("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8")
                 .header("Accept-Language", "en-US,en;q=0.9")
-                // 真桌面 Chrome 一定会发送的 sec-ch-ua 系列客户端提示
+                // The sec-ch-ua client-hint series that a real desktop Chrome always sends
                 .header("Sec-Ch-Ua", "\"Chromium\";v=\"132\", \"Not A(Brand\";v=\"99\", \"Google Chrome\";v=\"132\"")
                 .header("Sec-Ch-Ua-Mobile", "?0")
                 .header("Sec-Ch-Ua-Platform", "\"Windows\"")
-                // Fetch Metadata 请求头，现代浏览器发页面请求时必带
+                // Fetch Metadata headers, always sent by modern browsers for page requests
                 .header("Sec-Fetch-Dest", "document")
                 .header("Sec-Fetch-Mode", "navigate")
                 .header("Sec-Fetch-Site", "none")
                 .header("Sec-Fetch-User", "?1")
                 .header("Upgrade-Insecure-Requests", "1")
-                // 3xx 重定向默认即跟随，显式声明；限制响应体大小避免超大页面吃满内存
+                // 3xx redirects are followed by default; declared explicitly. Cap the response body size so oversized pages don't exhaust memory
                 .followRedirects(true)
                 .maxBodySize(5 * 1024 * 1024) // 5MB
-                .timeout(15000) // 15秒超时
+                .timeout(15000) // 15s timeout
                 .ignoreContentType(true)
                 .get()
         } catch (e: org.jsoup.HttpStatusException) {
@@ -127,24 +127,24 @@ class WebFetchTool @Inject constructor() : AgentTool() {
         }
     }
 
-    /** 把抓取过程中的失败包装成携带具体信息的异常，以便回传给 AI 而非模糊提示。 */
+    /** Wraps fetch failures into an exception carrying concrete details, so the AI gets the specifics instead of a vague hint. */
     private class FetchException(val detail: String) : RuntimeException(detail) {
         fun detailedMessage(url: String): String = "Failed to fetch $url: $detail"
     }
 
     /**
-     * 提取干净正文，并在段落之间保留换行符。
+     * Extracts the clean body text, preserving line breaks between paragraphs.
      */
     private fun extractCleanText(doc: Document): String {
-        // 移除多余的不可见内容
+        // Remove extraneous invisible content
         doc.select("script, style, iframe, nav, footer, header, noscript, .ad, .advertisement").remove()
         
-        // 为了避免 Jsoup 的 .text() 把所有行挤在一起，给块级元素加上换行符
+        // Append newlines to block-level elements so Jsoup's .text() doesn't squash all lines together
         doc.select("p, h1, h2, h3, h4, h5, h6, li, div, br").append("\\n")
         
         val rawText = doc.body()?.text() ?: ""
         
-        // 还原换行符，并清理多余的空行
+        // Restore the newlines and clean up excess blank lines
         return rawText.replace("\\n", "\n")
             .replace(Regex("\\n{3,}"), "\n\n")
             .trim()

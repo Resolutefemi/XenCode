@@ -25,8 +25,8 @@ import com.xencode.feature.agent.presentation.component.MarkdownRenderCache
 import com.xencode.feature.settings.presentation.SkillUiEntry
 
 /**
- * 技能详情页：分组卡片——「是否启用」开关行、「摘要」描述卡、「正文」指令卡（Markdown 渲染）。
- * 卡片左上小标题与设置主页分组一致。
+ * Skill detail page: grouped cards — an "enable" toggle row, a "summary" description card, and an "instructions" card (Markdown rendered).
+ * Card subtitles match the main settings page grouping.
  */
 @Composable
 internal fun SkillDetailSection(
@@ -42,7 +42,7 @@ internal fun SkillDetailSection(
             .padding(bottom = Spacing.xl),
         verticalArrangement = Arrangement.spacedBy(Spacing.sm)
     ) {
-        // 卡片 1：是否启用（开关行）
+        // Card 1: enable (toggle row)
         SettingsGroup {
             Row(
                 modifier = Modifier
@@ -63,7 +63,7 @@ internal fun SkillDetailSection(
             }
         }
 
-        // 卡片 2：摘要
+        // Card 2: summary
         SettingsGroupHeader(text = stringResource(R.string.skills_summary))
         SettingsGroup {
             Text(
@@ -76,7 +76,7 @@ internal fun SkillDetailSection(
             )
         }
 
-        // 卡片 3：正文（Markdown 渲染）
+        // Card 3: instructions (Markdown rendered)
         SettingsGroupHeader(text = stringResource(R.string.skills_instructions))
         SettingsGroup {
             MarkdownContent(
@@ -86,7 +86,7 @@ internal fun SkillDetailSection(
                 lazyScroll = true,
                 modifier = Modifier
                     .fillMaxWidth()
-                    // 正文卡限高：长文本在卡内懒加载滚动（外层整页仍可继续滚），避免超大 md 全量渲染卡顿。
+                    // Instructions card height limit: long text scrolls lazily inside the card (the whole page can still scroll), avoiding jank from rendering a huge md in full.
                     .heightIn(max = LocalConfiguration.current.screenHeightDp.dp * 0.62f)
                     .padding(horizontal = Spacing.lg, vertical = 12.dp)
             )

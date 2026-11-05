@@ -6,12 +6,12 @@ import javax.inject.Inject
 import javax.inject.Singleton
 
 /**
- * 子代理定义仓库，聚合全局与项目级两级来源；同名定义项目级优先（与技能、MCP 两级配置一致）。
- * 启停状态由 [AgentDefinitionConfigRepository] 持有：被禁用的定义仍出现在设置页列表里，
- * 但不进主代理的可派发清单、也不能被 [find] 派发出去。
+ * Sub-agent definition repository, aggregating the global and project-level sources; for same-named definitions, project wins (consistent with skills and MCP two-level config).
+ * Enable/disable state lives in [AgentDefinitionConfigRepository]: disabled definitions still appear in the settings list,
+ * but never enter the main agent's dispatchable list and cannot be dispatched by [find].
  *
- * 全局定义 `~/.xencode/agents`、项目级定义 `<workspace>/.xencode/agents`，两者都经 [FileAccessProvider]
- * 以容器路径读写，跟随当前执行环境（本地宿主目录或远程 SSH 工作区）。
+ * Global definitions live in `~/.xencode/agents`, project definitions in `<workspace>/.xencode/agents`; both are read/written via [FileAccessProvider]
+ * with container paths, following the current execution environment (local host directory or remote SSH workspace).
  */
 @Singleton
 class AgentDefinitionRepository @Inject constructor(
@@ -20,37 +20,37 @@ class AgentDefinitionRepository @Inject constructor(
     private val configRepository: AgentDefinitionConfigRepository,
     private val fileAccess: FileAccessProvider
 ) {
-    /** 全部定义（含来源作用域），未过滤禁用，按名称排序。 */
+    /** All definitions (with source scope), not filtered by disabled state, sorted by name. */
     fun listAll(): List<AgentDefinitionEntry> =
         mergeAll(globalSource.listDefinitions(), projectSource.listDefinitions())
 
-    /** 已启用的定义（注入主代理的可派发清单用）。 */
+    /** Enabled definitions (for the main agent's dispatchable list). */
     fun listEnabled(): List<AgentDefinitionEntry> {
         val disabled = configRepository.disabledNames()
         return listAll().filterNot { it.definition.name.lowercase() in disabled }
     }
 
-    /** 按名称查找可派发的定义（忽略大小写）；不存在或已被禁用时返回 null。 */
+    /** Finds a dispatchable definition by name (case-insensitive); null when missing or disabled. */
     fun find(name: String): AgentDefinition? =
         listEnabled().firstOrNull { it.definition.name.equals(name, ignoreCase = true) }?.definition
 
     /**
-     * 按名称查找定义，包含已禁用的。已经派出去的子会话要用它还原自己的提示词与工具集——
-     * 禁用只该拦住新的派发，不该让在跑的子代理中途换一套配置。
+     * Finds a definition by name, including disabled ones. Already-dispatched sub-sessions use it to restore their own prompt and tool set —
+     * disabling should only block new dispatches, not swap the config under a running sub-agent mid-flight.
      */
     fun findIncludingDisabled(name: String): AgentDefinition? =
         listAll().firstOrNull { it.definition.name.equals(name, ignoreCase = true) }?.definition
 
-    /** 该子代理是否在任一作用域中被禁用。 */
+    /** Whether this sub-agent is disabled in any scope. */
     fun isDisabled(name: String): Boolean = name.lowercase() in configRepository.disabledNames()
 
-    /** 在指定作用域启用/禁用某个子代理。 */
+    /** Enables/disables a sub-agent in the given scope. */
     fun setDisabled(name: String, disabled: Boolean, scope: AgentDefinitionScope) =
         configRepository.setDisabled(name, disabled, scope)
 
     /**
-     * 写入定义文件（新建或编辑）。[originalName] 为编辑前的名称，新建时传 null；
-     * 改了名就写新文件再删旧文件，等价于重命名。返回 null 表示成功。
+     * Writes the definition file (create or edit). [originalName] is the pre-edit name, null on create;
+     * a rename writes the new file then deletes the old one, equivalent to a rename. Returns null on success.
      */
     fun save(
         form: AgentDefinitionForm,
@@ -91,25 +91,25 @@ class AgentDefinitionRepository @Inject constructor(
         )
 
         return try {
-            // 名字未改时写回原文件，不能按 name 重拼文件名：内置 Explore 的文件叫 explore.md
-            // 而 frontmatter 里写的是 Explore，重拼会在大小写敏感的文件系统上多出一份 Explore.md。
+            // When the name is unchanged, write back to the original file; never rebuild the path from name: the built-in Explore's file is explore.md
+            // while its frontmatter says Explore, and rebuilding would create a duplicate Explore.md on case-sensitive file systems.
             val target = existingFile?.takeIf { overwritingSelf && provider.isFile(it) }
                 ?: "${root.trimEnd('/')}/$name.md"
             provider.writeFile(target, text, overwrite = true)
-            // 改名后清掉旧文件，否则会多出一个同内容的旧名子代理
+            // Remove the old file after a rename, or an old-name duplicate with identical content remains
             if (!overwritingSelf && existingFile != null && existingFile != target && provider.isFile(existingFile)) {
                 runCatching { provider.delete(existingFile) }.onFailure {
-                    FileLogger.w(TAG, "重命名后删除旧定义失败: $existingFile")
+                    FileLogger.w(TAG, "Failed to delete old definition after rename: $existingFile")
                 }
             }
             null
         } catch (e: Exception) {
-            FileLogger.e(TAG, "保存子代理定义失败: $name", e)
+            FileLogger.e(TAG, "Failed to save sub-agent definition: $name", e)
             AgentSaveError.IO_FAILED
         }
     }
 
-    /** 删除指定作用域的定义文件，不可恢复。返回是否成功。 */
+    /** Deletes the definition file in the given scope, unrecoverable. Returns whether it succeeded. */
     fun delete(name: String, scope: AgentDefinitionScope): Boolean {
         val entry = listAll().firstOrNull {
             it.definition.name.equals(name, ignoreCase = true) && it.scope == scope
@@ -120,14 +120,14 @@ class AgentDefinitionRepository @Inject constructor(
         return runCatching { provider.delete(filePath); true }.getOrDefault(false)
     }
 
-    /** 指定作用域的定义目录（容器路径）。 */
+    /** Definition directory for the given scope (container path). */
     fun agentsRoot(scope: AgentDefinitionScope): String =
         if (scope == AgentDefinitionScope.GLOBAL) globalSource.agentsRoot else projectSource.agentsRoot
 
     companion object {
         private const val TAG = "AgentDefinitionRepository"
 
-        /** 名称同时用作文件名，禁掉路径分隔符与保留字符；长度上限防止极端文件名。 */
+        /** The name doubles as the file name, so path separators and reserved characters are banned; the length cap guards against extreme file names. */
         internal fun isValidName(name: String): Boolean {
             if (name.isBlank() || name.length > MAX_NAME_LENGTH) return false
             if (name == "." || name == "..") return false
@@ -137,7 +137,7 @@ class AgentDefinitionRepository @Inject constructor(
         private const val MAX_NAME_LENGTH = 40
         private val ILLEGAL_NAME_CHARS = charArrayOf('/', '\\', ':', '*', '?', '"', '<', '>', '|')
 
-        /** 合并两级来源：同名项目级覆盖全局，按名称排序。 */
+        /** Merges the two levels: same-named project definitions override global, sorted by name. */
         internal fun mergeAll(
             global: List<AgentDefinition>,
             project: List<AgentDefinition>

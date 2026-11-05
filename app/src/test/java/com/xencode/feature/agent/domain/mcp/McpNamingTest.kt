@@ -5,7 +5,7 @@ import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
-/** MCP 命名：拼给模型的工具名必须符合 function-calling 规范（^[a-zA-Z0-9_-]{1,64}$）。 */
+/** MCP naming: tool names handed to the model must satisfy the function-calling spec (^[a-zA-Z0-9_-]{1,64}$). */
 class McpNamingTest {
 
     private val functionCallingName = Regex("[a-zA-Z0-9_-]{1,64}")

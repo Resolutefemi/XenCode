@@ -11,35 +11,35 @@ import javax.inject.Inject
 import javax.inject.Singleton
 
 /**
- * 工具授权策略引擎：在弹窗之前评估一次工具调用应「自动放行 / 自动拒绝 / 询问」，并在用户选择
- * 「始终允许」后把规则记忆下来。
+ * Tool authorization policy engine: before showing a dialog, decides whether a tool call should be
+ * auto-allowed / auto-denied / confirmed, and remembers the rule once the user picks "Always allow".
  *
- * 会话模式（[com.xencode.feature.agent.domain.model.AgentMode]）与授权挡位
- * （[CommandAuthLevel]）解耦，各司其职（对齐 Claude Code 的 Build/Plan/Ask）：
- * - ASK（提问）：只读问答沙盒，一切写操作硬拒绝；AI 不得自行切换计划模式。
- * - PLAN（计划）：只读规划沙盒，一切写操作硬拒绝；退出时经计划审查面板批准才进入构建。
- * - BUILD（构建）：完整工具集；授权口径**完全由设置决定**——按「命令授权挡位」分流
- *   （规则拦截 / 自主执行 / 完全权限），不再有模式级「全放行」开关（原 AUTO 模式的职责
- *   由「完全权限」挡位承担）。
+ * Session modes ([com.xencode.feature.agent.domain.model.AgentMode]) and authorization tiers
+ * ([CommandAuthLevel]) are decoupled, each with its own job (aligned with Claude Code's Build/Plan/Ask):
+ * - ASK: read-only Q&A sandbox; all writes hard-denied; the AI must not switch to plan mode on its own.
+ * - PLAN: read-only planning sandbox; all writes hard-denied; exiting requires plan-review panel approval before build.
+ * - BUILD: full toolset; the authorization policy **is fully determined by settings** — dispatched by the "command auth tier"
+ *   (rule interception / autonomous execution / full permission); there is no mode-level "allow-all" switch anymore
+ *   (the old AUTO mode's job is now handled by the "full-permission" tier).
  *
- * 评估顺序（Bash，BUILD 模式）：
- *   0) 灾难性 rm 防护：删除根目录/系统关键目录/工作区根目录等 → 硬拒绝（可凭 elevate 参数降级为一次性授权）；
- *   1) Shizuku 高危工具：一律弹窗且不可记忆；
- *   2) 可静态判定且每段都命中内置只读白名单（ls/git status 等）→ 自动放行；
- *   3) 按「命令授权挡位」（[CommandAuthLevel]）分流：
- *      - 规则拦截（默认）：命中任一启用的高危拦截规则（见 [HighRiskRuleMatcher]）→ ASK 人工确认；
- *        命令不可静态判定 → 对原文做破坏特征扫描（宽松版 [looksDestructiveLoose]），
- *        无破坏特征 ALLOW，有破坏特征 ASK；其余 → ALLOW；
- *      - 自主执行：一律 ASK 并标记 [EvalResult.aiReviewable]，由工作流层先交「AI 命令审查器」评审，
- *        通过直接放行，拒绝/不确定/失败回退人工弹窗；
- *      - 完全权限：直接 ALLOW，仅保留步骤 0 的灾难防护（可提权；「禁用安全拦截」开启时也关闭）。
+ * Evaluation order (Bash, BUILD mode):
+ *   0) Catastrophic rm guard: deleting the root directory / critical system directories / the workspace root etc. → hard DENY (downgradable to a one-time authorization via the elevate parameter);
+ *   1) Shizuku high-risk tools: always prompt, never rememberable;
+ *   2) Statically analyzable and every segment hits the built-in read-only allowlist (ls/git status etc.) → auto-allow;
+ *   3) Dispatch by "command auth tier" ([CommandAuthLevel]):
+ *      - Rule interception (default): hitting any enabled high-risk interception rule (see [HighRiskRuleMatcher]) → ASK for manual confirmation;
+ *        not statically analyzable → scan the raw text for destructive features (the loose [looksDestructiveLoose]);
+ *        no destructive features → ALLOW, some → ASK; otherwise → ALLOW;
+ *      - Autonomous execution: always ASK flagged with [EvalResult.aiReviewable]; the workflow layer first routes it to the "AI command reviewer",
+ *        approved → allow directly; rejected / uncertain / failed → fall back to a manual dialog;
+ *      - Full permission: ALLOW directly, keeping only the step-0 catastrophic guard (elevation allowed; also off when "disable safety interception" is on).
  *
- * 命令不再支持「始终允许」记忆：旧的项目/全局 ALLOW 规则会先于挡位生效，等于绕过高危拦截。
- * 非 shell 工具（文件读写/编辑等）按整工具（pattern=`*`）匹配，保留「始终允许此工具」记忆
- * （这类工具无高危规则可匹配，去掉记忆会导致每次写文件都弹窗）。
+ * Commands no longer support "Always allow" memory: the legacy project/global ALLOW rules took effect ahead of the tier, effectively bypassing high-risk interception.
+ * Non-shell tools (file read/write/edit etc.) match as a whole tool (pattern=`*`) and keep the "always allow this tool" memory
+ * (these tools have no high-risk rules to match; dropping the memory would prompt on every file write).
  *
- * [SHIZUKU_TOOL]（Shizuku）按高危处理：一律 ASK 且不可记忆；ASK/PLAN 模式下直接拒绝。
- * 「禁用安全拦截」开关对全部模式生效：开启后灾难性 rm 防护与 Shizuku 逐次确认一并关闭。
+ * [SHIZUKU_TOOL] (Shizuku) is treated as high-risk: always ASK and never rememberable; hard-denied in ASK/PLAN modes.
+ * The "disable safety interception" switch applies to all modes: when on, the catastrophic rm guard and per-call Shizuku confirmation are both disabled.
  */
 @Singleton
 class ToolPermissionPolicyEngine @Inject constructor(
@@ -48,18 +48,18 @@ class ToolPermissionPolicyEngine @Inject constructor(
     private val highRiskRulesRepo: HighRiskRulesRepository
 ) {
     private companion object {
-        /** 以 `command` 参数承载 shell 命令、按命令前缀做指令级匹配的工具。 */
+        /** Tools that carry shell commands in their `command` parameter and are matched at the command level by command prefix. */
         val SHELL_TOOLS = setOf("Bash", SHIZUKU_TOOL)
 
-        /** Shizuku 工具：以 adb shell 身份直接操作宿主 Android 系统，按高危处理（一律弹窗、不可记忆）。 */
+        /** Shizuku tool: operates directly on the host Android system as adb shell; treated as high-risk (always prompts, never rememberable). */
         const val SHIZUKU_TOOL = "Shizuku"
 
         const val REASON_SHIZUKU =
             "Shizuku runs as adb shell on the host Android system. High-risk; single-use only, cannot be remembered"
 
         /**
-         * 合并后的终端会话工具：其 `start` 动作承载 shell 命令，需走指令级前缀匹配；
-         * `send`/`read` 动作不承载命令，按整工具匹配。故在 [evaluate] 中按 action 路由。
+         * Merged terminal-session tool: its `start` action carries a shell command and needs command-level prefix matching;
+         * `send`/`read` actions carry no command and match as a whole tool. Hence routing by action in [evaluate].
          */
         const val TERMINAL_TOOL = "terminal"
         const val TERMINAL_SHELL_ACTION = "start"
@@ -69,15 +69,15 @@ class ToolPermissionPolicyEngine @Inject constructor(
         )
 
         /**
-         * 合并后的子代理工具：只读与发消息操作（read/list/send）自动放行，无需弹窗；
-         * 写操作（create/stop）走正常规则评估。
+         * Merged subagent tool: read-only and messaging actions (read/list/send) are auto-allowed without a dialog;
+         * write actions (create/stop) go through normal rule evaluation.
          */
         const val TASK_TOOL = "task"
         private val TASK_AUTO_ACTIONS = setOf("read", "list", "send")
 
         /**
-         * 浏览器工具：navigate/click/fill/select/evaluate/dialog/back/forward/reload/newTab/closeTab/selectTab 为写操作（PLAN 拦截），
-         * getText/getHtml/getBackbone/screenshot/console/wait/listTabs 为只读（PLAN 放行）。
+         * Browser tool: navigate/click/fill/select/evaluate/dialog/back/forward/reload/newTab/closeTab/selectTab are writes (blocked in PLAN);
+         * getText/getHtml/getBackbone/screenshot/console/wait/listTabs are read-only (allowed in PLAN).
          */
         const val BROWSER_TOOL = "browser"
         private val BROWSER_READ_ONLY_ACTIONS = setOf("getText", "getHtml", "getBackbone", "screenshot", "console", "wait", "listTabs")
@@ -85,12 +85,12 @@ class ToolPermissionPolicyEngine @Inject constructor(
         const val LINUX_MACHINE_TOOL = "linux_machine"
 
         /**
-         * 提权参数：命令因内置安全防护（灾难性 rm）被拒时，
-         * 可在调用时置为 true 重试，把硬拒绝降级为一次性用户授权。
+         * Elevation parameter: when a command is rejected by the built-in safety guard (catastrophic rm),
+         * retrying the call with this set to true downgrades the hard denial to a one-time user authorization.
          */
         const val ELEVATE_ARG = "elevate"
 
-        /** 容器内 `~` 展开目标（PRoot 以 root 运行）。 */
+        /** What `~` expands to inside the container (PRoot runs as root). */
         const val HOME_DIR = "/root"
         const val HOME_TOKEN = "\$HOME"
         const val HOME_BRACED = "\${HOME}"
@@ -111,22 +111,22 @@ class ToolPermissionPolicyEngine @Inject constructor(
         const val REASON_ASK_NO_PLAN_SWITCH =
             "Currently in ASK mode. The AI must not switch to Plan mode on its own. If planning is needed, the user should switch to Plan mode in the UI."
 
-        /** 相对/通配类删除目标（归一化后判定）：整体删除当前目录或任意内容。 */
+        /** Relative/wildcard delete targets (judged after normalization): deleting the whole current directory or arbitrary content. */
         val RELATIVE_WILDCARD_TARGETS = setOf("*", ".*", ".", "..", "../*", "../.*")
 
-        /** 根级通配（`/et*`、`/usr*` 等）可能展开为受保护的系统目录，直接拦截。 */
+        /** Root-level globs (`/et*`, `/usr*` etc.) may expand to protected system directories; blocked outright. */
         val ROOT_LEVEL_GLOB = Regex("^/[^/*?]*[*?]")
 
-        /** 工作区根目录的删除目标（归一化后判定）；工作区的子目录不在此列。 */
+        /** Delete targets that equal the workspace root (judged after normalization); workspace subdirectories are not included. */
         val WORKSPACE_ROOT_TARGETS = setOf("workspace", "workspace/*", "$HOME_DIR/workspace", "$HOME_DIR/workspace/*")
 
-        /** 受保护的系统关键目录：命中其本身或其任意子路径即拦截（`/tmp`、工作区子树单独处理）。 */
+        /** Protected critical system directories: a hit on the dir itself or any subpath under it is blocked (`/tmp` and the workspace subtree are handled separately). */
         val PROTECTED_SYSTEM_DIRS = setOf(
             "/bin", "/boot", "/dev", "/etc", "/home", "/lib", "/lib64", "/lost+found",
             "/media", "/mnt", "/opt", "/proc", "/root", "/run", "/sbin", "/srv", "/sys", "/usr", "/var"
         )
 
-        /** 疑似破坏性程序（仅在命令不可静态判定时用于保守拦截）。 */
+        /** Suspected destructive programs (used for conservative interception only when a command cannot be statically judged). */
         val DESTRUCTIVE_PROGRAM = Regex(
             "(^|[\\s;&|()`<>])(rm|dd|shred|truncate|mkfs(?:\\.[a-z0-9]+)?|wipefs|fdisk|sfdisk|parted|mkswap|blkdiscard)([\\s;&|()`<>]|$)"
         )
@@ -135,18 +135,18 @@ class ToolPermissionPolicyEngine @Inject constructor(
     enum class Verdict { ALLOW, DENY, ASK }
 
     /**
-     * @param verdict 评估结论。
-     * @param rememberablePatterns 当 [verdict] 为 ASK 时，「始终允许」会记忆的模式；为空表示不可记忆
-     *   （命令不可静态判定，只能单次放行）。
-     * @param aiReviewable true 表示该 ASK 来自「自主执行」挡位，工作流层应先交 AI 命令审查器评审，
-     *   仅在审查拒绝/不确定/失败时才回退人工弹窗。
+     * @param verdict The evaluation outcome.
+     * @param rememberablePatterns When [verdict] is ASK, the patterns "Always allow" would remember; empty means not rememberable
+     *   (the command cannot be statically judged, so it can only be allowed once).
+     * @param aiReviewable true means this ASK came from the "autonomous execution" tier; the workflow layer should first send it to the AI command reviewer,
+     *   falling back to a manual dialog only when the review rejects / is uncertain / fails.
      */
     data class EvalResult(
         val verdict: Verdict,
         val rememberablePatterns: List<String>,
         val denyReason: String? = null,
         val rememberDisabledReason: String? = null,
-        /** ASK 时的弹窗标题覆盖；null 表示用工具默认标题。 */
+        /** Dialog title override for ASK; null means use the tool's default title. */
         val askTitle: String? = null,
         val aiReviewable: Boolean = false
     )
@@ -158,9 +158,9 @@ class ToolPermissionPolicyEngine @Inject constructor(
         }
 
         if (mode == com.xencode.feature.agent.domain.model.AgentMode.ASK) {
-            // ASK 是纯只读问答模式：写操作与 PLAN 一样硬拒绝；同时禁止 AI 自行切换计划模式，
-            // 模式切换只能由用户在界面完成（planMode 的 MODIFY_SESSION_STATE 能力不在
-            // isDangerousTool 的危险能力集里，需单独拦截，否则会弹窗后被执行）。
+            // ASK is a purely read-only Q&A mode: writes are hard-denied as in PLAN; the AI is also barred from switching to plan mode on its own —
+            // mode switches can only be done by the user in the UI (planMode's MODIFY_SESSION_STATE capability is not in
+            // isDangerousTool's dangerous capability set, so it needs separate interception, otherwise it would run after the dialog).
             if (toolName == "planMode") {
                 return EvalResult(Verdict.DENY, emptyList(), denyReason = REASON_ASK_NO_PLAN_SWITCH)
             }
@@ -173,18 +173,18 @@ class ToolPermissionPolicyEngine @Inject constructor(
             return EvalResult(Verdict.ALLOW, emptyList())
         }
 
-        // task 只读动作（read/list）：直接自动放行（不弹窗）。
+        // task read-only actions (read/list): auto-allow directly (no dialog).
         if (toolName == TASK_TOOL) {
             val action = (args["action"] as? JsonPrimitive)?.content?.trim()?.lowercase() ?: "create"
             if (action in TASK_AUTO_ACTIONS) return EvalResult(Verdict.ALLOW, emptyList())
         }
 
         val level = toolSafetySettings.getCommandAuthLevel()
-        // 「禁用安全拦截」对全部模式生效（原 AUTO 专属开关随 AUTO 一并退场）：
-        // 开启后灾难性 rm 防护与 Shizuku 逐次确认都关闭，命令一律放行。
+        // "Disable safety interception" applies to all modes (the old AUTO-only switch went away together with AUTO):
+        // when on, the catastrophic rm guard and per-call Shizuku confirmation are both disabled, and all commands are allowed.
         val safetyDisabled = toolSafetySettings.isSafetyInterceptionDisabled()
         return if (isShellTool(toolName, args)) {
-            // 仅「规则拦截」挡位需要高危规则集；「完全权限」不再读安全开关（见 evaluateShell）。
+            // Only the "rule interception" tier needs the high-risk rule set; "full permission" no longer reads the safety switch (see evaluateShell).
             val highRiskRules = if (level == CommandAuthLevel.RULE_BASED) highRiskRulesRepo.getRulesOnce() else emptyList()
             evaluateShell(
                 args,
@@ -209,7 +209,7 @@ class ToolPermissionPolicyEngine @Inject constructor(
         )
         if (capabilities.any { it in dangerousCapabilities }) return true
 
-        // 只读探索工具在 PLAN 模式下永远安全
+        // Read-only exploration tools are always safe in PLAN mode
         val safePlanModeTools = setOf("list", "search")
         if (toolName in safePlanModeTools) return false
 
@@ -234,7 +234,7 @@ class ToolPermissionPolicyEngine @Inject constructor(
         return false
     }
 
-    /** 是否按 shell 命令前缀匹配：[SHELL_TOOLS] 中的工具，或终端工具的 start/send 动作。 */
+    /** Whether to match by shell command prefix: tools in [SHELL_TOOLS], or the terminal tool's start/send actions. */
     private fun isShellTool(toolName: String, args: Map<String, JsonElement>): Boolean {
         if (toolName in SHELL_TOOLS) return true
         if (toolName == TERMINAL_TOOL) {
@@ -244,40 +244,40 @@ class ToolPermissionPolicyEngine @Inject constructor(
         return false
     }
 
-    /** 调用是否携带提权参数（`elevate: true`）。 */
+    /** Whether the call carries the elevation parameter (`elevate: true`). */
     private fun isElevationRequested(args: Map<String, JsonElement>): Boolean =
         (args[ELEVATE_ARG] as? JsonPrimitive)?.content?.trim()?.lowercase() == "true"
 
     /**
-     * 破坏性判定（用于「不可静态分析」命令的兜底分流）。宁可多问，不误放——但也不能
-     * 把只读排查命令全部判成破坏。这里只认：
-     * 1) [DESTRUCTIVE_PROGRAM] 命中（rm/dd/mkfs…，正则边界含 `()` 与反引号，
-     *    覆盖 `$(rm -rf x)` 这类藏在命令替换内部的破坏）；
-     * 2) `find … -delete`；
-     * 3) 覆盖写重定向 `> 目标`——目标不是 /dev/null、不是 fd 复制（2>&1）、
-     *    且不是 `>>` 追加。
+     * Destructiveness check (the fallback triage for commands that "cannot be statically analyzed"). Prefer asking too often over letting one slip — but not to the point of
+     * labeling every read-only diagnostic command destructive. Only these count:
+     * 1) a [DESTRUCTIVE_PROGRAM] hit (rm/dd/mkfs...; the regex boundaries include `()` and backticks,
+     *    covering destruction hidden inside command substitution like `$(rm -rf x)`);
+     * 2) `find ... -delete`;
+     * 3) an overwrite redirect `> target` — where the target is not /dev/null, not an fd duplicate (2>&1),
+     *    and not an `>>` append.
      *
-     * 历史：曾用「含 `>` 即破坏」的严格版，AI 排查类命令几乎条条带 `2>/dev/null`，
-     * 大量与删除无关的命令被误判为破坏（RULE_BASED 与 AUTO 两个挡位均已修为宽松版），
-     * 严格版实现已删除，只保留本函数。
+     * History: the strict version treated any `>` as destructive; AI diagnostic commands almost always carry `2>/dev/null`,
+     * so many commands unrelated to deletion were misjudged as destructive (both the RULE_BASED and AUTO tiers have since switched to this loose version);
+     * the strict implementation was deleted, leaving only this function.
      */
     private fun looksDestructiveLoose(command: String): Boolean =
         command.contains("-delete") ||
             DESTRUCTIVE_PROGRAM.containsMatchIn(command) ||
             hasOverwriteRedirect(command)
 
-    /** 是否存在覆盖写重定向（`> file`）。`>>` 追加、`2>/dev/null`、`2>&1`、`<<<` 不算。 */
+    /** Whether an overwrite redirect exists (`> file`). `>>` appends, `2>/dev/null`, `2>&1`, and `<<<` do not count. */
     private fun hasOverwriteRedirect(command: String): Boolean {
         var i = 0
         val n = command.length
         while (i < n) {
             if (command[i] == '>') {
                 val double = i + 1 < n && command[i + 1] == '>'
-                // herestring（<<<）里的 > 不算重定向
+                // a > inside a herestring (<<<) does not count as a redirect
                 if (i > 0 && command[i - 1] == '<') { i++; continue }
                 if (!double) {
                     val rest = command.substring(i + 1).trimStart()
-                    // 空 target / fd 复制（&1）/ 丢弃输出（/dev/null）都无害
+                    // empty target / fd duplication (&1) / discarded output (/dev/null) are all harmless
                     if (rest.isNotEmpty() && !rest.startsWith("&") && !rest.startsWith("/dev/null")) {
                         return true
                     }
@@ -291,8 +291,8 @@ class ToolPermissionPolicyEngine @Inject constructor(
     }
 
     /**
-     * 灾难性删除的裁决：携带提权参数时降级为一次性用户授权（ASK），否则硬拒绝（DENY）
-     * 并在原因里提示可提权重试。AUTO 与非 AUTO 模式共用。提权仅对本次调用生效，不可记忆。
+     * Verdict for catastrophic deletes: with the elevation parameter, downgraded to a one-time user authorization (ASK); otherwise hard-denied (DENY)
+     * with the reason hinting that an elevated retry is possible. Shared by AUTO and non-AUTO modes. Elevation applies to this call only and is never rememberable.
      */
     private fun elevationOrDeny(catastrophicReason: String, args: Map<String, JsonElement>): EvalResult =
         if (isElevationRequested(args)) {
@@ -310,7 +310,7 @@ class ToolPermissionPolicyEngine @Inject constructor(
             )
         }
 
-    /** 把「始终允许」的选择落库为 ALLOW 规则（去重交给仓库）。 */
+    /** Persists an "Always allow" choice as an ALLOW rule (deduplication is up to the repository). */
     suspend fun remember(toolName: String, patterns: List<String>, scope: PermissionScope) {
         patterns.distinct().forEach { pattern ->
             rulesRepo.add(scope, PermissionRule(toolName, pattern, PermissionDecision.ALLOW))
@@ -318,11 +318,11 @@ class ToolPermissionPolicyEngine @Inject constructor(
     }
 
     /**
-     * 非 shell 工具（文件读写/编辑等）的裁决。
+     * Verdict for non-shell tools (file read/write/edit etc.).
      *
-     * 命令类工具的授权口径已统一收敛到三挡位 + 高危规则，旧的「项目/全局」记忆规则不再参与；
-     * 但对非命令类工具仍然保留「始终允许」记忆——这类工具没有高危规则可匹配，
-     * 若去掉记忆，每次写文件都要弹窗，无法正常使用。
+     * Authorization for command tools has been consolidated into the three tiers + high-risk rules; the legacy "project/global" memory rules no longer participate;
+     * but "Always allow" memory is kept for non-command tools — these tools have no high-risk rules to match,
+     * and without the memory every file write would need a dialog, making them unusable.
      */
     private suspend fun evaluateGeneric(
         toolName: String,
@@ -336,11 +336,11 @@ class ToolPermissionPolicyEngine @Inject constructor(
                 rememberDisabledReason = "This tool changes Agent config, the container environment, or calls external dynamic tools. Single-use only to reduce accidental grants"
             )
         }
-        // 完全权限：命令与非命令工具一律放行。
+        // Full permission: command and non-command tools are all allowed.
         if (level == CommandAuthLevel.FULL_ACCESS) {
             return EvalResult(Verdict.ALLOW, emptyList())
         }
-        // 已记忆的整工具 ALLOW（「始终允许此工具」）→ 直接放行。
+        // A remembered whole-tool ALLOW ("always allow this tool") → allow directly.
         val rules = rulesRepo.loadEffectiveForCurrentProject()
         if (rules.any { it.toolName == toolName && it.decision == PermissionDecision.ALLOW && it.pattern == PermissionRule.WHOLE_TOOL }) {
             return EvalResult(Verdict.ALLOW, emptyList())
@@ -359,7 +359,7 @@ class ToolPermissionPolicyEngine @Inject constructor(
         return null
     }
 
-    /** 单个删除目标的裁决：命中受保护范围返回对应原因，否则 null。 */
+    /** Verdict for a single delete target: returns the corresponding reason when it hits a protected scope, otherwise null. */
     private fun catastrophicReasonFor(rawPath: String): String? {
         val raw = rawPath.trim()
         if (raw.isEmpty()) return null
@@ -370,7 +370,7 @@ class ToolPermissionPolicyEngine @Inject constructor(
             ROOT_LEVEL_GLOB.matches(path) -> REASON_RM_SYSTEM_DIR
             path == HOME_DIR || path == "$HOME_DIR/*" -> REASON_RM_HOME
             path in WORKSPACE_ROOT_TARGETS -> REASON_RM_WORKSPACE
-            // 工作区子目录（构建产物等）属正常操作，置于系统目录判定之前放行
+            // Workspace subdirectories (build artifacts etc.) are normal operations; placed before the system-dir check so they are allowed
             path.startsWith("$HOME_DIR/workspace/") || path.startsWith("workspace/") -> null
             path == "/tmp" || path == "/tmp/*" -> REASON_RM_TMP
             PROTECTED_SYSTEM_DIRS.any { path == it || path.startsWith("$it/") } -> REASON_RM_SYSTEM_DIR
@@ -379,8 +379,8 @@ class ToolPermissionPolicyEngine @Inject constructor(
     }
 
     /**
-     * 词法路径归一化：把开头的 `~` / `$HOME` / `${HOME}` 展开为容器家目录，折叠重复 `/`，
-     * 解析 `.` 与 `..`。纯字符串处理、不访问文件系统，故无法覆盖 `$(...)` 等运行时才可知的路径。
+     * Lexical path normalization: expands a leading `~` / `$HOME` / `${HOME}` to the container home directory, collapses repeated `/`,
+     * and resolves `.` and `..`. Pure string handling without file system access, so it cannot cover paths only knowable at runtime, like `$(...)`.
      */
     private fun normalizePath(raw: String): String {
         val expanded = when {
@@ -420,9 +420,9 @@ class ToolPermissionPolicyEngine @Inject constructor(
 
         val analysis = ShellCommandParser.analyze(command)
 
-        // 0) rm 高危操作防护：禁止直接删除系统根目录、工作区根目录或系统关键目录。
-        //    携带提权参数时降级为一次性用户授权。所有挡位共用；
-        //    「禁用安全拦截」开启时跳过（原为 AUTO 专属开关，现对全模式生效）。
+        // 0) High-risk rm guard: blocks direct deletion of the system root, the workspace root, or critical system directories.
+        //    With the elevation parameter, downgraded to a one-time user authorization. Shared by all tiers;
+        //    skipped when "disable safety interception" is on (formerly an AUTO-only switch, now effective for all modes).
         if (!safetyDisabled) {
             val catastrophicReason = checkCatastrophicRm(analysis.segments)
             if (catastrophicReason != null) {
@@ -430,33 +430,33 @@ class ToolPermissionPolicyEngine @Inject constructor(
             }
         }
 
-        // 1) Shizuku 高危工具：无论内置白名单，一律弹窗且不可记忆（关闭安全拦截时除外）。
+        // 1) Shizuku high-risk tool: regardless of the built-in allowlist, always prompt and never remember (except when safety interception is off).
         if (forceAsk && !safetyDisabled) {
             return EvalResult(Verdict.ASK, emptyList(), rememberDisabledReason = REASON_SHIZUKU)
         }
 
-        // 2) 可静态判定且每段都命中内置只读白名单（ls/git status 等）→ 自动放行。
-        //    必须要求可判定：`cat $(rm -rf /)` 之类命令替换攻击的段首仍是 cat，不可凭白名单放行。
+        // 2) Statically analyzable and every segment hits the built-in read-only allowlist (ls/git status etc.) → auto-allow.
+        //    Analyzability is required: in command-substitution attacks like `cat $(rm -rf /)` the segment head is still cat, so it must not be allowed on the allowlist alone.
         if (analysis.analyzable && analysis.segments.isNotEmpty() &&
             analysis.segments.all { BuiltInSafeCommands.isSafe(it) }
         ) {
             return EvalResult(Verdict.ALLOW, emptyList())
         }
 
-        // 3) 挡位分流。
-        //    注：旧的「项目/全局」记忆规则（ALLOW/DENY）已整体下线——它会先于挡位生效，
-        //    等于绕过高危拦截规则；现在授权口径统一由三挡位 + 高危规则决定。
+        // 3) Dispatch by tier.
+        //    Note: the legacy "project/global" memory rules (ALLOW/DENY) are fully retired — they took effect ahead of the tier,
+        //    effectively bypassing the high-risk interception rules; authorization is now decided solely by the three tiers + high-risk rules.
         return when (level) {
-            // 完全权限：灾难防护（步骤 0 的 checkCatastrophicRm）之上**一律直接放行**。
-            // 此前这里还有一道「不可静态判定且疑似破坏性 → 拦一次」的兜底，但它依据
-            // 「含 `>` 即破坏」的严格判定：只要命令里出现任何一个 `>` 就命中，连
-            // `2>/dev/null` 这种丢弃输出的写法也算。AI 排查类命令几乎条条带
-            // `$()`/`2>/dev/null`，结果大量与删除无关的命令被硬拒绝
-            // （elevationOrDeny 无弹窗、直接失败），与「完全权限」的语义矛盾。
-            // 用户既然选了这一挡，就按其字面执行。
+            // Full permission: beyond the catastrophic guard (step 0's checkCatastrophicRm), **allow everything outright**.
+            // There used to be another fallback here: "not statically analyzable and looks destructive → block once", but it relied on
+            // the strict "any `>` counts as destructive" rule: a single `>` anywhere in the command triggered it, even
+            // output-discarding forms like `2>/dev/null`. AI diagnostic commands almost always carry
+            // `$()`/`2>/dev/null`, so plenty of commands unrelated to deletion were hard-denied
+            // (elevationOrDeny shows no dialog and fails outright), contradicting the "full permission" semantics.
+            // The user chose this tier deliberately, so execute commands literally.
             CommandAuthLevel.FULL_ACCESS -> EvalResult(Verdict.ALLOW, emptyList())
 
-            // 规则拦截：命中高危规则 → 人工确认；不可静态判定 → 破坏特征扫描；其余自动放行。
+            // Rule interception: high-risk rule hit → manual confirmation; not statically analyzable → destructive-feature scan; the rest auto-allowed.
             CommandAuthLevel.RULE_BASED -> {
                 HighRiskRuleMatcher.matchAny(highRiskRules, command)?.let { hit ->
                     return askWithRememberable(
@@ -465,12 +465,12 @@ class ToolPermissionPolicyEngine @Inject constructor(
                     )
                 }
                 if (!analysis.analyzable) {
-                    // 不可静态判定（命令替换/子shell/循环等）。此前一律弹窗——AI 排查类
-                    // 命令充满 $() 与反引号，实测条条命中兜底分支，高危规则反而一次没
-                    // 触发过，授权弹窗形同骚扰。改为对**原文**做破坏特征扫描：
-                    // DESTRUCTIVE_PROGRAM 正则的边界符含 `()` 与反引号，能覆盖 $()
-                    // 内部；覆盖写重定向（> file）单独判定（2>/dev/null、>>、2>&1 无害）。
-                    // 无破坏特征 → 放行；有 → 人工确认。
+                    // Not statically analyzable (command substitution/subshell/loops etc.). This used to always prompt — AI diagnostic
+                    // commands are full of $() and backticks; in practice every one hit the fallback branch while the high-risk rules never
+                    // fired, making the authorization dialogs feel like spam. Instead, scan the **raw text** for destructive features:
+                    // the DESTRUCTIVE_PROGRAM regex boundaries include `()` and backticks, covering the inside of $();
+                    // overwrite redirects (> file) are judged separately (2>/dev/null, >>, 2>&1 are harmless).
+                    // No destructive features → allow; some → manual confirmation.
                     if (looksDestructiveLoose(command)) {
                         return askWithRememberable(
                             analysis,
@@ -482,14 +482,14 @@ class ToolPermissionPolicyEngine @Inject constructor(
                 EvalResult(Verdict.ALLOW, emptyList())
             }
 
-            // 自主执行：统一转交 AI 命令审查器（工作流层处理），审查不过再回退人工。
+            // Autonomous execution: uniformly hand off to the AI command reviewer (handled in the workflow layer); fall back to a human only if the review fails.
             CommandAuthLevel.AUTONOMOUS -> askWithRememberable(analysis, aiReviewable = true)
         }
     }
 
     /**
-     * 构造命令类 ASK 裁决。命令的「始终允许」记忆已下线——它会落到项目/全局规则里，
-     * 先于挡位与高危拦截规则生效，等于绕过授权挡位；命令一律只支持单次放行。
+     * Builds a command-type ASK verdict. "Always allow" memory for commands is retired — it would land in project/global rules,
+     * taking effect ahead of the tier and the high-risk interception rules, effectively bypassing the authorization tier; commands only support single-use approval.
      */
     private fun askWithRememberable(
         analysis: ShellCommandParser.Analysis,

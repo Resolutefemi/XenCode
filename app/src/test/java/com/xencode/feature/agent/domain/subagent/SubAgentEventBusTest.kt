@@ -6,8 +6,8 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 /**
- * 活跃子代理集合的维护语义：并发槽位靠它计数，只要有一条路径忘了交回槽位，
- * 用户就会在没有任何子代理运行时被告知「已达上限」，直到进程重启。
+ * Maintenance semantics of the active-subagent set: concurrent slots are counted through it; a single path
+ * that forgets to hand a slot back leaves users told the limit is reached while nothing runs, until process restart.
  */
 class SubAgentEventBusTest {
 
@@ -36,7 +36,7 @@ class SubAgentEventBusTest {
             spawn(bus, "sub-1")
             bus.emit(SubAgentEvent(subSessionId = "sub-1", parentSessionId = "parent", type = type))
 
-            assertEquals("$type 应交回槽位", emptySet<String>(), bus.activeSubSessionIds.value)
+            assertEquals("$type should free the slot", emptySet<String>(), bus.activeSubSessionIds.value)
         }
     }
 
@@ -48,10 +48,10 @@ class SubAgentEventBusTest {
         assertTrue(bus.isFull)
 
         bus.emit(SubAgentEvent(subSessionId = "sub-0", parentSessionId = "parent", type = SubAgentEventType.COMPLETED))
-        assertFalse("腾出一个后应能再派发", bus.isFull)
+        assertFalse("should allow another spawn once a slot frees up", bus.isFull)
     }
 
-    /** 用户手动停止走 release：必须真的交回槽位，否则上限被永久占用。 */
+    /** Manual user stop goes through release: it must actually hand the slot back, or the cap is occupied forever. */
     @Test
     fun release_freesSlotAndReportsWhetherItWasActive() {
         val bus = SubAgentEventBus()
@@ -62,8 +62,8 @@ class SubAgentEventBusTest {
     }
 
     /**
-     * 幂等且如实回报：TaskTool 的 stop 已经 emit 过 STOPPED 时，ViewModel 随后的 release
-     * 必须返回 false，否则会给父代理重复投递一条「已被终止」通知。
+     * Idempotent and truthful: when TaskTool's stop has already emitted STOPPED, the ViewModel's subsequent release
+     * must return false, or the parent agent gets a duplicate "already terminated" notification.
      */
     @Test
     fun release_isIdempotentForUnknownId() {

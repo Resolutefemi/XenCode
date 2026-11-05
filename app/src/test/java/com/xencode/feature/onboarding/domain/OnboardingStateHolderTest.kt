@@ -68,7 +68,7 @@ class OnboardingStateHolderTest {
         h.goToStep(OnboardingStep.SIMULATE_FETCH_DIALOG)
         assertEquals(OnboardingStep.SIMULATE_FETCH_DIALOG, h.state.value.step)
 
-        // 模拟关闭弹窗回退
+        // Simulate closing the dialog and stepping back
         h.goToStep(OnboardingStep.PROVIDER_FETCH_MODELS)
         assertEquals(OnboardingStep.PROVIDER_FETCH_MODELS, h.state.value.step)
         assertTrue(h.isActive)

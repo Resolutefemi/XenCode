@@ -13,10 +13,10 @@ import com.google.gson.JsonObject
 import com.google.gson.JsonParser
 
 /**
- * 工具定义 → Interactions 的扁平 function 声明；无工具时返回 null（不发 `tools` 字段）。
+ * Tool definitions -> Interactions flat function declarations; returns null when there are no tools (the `tools` field is omitted).
  *
- * 与 generateContent 不同：不再套 `[{functionDeclarations: [...]}]` 那一层，每个工具就是
- * `tools` 数组里一个带 `type: "function"` 的对象。
+ * Unlike generateContent: no more `[{functionDeclarations: [...]}]` wrapper; each tool is just
+ * an object with `type: "function"` inside the `tools` array.
  */
 internal fun buildInteractionsTools(tools: List<AgentTool>): List<Map<String, Any>>? =
     tools.takeIf { it.isNotEmpty() }?.map { tool ->
@@ -29,20 +29,20 @@ internal fun buildInteractionsTools(tools: List<AgentTool>): List<Map<String, An
     }
 
 /**
- * 会话历史 → Interactions 的 `input` step 序列（无状态模式，请求带 `store=false`）。
+ * Session history -> the Interactions `input` step sequence (stateless mode; the request carries `store=false`).
  *
- * 与 generateContent 的 `contents`（user/model 两种 role + parts）不同：这里是一条扁平的
- * 时间线，模型输出、思考、工具调用、工具结果各自是独立 step。
+ * Unlike generateContent's `contents` (two roles, user/model, plus parts), this is a flat
+ * timeline where model output, thinking, tool calls, and tool results are each independent steps.
  *
- * 配对约束与 Responses 一致且同样必须在客户端保证：`function_result` 必须能找到同 `call_id`
- * 的 `function_call`，声明过的 `function_call` 也必须有结果。这里按调用逐个吸附其结果，顺带
- * 处理两类历史脏数据：
- * - 结果乱序落位（如 askUserQuestion 阻塞期间其他工具结果插队）→ 吸附回调用之后；
- * - 孤立结果（前驱调用已被上下文压缩裁掉）→ 丢弃；
- * - 调用无结果（如用户拒绝执行）→ 连调用一起裁掉。
+ * Pairing constraints match Responses and likewise must be guaranteed client-side: every `function_result` must find the
+ * `function_call` with the same `call_id`, and every declared `function_call` must have a result. Results are absorbed per call here, which also
+ * handles two kinds of dirty history:
+ * - Results landing out of order (e.g. other tool results jumping ahead while askUserQuestion blocks) -> absorbed back after the call;
+ * - Orphaned results (the preceding call was trimmed by context compression) -> dropped;
+ * - Calls without results (e.g. the user declined execution) -> trimmed together with the call.
  *
- * **同一轮的多个 `function_call` 先连续写完，再集中写 `function_result`**，与官方无状态
- * 示例（先 append 整批模型 step，再 append 结果）一致。
+ * **A turn's multiple `function_call` steps are written consecutively first, then all `function_result` steps together**, matching the official stateless
+ * example (append the whole batch of model steps first, then the results).
  */
 internal fun buildInteractionsInput(messages: List<AgentMessage>): List<Any> {
     val steps = mutableListOf<Any>()
@@ -85,16 +85,16 @@ internal fun buildInteractionsInput(messages: List<AgentMessage>): List<Any> {
 }
 
 /**
- * 一轮 assistant 输出 → 模型 step 序列。
+ * One assistant turn -> the model step sequence.
  *
- * 官方要求无状态模式下把模型产出的 step **原样回传**（`thought` 的 signature 与 function_call
- * 都不可重建），故优先用落库的快照。但原样回放的前提是本轮调用全部配到了结果：一旦有调用被
- * 裁掉（如用户拒绝执行），快照里的 signature 就对不上实际发出的调用序列，这时退回按正文重建。
+ * The official API requires replaying model-produced steps **verbatim** in stateless mode (`thought` signatures and function_calls
+ * cannot be rebuilt), so the persisted snapshot is preferred. But verbatim replay presupposes every call of the turn found a result: once a call is
+ * trimmed (e.g. the user declined), the snapshot's signatures no longer match the calls actually sent, and we fall back to rebuilding from the body.
  */
 private fun AgentMessage.AssistantMessage.toModelSteps(keptCalls: List<ToolCall>): List<Any> {
-    // 有图片的轮不走快照：快照会携大 base64（4K 图约 10MB）撑爆数据库行，且快照不含图片回放
-    // 就断了多轮编辑。宁可重建（此轮几乎不涉及工具，thought signature 丢失影响可控），
-    // 把图片 block 并入 model_output 完整回传。
+    // Turns with images skip the snapshot: it would carry huge base64 (about 10MB for a 4K image) and blow up the database row, and a replay
+    // without the images would break multi-turn editing. Rebuilding is preferred (such turns barely involve tools, so losing the thought signature is contained);
+    // the image blocks are merged into model_output and replayed in full.
     decodeInteractionSteps(thinkingBlocksJson)
         ?.takeIf { keptCalls.size == toolCalls.size && images.isEmpty() }
         ?.let { return it }
@@ -125,25 +125,25 @@ private fun AgentMessage.AssistantMessage.toModelSteps(keptCalls: List<ToolCall>
     return steps
 }
 
-/** 用户消息内容：正文 + 图片各成一个 content block。 */
+/** User message content: the body and each image become their own content block. */
 private fun AgentMessage.UserMessage.toInteractionContent(): List<Map<String, Any>> {
     val blocks = mutableListOf<Map<String, Any>>()
     if (content.isNotBlank()) blocks.add(textContent(content))
     images.forEach { blocks.add(it.toImageContent()) }
-    // 空数组会被服务端拒，退化成一个（可能为空的）文本块。
+    // The server rejects an empty array, so degrade to a single (possibly empty) text block.
     return blocks.ifEmpty { listOf(textContent(content)) }
 }
 
 /**
- * 工具结果：以 `{"result": 文本}` 对象回传。
+ * Tool results: returned as a `{"result": text}` object.
  *
- * 不回传工具产出的图片：生成图已展示给用户并落盘，再进上下文只会膨胀 token，
- * 且部分中转网关把 interactions 转 generateContent 时无法处理数组型 result
- * （会把 content 数组直接塞给 function_response.response 报 `cannot start list`）。
- * 官方 Interactions 的 result 接受对象/字符串/Content 数组，对象最稳。
+ * Images produced by tools are not sent back: generated images were already shown to the user and saved, and feeding them into context only bloats tokens;
+ * also, some relay gateways converting interactions to generateContent cannot handle array-shaped results
+ * (they stuff the content array straight into function_response.response and fail with `cannot start list`).
+ * Official Interactions results accept object/string/Content array; the object is the safest.
  */
 private fun AgentMessage.ToolResultMessage.toInteractionResult(): Any {
-    // 文件类工具喂模型用精简投影文本，UI/持久化仍走完整 result。
+    // File-type tools feed the model a condensed projection; the UI/persistence still use the full result.
     val modelText = modelResult
         ?: modelToolResultText(toolName, result)
         ?: result
@@ -155,12 +155,12 @@ private fun AgentMessage.ToolResultMessage.toInteractionResult(): Any {
 }
 
 /**
- * 模型产出 step 的原样快照（JSON 数组文本），存进 [AgentMessage.AssistantMessage.thinkingBlocksJson]，
- * 下一轮原样回传。
+ * Verbatim snapshot of model-produced steps (JSON array text), stored in [AgentMessage.AssistantMessage.thinkingBlocksJson]
+ * and replayed verbatim the next turn.
  *
- * 只在存在不可重建内容（`thought` 的 signature / `function_call`）时才生成，纯文本轮返回 null
- * 让历史走常规重建，避开正文双写。`user_input` / `function_result` 是我们自己发过去的输入回显，
- * 会被这里过滤掉——留着下一轮就重复了。
+ * Generated only when non-rebuildable content exists (`thought` signature / `function_call`); pure-text turns return null
+ * so history takes the regular rebuild path, avoiding double-writing the body. `user_input` / `function_result` are echoes of input we sent ourselves,
+ * filtered out here; keeping them would duplicate them next turn.
  */
 internal fun snapshotInteractionSteps(steps: List<JsonObject>): String? {
     val generated = steps.filter { it.stepType() !in ECHOED_STEP_TYPES }
@@ -176,7 +176,7 @@ internal fun snapshotInteractionSteps(steps: JsonArray?): String? {
     return snapshotInteractionSteps(steps.mapNotNull { it.takeIf { el -> el.isJsonObject }?.asJsonObject })
 }
 
-/** 快照 → step 列表；为空或损坏时返回 null，由调用方回退重建逻辑。 */
+/** Snapshot -> step list; returns null when blank or corrupt, and the caller falls back to rebuilding. */
 internal fun decodeInteractionSteps(json: String): List<JsonObject>? {
     if (json.isBlank()) return null
     return runCatching {
@@ -188,15 +188,15 @@ internal fun decodeInteractionSteps(json: String): List<JsonObject>? {
 }
 
 /**
- * 工具入参 → Gson 树。直接把 kotlinx 的 JsonObject 交给 Gson 会按反射序列化它的内部字段
- * （得到 `{"body":...,"isString":true}` 这种垃圾），必须先转成文本再让 Gson 解析回来。
+ * Tool arguments -> Gson tree. Handing kotlinx's JsonObject straight to Gson would reflectively serialize its internal fields
+ * (producing garbage like `{"body":...,"isString":true}`); it must be converted to text first and re-parsed by Gson.
  */
 private fun ToolCall.argumentsAsJson(): JsonElement =
     runCatching {
         JsonParser.parseString(kotlinx.serialization.json.JsonObject(arguments).toString())
     }.getOrElse { JsonObject() }
 
-/** 会话历史里由我们自己拼出、不该出现在模型产出快照里的 step 类型。 */
+/** Step types we assemble ourselves in session history that must not appear in the model-output snapshot. */
 private val ECHOED_STEP_TYPES = setOf(InteractionStep.USER_INPUT, InteractionStep.FUNCTION_RESULT)
 
 private fun textContent(text: String): Map<String, Any> =

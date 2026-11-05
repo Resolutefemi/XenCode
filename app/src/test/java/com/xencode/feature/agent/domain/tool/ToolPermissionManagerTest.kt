@@ -11,9 +11,9 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 /**
- * 多会话并行授权语义：不同会话可同时挂起各自的授权请求（互不阻塞），
- * 侧边栏据 [ToolPermissionManager.awaitingSessionIds] 点亮，弹窗按插入顺序逐个展示，
- * resolve 按请求 id 精确唤醒对应会话。
+ * Multi-session parallel authorization semantics: different sessions can each suspend their own authorization request simultaneously (no mutual blocking);
+ * the sidebar lights up via [ToolPermissionManager.awaitingSessionIds], the dialog shows requests one by one in insertion order,
+ * and resolve wakes exactly the right session by request id.
  */
 class ToolPermissionManagerTest {
 
@@ -36,14 +36,14 @@ class ToolPermissionManagerTest {
 
         withTimeout(1000) { while (mgr.awaitingSessionIds.value.size < 2) yield() }
 
-        // 两个会话都点亮，互不阻塞
+        // Both sessions light up, neither blocking the other
         assertEquals(setOf("s1", "s2"), mgr.awaitingSessionIds.value)
-        // 弹窗展示最早进入的请求
+        // The dialog shows the earliest-arriving request
         assertEquals("id1", mgr.pendingRequest.value?.id)
-        // 按会话查询待决请求
+        // Query the pending request by session
         assertEquals("id2", mgr.pendingForSession("s2")?.id)
 
-        // 先解决 s2（乱序），只唤醒 s2
+        // Resolve s2 first (out of order), waking only s2
         mgr.resolve("id2", PermissionChoice.ONCE)
         assertEquals(PermissionChoice.ONCE, d2.await())
 
@@ -65,7 +65,7 @@ class ToolPermissionManagerTest {
         withTimeout(1000) { while (mgr.pendingRequest.value == null) yield() }
 
         mgr.resolve("nonexistent", PermissionChoice.REJECT)
-        // 原请求仍挂起
+        // The original request is still pending
         assertTrue(d1.isActive)
         assertEquals("id1", mgr.pendingRequest.value?.id)
 

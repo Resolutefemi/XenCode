@@ -14,8 +14,8 @@ import org.junit.rules.TemporaryFolder
 import java.io.File
 
 /**
- * [SyncEngine] 全量同步的忽略规则（自定义忽略 + .gitignore）行为验证，
- * 用 fake [RemoteSyncClient] 断言被忽略的文件确实不会下载/上传。
+ * Behavior verification for [SyncEngine] full-sync ignore rules (custom ignores + .gitignore),
+ * using a fake [RemoteSyncClient] to assert that ignored files are truly never downloaded/uploaded.
  */
 class SyncEngineIgnoreTest {
 
@@ -149,7 +149,7 @@ class SyncEngineIgnoreTest {
         assertEquals(0, client.reconnects)
     }
 
-    /** 记录调用轨迹的假客户端，不触网。 */
+    /** Fake client recording the call trace; never touches the network. */
     private class FakeSyncClient(
         private val remoteFiles: Map<String, List<RemoteFileInfo>> = emptyMap(),
         private val rejectedUpload: String? = null

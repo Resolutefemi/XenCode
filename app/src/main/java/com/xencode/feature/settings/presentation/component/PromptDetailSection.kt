@@ -26,9 +26,9 @@ import com.xencode.feature.agent.domain.prompt.PromptFragmentSource
 import com.xencode.feature.agent.presentation.component.MarkdownContent
 
 /**
- * 提示词片段详情页：只读预览——编号/名称/来源、摘要、正文（Markdown）。
+ * Prompt fragment detail page: read-only preview — number/name/source, summary, body (Markdown).
  *
- * 要改内容走顶栏的编辑按钮，进入 [PromptEditorScreen]。
+ * To edit content, use the edit button in the top bar to enter [PromptEditorScreen].
  */
 @Composable
 internal fun PromptDetailSection(fragment: PromptFragment) {
@@ -86,7 +86,7 @@ internal fun PromptDetailSection(fragment: PromptFragment) {
                 lazyScroll = true,
                 modifier = Modifier
                     .fillMaxWidth()
-                    // 正文卡限高：长文本在卡内懒加载滚动（外层整页仍可继续滚），避免超大 md 全量渲染卡顿。
+                    // Body card height limit: long text scrolls lazily inside the card (the whole page can still scroll), avoiding jank from rendering a huge md in full.
                     .heightIn(max = LocalConfiguration.current.screenHeightDp.dp * 0.62f)
                     .padding(horizontal = Spacing.lg, vertical = 12.dp)
             )
@@ -94,7 +94,7 @@ internal fun PromptDetailSection(fragment: PromptFragment) {
     }
 }
 
-/** 键值行：左标签右值，值过长时换行。 */
+/** Key-value row: label on the left, value on the right, wrapping when the value is long. */
 @Composable
 private fun InfoRow(label: String, value: String) {
     Row(

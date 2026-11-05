@@ -4,9 +4,9 @@
         <item name="android:colorPrimary">@color/primary</item>
     </style>
 
-    <!-- 内置浏览器 WebView 专用主题：WebView 依据所在主题的 android:isLightTheme 决定向网页
-         报告 prefers-color-scheme，而 App 自身是固定 Light 主题 + Compose 控色，故为 WebView
-         单独提供明/暗两套，由 BrowserManager 按浏览器夜间模式选用。 -->
+    <!-- Theme dedicated to the built-in browser WebView: the WebView decides whether to report
+         prefers-color-scheme to pages based on the theme's android:isLightTheme, while the App itself is a fixed Light theme + Compose-controlled colors; so a separate
+         light/dark pair is provided for the WebView, picked by BrowserManager per the browser's dark-mode setting. -->
     <style name="Theme.XenCode.WebView" parent="Theme.XenCode">
         <item name="android:isLightTheme">true</item>
     </style>
@@ -15,7 +15,7 @@
         <item name="android:isLightTheme">false</item>
     </style>
 
-    <!-- 冷启动闪屏主题：以 App 图标与应用表面底色作为系统 Window 启动背景，杜绝冷启动刺眼纯白 -->
+    <!-- Cold-start splash theme: the app icon and surface background color serve as the system Window background, avoiding the harsh pure white on cold start -->
     <style name="Theme.XenCode.Splash" parent="Theme.XenCode">
         <item name="android:windowBackground">@drawable/splash_background</item>
     </style>

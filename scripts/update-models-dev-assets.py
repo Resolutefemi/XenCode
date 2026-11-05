@@ -1,11 +1,11 @@
 #!/usr/bin/env python3
-"""发布前手动执行：更新内置 models.dev 模型元数据快照（app/src/main/assets/api.official.json）。
+"""Run manually before a release: update the built-in models.dev model metadata snapshot (app/src/main/assets/api.official.json).
 
-api.official.json 的结构：
-- 仅保留内置快照已有的 provider，不引入新 provider；这些 provider 下的新模型可直接加入。
-- 每个 provider 节点除 models 外，还写入 name / type / baseUrl 字段，供「从预设库添加」面板展示与预填。
-- 网络拉取或解析失败时打印错误并以非零退出，绝不改动现有文件。
-用法：python3 scripts/update-models-dev-assets.py
+Structure of api.official.json:
+- Keep only providers already present in the built-in snapshot; no new providers are introduced. New models under those providers can be added directly.
+- Besides models, each provider node also gets name / type / baseUrl fields, used for display and prefill in the "Add from preset library" panel.
+- On network fetch or parse failure, print the error and exit non-zero; the existing file is never touched.
+Usage: python3 scripts/update-models-dev-assets.py
 """
 
 import json
@@ -19,18 +19,18 @@ ASSET_PATH = os.path.abspath(
 )
 UA = "xencode-assets-updater"
 
-# 官方 provider 的默认 Base URL（models.dev 的 api 字段缺失时回退）。
+# Default Base URLs for official providers (fallback when models.dev's api field is missing).
 DEFAULT_BASE_URL = {
     "openai": "https://api.openai.com/",
     "anthropic": "https://api.anthropic.com/",
     "google": "https://generativelanguage.googleapis.com/",
 }
 
-# 每 provider 覆盖项：models.dev 的 api/npm 字段有时与 App 期望的协议/端点不匹配，
-# 这里在生成预设时强制覆盖（baseUrl 直接采用，不经过 normalize_base_url 的 /v1 裁剪）。
-#   - xai：models.dev api 缺省落成 openai 官方地址，实际应为 xAI 官方端点。
-#   - minimax/minimax-cn 系列：npm 是 anthropic 只是 MiniMax 提供的兼容变体，
-#     默认仍按 OpenAI 兼容端点接入（App 会拼 /v1/chat/completions）。
+# Per-provider overrides: models.dev's api/npm fields sometimes do not match the protocol/endpoint the app expects;
+# they are forcibly overridden when generating presets (baseUrl is used as-is, skipping normalize_base_url's /v1 trimming).
+#   - xai: models.dev's api defaults to the OpenAI official address, but the xAI official endpoint is correct.
+#   - minimax/minimax-cn family: npm being anthropic is just a compatibility variant offered by MiniMax;
+#     they still connect via the OpenAI-compatible endpoint by default (the app appends /v1/chat/completions).
 PROVIDER_OVERRIDES = {
     "xai": {"baseUrl": "https://api.x.ai/"},
     "minimax": {"type": "OPENAI", "baseUrl": "https://api.minimax.io/"},
@@ -54,7 +54,7 @@ def trim_model(mv: dict) -> dict:
 
 
 def map_type(npm: str) -> str:
-    """由 models.dev 的 npm 字段映射协议类型（OPENAI / ANTHROPIC / GEMINI）。"""
+    """Map models.dev's npm field to a protocol type (OPENAI / ANTHROPIC / GEMINI)."""
     if not npm:
         return "OPENAI"
     n = npm.lower()
@@ -66,8 +66,8 @@ def map_type(npm: str) -> str:
 
 
 def normalize_base_url(raw: str, pid: str) -> str:
-    """规整 Base URL：去末尾斜杠；OPENAI 兼容路径若带 /v1 则去掉，
-    因为 App 会自行拼接 v1/chat/completions，避免出现 /v1/v1/...。"""
+    """Normalize a Base URL: strip the trailing slash; if an OpenAI-compatible path ends with /v1, drop it,
+    because the app appends v1/chat/completions itself, which would produce /v1/v1/...."""
     if not raw:
         return DEFAULT_BASE_URL.get(pid, "https://api.openai.com/")
     url = raw.strip().rstrip("/")
@@ -77,7 +77,7 @@ def normalize_base_url(raw: str, pid: str) -> str:
 
 
 def build_provider_meta(pid: str, pv: dict) -> dict:
-    """计算单个 provider 的展示元数据（name / type / baseUrl），写入 api.official.json 的 provider 节点。"""
+    """Compute display metadata (name / type / baseUrl) for a single provider, written to its api.official.json node."""
     npm = pv.get("npm")
     override = PROVIDER_OVERRIDES.get(pid, {})
     base_url = override.get("baseUrl") if "baseUrl" in override else normalize_base_url(pv.get("api"), pid)
@@ -89,7 +89,7 @@ def build_provider_meta(pid: str, pv: dict) -> dict:
 
 
 def fetch_remote() -> dict:
-    print(f"拉取 {MODELS_DEV_URL} ...")
+    print(f"Fetching {MODELS_DEV_URL} ...")
     req = urllib.request.Request(MODELS_DEV_URL, headers={"User-Agent": UA})
     with urllib.request.urlopen(req, timeout=30) as resp:
         return json.loads(resp.read().decode("utf-8"))
@@ -97,7 +97,7 @@ def fetch_remote() -> dict:
 
 def main() -> int:
     if not os.path.isfile(ASSET_PATH):
-        print(f"错误：未找到内置快照 {ASSET_PATH}")
+        print(f"Error: built-in snapshot not found at {ASSET_PATH}")
         return 1
 
     with open(ASSET_PATH, encoding="utf-8") as f:
@@ -107,14 +107,14 @@ def main() -> int:
     try:
         remote = fetch_remote()
     except Exception as e:
-        print(f"拉取/解析失败（{e}），跳过更新，保持现有文件")
+        print(f"Fetch/parse failed ({e}); skipping the update and keeping the existing file")
         return 1
 
     if not isinstance(remote, dict):
-        print("远端数据格式异常，跳过更新，保持现有文件")
+        print("Remote data has an unexpected format; skipping the update and keeping the existing file")
         return 1
 
-    # 1) 更新 api.official.json（仅保留已有 provider，合并新模型，并写入 provider 展示元数据）
+    # 1) Update api.official.json (keep only existing providers, merge new models, and write provider display metadata)
     merged = {}
     for pid in providers:
         net_models = remote.get(pid, {}).get("models", {})
@@ -133,18 +133,18 @@ def main() -> int:
     old_total = sum(len(p.get("models", {})) for p in current.values())
     new_total = sum(len(p.get("models", {})) for p in merged.values())
     if new_total == 0:
-        print("合并结果为空，放弃更新")
+        print("Merge result is empty; aborting the update")
         return 1
 
     with open(ASSET_PATH, "w", encoding="utf-8") as f:
         json.dump(merged, f, ensure_ascii=False, separators=(",", ":"))
-    print(f"已更新 {ASSET_PATH}")
+    print(f"Updated {ASSET_PATH}")
     for pid in providers:
         old = len(current.get(pid, {}).get("models", {}))
         new = len(merged.get(pid, {}).get("models", {}))
-        flag = "（新增模型）" if new > old else ""
+        flag = " (new models)" if new > old else ""
         print(f"  {pid}: {old} -> {new} {flag}")
-    print(f"合计：{old_total} -> {new_total} 个模型")
+    print(f"Total: {old_total} -> {new_total} models")
     return 0
 
 

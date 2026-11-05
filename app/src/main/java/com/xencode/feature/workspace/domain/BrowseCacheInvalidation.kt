@@ -4,12 +4,12 @@ import com.xencode.core.watch.ChangeKind
 import com.xencode.core.watch.FileChangeBatch
 
 /**
- * 一批文件变更对 [DirectoryListingCache] 的影响计划。
+ * The plan for how a batch of file changes affects the [DirectoryListingCache].
  *
- * @property relistDirs 需要重新读盘的目录（集合为空且 [fullRefresh] 为假时无需重建树）。
- * @property dropTrees 需要连同子孙缓存一起丢弃的目录（删除——目录可能删了又重建，子列表会骗人）。
- * @property fullRefresh 明细被截断/batch 不可解析时：只保证「有变更」这一信号，调用方应清全缓存重建。
- * @property gitignoreTouched 根 `.gitignore` 被改动：调用方需丢弃已解析的忽略规则缓存。
+ * @property relistDirs Directories that need re-reading from disk (when the set is empty and [fullRefresh] is false, no tree rebuild is needed).
+ * @property dropTrees Directories whose caches must be dropped along with their descendants (deletion — a directory may be deleted and recreated, and stale child listings would lie).
+ * @property fullRefresh Set when details were truncated / the batch is unparseable: only the "something changed" signal is guaranteed; callers should clear the whole cache and rebuild.
+ * @property gitignoreTouched The root `.gitignore` was modified: callers must drop the parsed ignore-rule cache.
  */
 data class BrowseInvalidation(
     val relistDirs: Set<String> = emptySet(),
@@ -22,19 +22,19 @@ data class BrowseInvalidation(
 }
 
 /**
- * 把 [FileChangeBatch] 翻译成 [BrowseInvalidation]（纯函数，便于单测）。
+ * Translates a [FileChangeBatch] into a [BrowseInvalidation] (a pure function, easy to unit test).
  *
- * 规则与理由：
- * - 变更路径 **P 的父目录**一定要重列——文件的新增/删除/重命名改的是父目录的列表；
- * - **P 自身**也重列：单层 inotify 语义下 P 是订阅目录的直接子级，若 P 是目录，其内部变化
- *   以 P 自身变更的形式到来（MODIFIED），重列 P 才能刷新展开着的子树；对文件路径是廉价空转；
- * - **DELETED 的目录**整棵树丢缓存：路径删除后缓存里的子孙全部作废，且同名目录重建后
- *   子内容可能完全不同（粘贴覆盖、checkout 都属此类），只丢自己不够；
- * - **truncated batch** 明细被截断（[FileChangeBatch.truncated]），失去逐条判断依据，只能全清；
- * - **`<root>/.gitignore`** 被触碰时提醒调用方重读忽略规则（树按它过滤节点）。
+ * Rules and rationale:
+ * - The **parent directory of P** must always be relisted — creating/deleting/renaming a file changes the parent's listing;
+ * - **P itself** is relisted too: with single-level inotify semantics, P is a direct child of a watched directory; if P is a directory, its internal changes
+ *   arrive as a change on P itself (MODIFIED), and relisting P refreshes the expanded subtree; for file paths it is a cheap no-op;
+ * - A **DELETED directory** drops its whole tree from the cache: after the path is deleted, all cached descendants are void, and a same-named directory
+ *   rebuilt afterwards may have completely different contents (paste-overwrites and checkouts are like this) — dropping only itself is not enough;
+ * - A **truncated batch** has its details truncated ([FileChangeBatch.truncated]); with no per-entry basis for judgment, the only option is a full clear;
+ * - When **`<root>/.gitignore`** is touched, the caller is reminded to re-read the ignore rules (the tree filters nodes by them).
  *
- * @param batch 监听中心的一个批量窗口。
- * @param rootPath 工作区容器根路径（用于识别 `.gitignore` 是否指根级）。
+ * @param batch One batching window from the watch hub.
+ * @param rootPath The workspace container root path (used to tell whether `.gitignore` is the root-level one).
  */
 fun planBrowseInvalidation(batch: FileChangeBatch, rootPath: String): BrowseInvalidation {
     if (batch.truncated) return BrowseInvalidation(fullRefresh = true)

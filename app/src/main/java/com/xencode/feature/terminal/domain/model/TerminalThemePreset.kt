@@ -4,14 +4,14 @@ import androidx.annotation.StringRes
 import com.xencode.R
 
 /**
- * 终端预设配色主题（精选 5 套热门主题，含默认 Termius Dark 与亮白主题）。
+ * Terminal preset color themes (a curated set of 5 popular themes, including the default Termius Dark and a light theme).
  *
- * @param id 唯一标识符，持久化于 DataStore
- * @param nameRes 国际化名称资源
- * @param background 背景颜色 ARGB
- * @param foreground 前景默认文字颜色 ARGB
- * @param cursor 光标颜色 ARGB
- * @param ansiColors 16 色标准 ANSI 调色板（0~15：黑、红、绿、黄、蓝、洋红、青、白 及对应亮色）
+ * @param id Unique identifier, persisted in DataStore
+ * @param nameRes Localized name resource
+ * @param background Background color ARGB
+ * @param foreground Default foreground text color ARGB
+ * @param cursor Cursor color ARGB
+ * @param ansiColors 16-color standard ANSI palette (0-15: black, red, green, yellow, blue, magenta, cyan, white and their bright variants)
  */
 data class TerminalThemePreset(
     val id: String,
@@ -31,7 +31,7 @@ data class TerminalThemePreset(
     override fun hashCode(): Int = id.hashCode()
 
     companion object {
-        /** 默认主题：经典 Termius 深邃蓝黑底 + 亮绿光标。 */
+        /** Default theme: the classic Termius deep blue-black background + bright green cursor. */
         val TERMIUS_DARK = TerminalThemePreset(
             id = "termius_dark",
             nameRes = R.string.terminal_theme_termius_dark,
@@ -46,7 +46,7 @@ data class TerminalThemePreset(
             )
         )
 
-        /** Dracula：官方标准极客暗黑主题（基于 draculatheme.com 规范）。 */
+        /** Dracula: the official standard geek dark theme (per the draculatheme.com spec). */
         val DRACULA = TerminalThemePreset(
             id = "dracula",
             nameRes = R.string.terminal_theme_dracula,
@@ -61,7 +61,7 @@ data class TerminalThemePreset(
             )
         )
 
-        /** One Dark：Atom / VSCode 经典暗色。 */
+        /** One Dark: the classic Atom / VSCode dark theme. */
         val ONE_DARK = TerminalThemePreset(
             id = "one_dark",
             nameRes = R.string.terminal_theme_one_dark,
@@ -76,7 +76,7 @@ data class TerminalThemePreset(
             )
         )
 
-        /** Monokai：经典活力暗色（基于 Monokai Classic 规范）。 */
+        /** Monokai: the classic vibrant dark theme (per the Monokai Classic spec). */
         val MONOKAI = TerminalThemePreset(
             id = "monokai",
             nameRes = R.string.terminal_theme_monokai,
@@ -91,7 +91,7 @@ data class TerminalThemePreset(
             )
         )
 
-        /** GitHub Dark：官方标准深黑底主题（基于 GitHub Primer Dark Default 规范）。 */
+        /** GitHub Dark: the official standard deep-black theme (per the GitHub Primer Dark Default spec). */
         val GITHUB_DARK = TerminalThemePreset(
             id = "github_dark",
             nameRes = R.string.terminal_theme_github_dark,

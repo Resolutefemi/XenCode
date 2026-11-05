@@ -8,7 +8,7 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 /**
- * 每轮任务的 token 合计口径（[computeTurnUsage]）：**1 轮 n 步求和**，只挂在轮末那条助手消息上。
+ * Token-total accounting per task turn ([computeTurnUsage]): **sum of n steps in 1 turn**, attached only to the turn's last assistant message.
  */
 class TurnUsageTest {
 
@@ -48,7 +48,7 @@ class TurnUsageTest {
 
     @Test
     fun sums_every_step_of_the_turn() {
-        // 一轮三步（assistant → tool → assistant → tool → assistant）：用量是三条之和
+        // One turn, three steps (assistant → tool → assistant → tool → assistant): the usage is the sum of the three
         val messages = listOf(
             user("u1", 1_000),
             assistant("a1", 2_000, input = 1_000, output = 100, cached = 400),
@@ -59,7 +59,7 @@ class TurnUsageTest {
         )
         val usage = computeTurnUsage(messages, lastTurnFinished = true)
         assertEquals(1, usage.size)
-        // 中间步骤不单独挂统计
+        // Intermediate steps do not carry their own totals
         assertNull(usage["a1"])
         assertNull(usage["a2"])
         val total = usage.getValue("a3")

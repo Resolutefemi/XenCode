@@ -19,9 +19,12 @@ import compose.icons.feathericons.ChevronDown
 import compose.icons.feathericons.ChevronRight
 
 /**
- * 折叠箭头的旋转语义风格：
- * - [UP_DOWN]: 基准朝下 (ChevronDown)，收起为 0°，展开翻转 180° 朝上；用于卡片内部折叠、思考面板、顶栏看板等；
- * - [RIGHT_DOWN]: 基准朝右 (ChevronRight)，收起为 0°，展开顺时针旋转 90° 朝下；用于整轮执行过程、侧边栏时间分组、Git 状态分组等。
+ * Rotation semantics styles for the expand/collapse chevron:
+ * - [UP_DOWN]: base points down (ChevronDown); 0° when collapsed, flips 180° to point up when
+ *   expanded; used for in-card collapsing, the thinking panel, top-bar boards, etc.;
+ * - [RIGHT_DOWN]: base points right (ChevronRight); 0° when collapsed, rotates 90° clockwise
+ *   to point down when expanded; used for full-run execution progress, sidebar time groups,
+ *   Git status groups, etc.
  */
 enum class ChevronRotationStyle {
     UP_DOWN,
@@ -31,7 +34,8 @@ enum class ChevronRotationStyle {
 private const val CHEVRON_ANIM_DURATION_MS = 200
 
 /**
- * 统一折叠小箭头组件：封装平滑的旋转动画与统一的时长/缓动曲线。
+ * Unified expand/collapse chevron component: wraps the smooth rotation animation with a
+ * shared duration/easing curve.
  */
 @Composable
 fun ExpandableChevronIcon(

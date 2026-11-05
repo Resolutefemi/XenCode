@@ -1,57 +1,57 @@
-# 记忆与项目规则
+# Memory & Project Rules
 
-本章介绍自动记忆与项目规则两项能力，用于保持 AI 跨会话的上下文连续性与项目一致性。
+This chapter covers two features — automatic memory and project rules — that keep the AI's context continuous and the project consistent across sessions.
 
-## 自动记忆
+## Automatic memory
 
-自动记忆是 AI 自行维护的长期知识库。对话中形成的项目约定、用户偏好与架构决策，AI 会自动记录并在后续会话中复用。
+Automatic memory is a long-term knowledge base the AI maintains on its own. Project conventions, user preferences and architectural decisions that form during conversations are recorded automatically and reused in later sessions.
 
-### 作用域
+### Scope
 
-| 作用域 | 说明 | 存储位置 |
+| Scope | Description | Storage location |
 | --- | --- | --- |
-| 全局 | 跨项目通用的个人偏好 | `~/.xencode/memory/` |
-| 项目 | 当前项目专属的约定与经验 | 本地模式：`<项目根>/.xencode/memory/`；远程 SSH 模式：`~/.xencode/memory/projects/<项目名>-<标识哈希>/` |
+| Global | Personal preferences shared across projects | `~/.xencode/memory/` |
+| Project | Conventions and experience specific to the current project | Local mode: `<project root>/.xencode/memory/`; remote SSH mode: `~/.xencode/memory/projects/<project name>-<identity hash>/` |
 
-项目记忆在远程模式下存储于手机本地，并按「项目名 + 服务器标识」隔离，不受容器重置影响。
+In remote mode, project memory is stored on the phone and isolated by "project name + server identity"; container resets do not affect it.
 
-### 记忆文件
+### Memory files
 
-每条记忆是一个 Markdown 文件，由 YAML frontmatter（`name`、`description`）与正文组成：
+Each memory is a Markdown file made up of YAML frontmatter (`name`, `description`) and a body:
 
 ```markdown
 ---
 name: conventions
-description: 项目代码规范与命名约定
+description: Project coding conventions and naming rules
 ---
-（正文）
+(body)
 ```
 
-### 生效方式
+### How it takes effect
 
-会话开始时，系统将全部记忆的摘要（名称与描述）注入提示词；需要详情时，AI 通过 `memory` 工具读取完整内容。
+At the start of a session, summaries of all memories (names and descriptions) are injected into the prompt; when details are needed, the AI reads the full content with the `memory` tool.
 
-### memory 工具
+### The memory tool
 
-| 参数 | 说明 |
+| Parameter | Description |
 | --- | --- |
 | `action` | `read` / `save` / `edit` / `delete` / `list` |
-| `name` | 记忆名称（即文件名） |
-| `description` | 摘要，`save` 时必填 |
-| `content` | 正文（Markdown），`save` 时必填 |
-| `edits` | 局部编辑列表，语义与编辑文件一致 |
-| `scope` | `project`（默认）或 `global` |
+| `name` | Memory name (i.e. the file name) |
+| `description` | Summary; required for `save` |
+| `content` | Body (Markdown); required for `save` |
+| `edits` | List of partial edits, same semantics as file editing |
+| `scope` | `project` (default) or `global` |
 
-同名记忆项目级优先于全局。更新既有记忆时建议使用 `edit` 局部编辑；涉及踩坑经验的内容，应在验证根因后记录。
+For same-named memories, project-level takes precedence over global. When updating an existing memory, prefer `edit` for partial changes; record hard-won lessons only after verifying the root cause.
 
-## 项目规则
+## Project rules
 
-项目根目录下的 `AGENTS.md` 用于声明项目专属规则、架构约束与构建指南，是 AI 遵循的最高优先级约定；不存在 `AGENTS.md` 时回退读取 `CLAUDE.md`。
+`AGENTS.md` in the project root declares project-specific rules, architectural constraints and build guidance — the highest-priority convention the AI follows; when `AGENTS.md` is absent, `CLAUDE.md` is read instead.
 
-### 生效方式
+### How it takes effect
 
-规则文件在会话开始时自动加载，无需手动配置；内容超过 32,000 字符时将被截断。
+Rule files are loaded automatically at the start of a session, no manual setup needed; content beyond 32,000 characters is truncated.
 
-### 自定义加载约定
+### Customizing the loading convention
 
-项目规则的加载约定对应提示词片段 `15-project-rules.md`，可通过 `~/.xencode/prompts.custom/15-project-rules.md` 覆盖，见[自定义提示词](/guide/custom-prompts)。
+The loading convention for project rules corresponds to the prompt fragment `15-project-rules.md` and can be overridden via `~/.xencode/prompts.custom/15-project-rules.md`; see [Custom prompts](/guide/custom-prompts).

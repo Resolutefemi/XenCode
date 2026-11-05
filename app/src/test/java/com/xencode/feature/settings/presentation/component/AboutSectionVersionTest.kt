@@ -83,7 +83,7 @@ class AboutSectionVersionTest {
 
     @Test
     fun compareVersions_releaseVsPreRelease() {
-        // 正式版 > 预发布版
+        // release > pre-release
         assertTrue(compareVersions("1.7.0", "1.7.0-rc1") > 0)
         assertTrue(compareVersions("1.7.0-rc1", "1.7.0") < 0)
     }

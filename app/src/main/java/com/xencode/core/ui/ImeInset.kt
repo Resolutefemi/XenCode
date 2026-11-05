@@ -21,38 +21,47 @@ import androidx.core.view.WindowInsetsAnimationCompat
 import androidx.core.view.WindowInsetsCompat
 
 /**
- * 跟随软键盘逐帧移动的底部内边距（用于把底栏 / 操作栏顶在键盘之上）。
- * 取 ime 与 navigationBars 的较大值：键盘弹出时浮于键盘上，收起时停在导航栏上，无重复内边距。
+ * Bottom padding that follows the soft keyboard frame by frame (used to keep bottom bars /
+ * action bars above the keyboard).
+ * Takes the larger of ime and navigationBars: floating above the keyboard when it's shown,
+ * resting on the navigation bar when hidden, with no doubled padding.
  *
- * 为什么要这么费劲：本应用锁定 `targetSdk = 28`（PRoot 需从可写目录执行，见 build.gradle.kts）。
- * 在 targetSdk < 30 下，`windowSoftInputMode=adjustResize` 走的是旧版兼容缩放路径，它会**吞掉**
- * 平台的 IME inset 逐帧动画——`WindowInsets.ime` 只在键盘动画结束后一步到位。表现就是「键盘先弹起、
- * 底栏再迟一拍跟上」。
+ * Why go to all this trouble: the app locks `targetSdk = 28` (PRoot must execute from a
+ * writable directory, see build.gradle.kts). Below targetSdk 30,
+ * `windowSoftInputMode=adjustResize` takes the legacy compatibility-resize path, which
+ * **swallows** the platform's per-frame IME inset animation — `WindowInsets.ime` jumps to its
+ * final value only after the keyboard animation finishes. The visible result: the keyboard
+ * pops up first, then the bottom bar trails a beat behind.
  *
- * 解决：在 API 30+ 上，Activity.onCreate 把窗口切到 `ADJUST_NOTHING`（让旧版缩放路径让位），改由
- * 我们用 inset 把底栏顶起来；同时本函数挂一个 [WindowInsetsAnimationCompat] 回调，在 onProgress
- * 里读取键盘**当前帧**位置驱动内边距，从而与键盘锁帧同步移动。
+ * Fix: on API 30+, Activity.onCreate switches the window to `ADJUST_NOTHING` (yielding to
+ * the legacy resize path) and we push the bottom bar up with insets ourselves; this function
+ * also registers a [WindowInsetsAnimationCompat] callback that reads the keyboard's
+ * **current-frame** position in onProgress to drive the padding, moving in lockstep with the
+ * keyboard.
  *
- * **重要**：softInputMode 由 Activity 统一设置一次，本函数 onDispose 不再还原——
- * 多个页面（Terminal / Chat）同时使用本函数时，NavHost 过渡动画期间两个 composable 共存，
- * 旧页面 dispose 会把新页面刚设好的回调清掉、把 softInputMode 切回 adjustResize，
- * 触发窗口重新布局导致白屏。
+ * **Important**: softInputMode is set once by the Activity; this function's onDispose does
+ * not restore it — when multiple screens (Terminal / Chat) use this function simultaneously,
+ * the two composables coexist during NavHost transitions, and disposing the old screen would
+ * clear the new screen's just-registered callback and flip softInputMode back to
+ * adjustResize, triggering a window relayout and a white flash.
  *
- * API < 30 没有 IME inset 动画 API，保持 manifest 的 adjustResize 旧行为（窗口缩放，功能正常，
- * 只是没有顺滑动画）。
+ * Below API 30 there is no IME inset animation API; we keep the manifest's legacy
+ * adjustResize behavior (the window resizes — functional, just without the smooth
+ * animation).
  */
 @Composable
 fun rememberImeBottomInset(): Dp {
     val view = LocalView.current
     val density = LocalDensity.current
 
-    // 静止 / 最终态：键盘动画结束、旋转、首帧由 Compose inset 给出准确值。
+    // Resting / final state: after the keyboard animation ends, on rotation, and on the first
+    // frame, Compose insets give the accurate value.
     val restingPx = maxOf(
         WindowInsets.ime.getBottom(density),
         WindowInsets.navigationBars.getBottom(density)
     )
 
-    // 动画进行中由 onProgress 提供逐帧值。
+    // While animating, onProgress supplies per-frame values.
     var progressPx by remember { mutableIntStateOf(restingPx) }
     var animating by remember { mutableStateOf(false) }
 
@@ -83,11 +92,14 @@ fun rememberImeBottomInset(): Dp {
         }
     }
 
-    // 非受控的弹键盘路径（如终端用 InputMethodManager.showSoftInput 触发软键盘）拿不到逐帧
-    // onProgress 回调，restingPx 会等 WindowInsets.ime 落定后一步跳到最终值，表现为底栏「瞬移」。
-    // 在 API 30+ 上给这个静止值补一段补间，让底栏平滑滑动；受控路径（Compose TextField）有逐帧
-    // 回调时 animating=true，直接走 progressPx，不叠加二次动画。
-    // API < 30 不额外适配：沿用 manifest 的 adjustResize 系统默认行为，旧设备保持原样。
+    // Uncontrolled keyboard-show paths (e.g. the terminal triggering the soft keyboard via
+    // InputMethodManager.showSoftInput) get no per-frame onProgress callbacks; restingPx jumps
+    // to the final value in one step once WindowInsets.ime settles, so the bottom bar
+    // "teleports". On API 30+ we tween this resting value so the bar slides smoothly; the
+    // controlled path (Compose TextField) has per-frame callbacks, sets animating=true, and
+    // goes straight to progressPx with no second animation layered on.
+    // Below API 30 no extra adaptation: keep the manifest's adjustResize system default and
+    // leave older devices as they were.
     val animatedRestingPx by animateIntAsState(
         targetValue = restingPx,
         animationSpec = tween(durationMillis = 220),

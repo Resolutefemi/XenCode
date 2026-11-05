@@ -5,16 +5,16 @@ import com.xencode.feature.agent.domain.container.BoundedOutput
 import java.util.concurrent.TimeUnit
 
 /**
- * Shizuku UserService：由 Shizuku 在 shell（uid 2000）进程中实例化，代 App 执行 shell 命令。
+ * Shizuku UserService: instantiated by Shizuku in the shell (uid 2000) process, runs shell commands on the app's behalf.
  *
- * 本进程不是合法的 Android 应用进程，只能用 Java/系统级 API，不能用 Context 相关能力
- * （getContentResolver / registerReceiver 等），故实现只用 [ProcessBuilder]。
+ * This process is not a proper Android app process, so only Java/system-level APIs are available; no Context-dependent capabilities
+ * (getContentResolver / registerReceiver etc.), hence the implementation uses only [ProcessBuilder].
  *
- * 类名与构造器会被 Shizuku 反射加载，不可被 R8 混淆（见 proguard-rules.pro）。
+ * The class name and constructor are reflectively loaded by Shizuku and must not be obfuscated by R8 (see proguard-rules.pro).
  */
 class ShizukuShellService : IShizukuShellService.Stub() {
 
-    /** Shizuku 保留的销毁入口：unbindUserService(remove=true) 时触发，结束本进程。 */
+    /** Destroy hook reserved by Shizuku: triggered by unbindUserService(remove=true), ends this process. */
     override fun destroy() {
         System.exit(0)
     }
@@ -26,8 +26,8 @@ class ShizukuShellService : IShizukuShellService.Stub() {
             process = ProcessBuilder("sh", "-c", command)
                 .redirectErrorStream(true)
                 .start()
-            // 输出读取与等待结束必须并行：管道写满会阻塞子进程，先 waitFor 再读会死锁。
-            // 同时限幅：Binder 事务缓冲上限 1MB，超大输出直接回传会抛 TransactionTooLargeException。
+            // Output reading must run in parallel with waiting for exit: a full pipe blocks the child process, and waiting before reading deadlocks.
+            // Also cap the size: the Binder transaction buffer tops out at 1MB, and oversized output would throw TransactionTooLargeException.
             val output = BoundedOutput()
             val reader = Thread {
                 runCatching {
@@ -58,10 +58,10 @@ class ShizukuShellService : IShizukuShellService.Stub() {
         const val KEY_OUTPUT = "output"
         const val KEY_EXIT_CODE = "exitCode"
 
-        /** 命令超时（进程被强杀）时的退出码。 */
+        /** Exit code for a command timeout (process force-killed). */
         const val EXIT_TIMEOUT = -1000
 
-        /** 启动/读取异常时的退出码。 */
+        /** Exit code for a startup/read failure. */
         const val EXIT_FAILURE = -1
 
         private const val READER_JOIN_TIMEOUT_MS = 2_000L

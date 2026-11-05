@@ -382,7 +382,7 @@ private fun applyTerminalColors(
     view.invalidate()
 }
 
-/** Termux TerminalView 的 Compose 包装：渲染与输入全部由该开源组件负责。 */
+/** Compose wrapper around the Termux TerminalView: rendering and input are all handled by that open-source component. */
 @Composable
 private fun TerminalSurface(
     tab: TerminalTab,
@@ -391,7 +391,7 @@ private fun TerminalSurface(
 ) {
     val preset = settings.theme
     val bgColor = Color(preset.background)
-    // 字号单一事实源：捏合缩放只改这里（预览），手势结束才落盘；设置面板的改动反向同步进来。
+    // Single source of truth for font size: pinch zoom only changes this (as a preview) and is persisted when the gesture ends; changes from the settings sheet sync back in.
     var liveFontSizeSp by remember { mutableIntStateOf(settings.fontSizeSp) }
     LaunchedEffect(settings.fontSizeSp) { liveFontSizeSp = settings.fontSizeSp }
 
@@ -483,7 +483,7 @@ private fun StatusView(
     }
 }
 
-/** 把容器初始化进度状态映射为 Loading 阶段展示给用户的文案。 */
+/** Maps container initialization progress states to user-facing text shown during the Loading phase. */
 private fun containerInitMessage(context: Context, state: ContainerInitState): String = when (state) {
     is ContainerInitState.CleaningOldRootfs ->
         context.getString(R.string.terminal_cleaning_old_container, state.processed)
@@ -551,7 +551,7 @@ private fun ExtraKeysRow(
     }
 }
 
-/** 方向键长按重复节奏：按下后延迟多久开始连续发送，以及每次发送的间隔。 */
+/** Arrow-key long-press repeat cadence: how long after press the repeats start, and the interval between sends. */
 private const val KEY_REPEAT_INITIAL_DELAY_MS = 350L
 private const val KEY_REPEAT_INTERVAL_MS = 50L
 

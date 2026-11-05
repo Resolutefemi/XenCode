@@ -13,12 +13,12 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.withContext
 
 /**
- * 斜杠命令注册表：聚合内置命令（[ActionCommandHandler]）与已启用技能，
- * 统一供 `/` 菜单展示与发送时解析。
+ * Slash command registry: aggregates built-in commands ([ActionCommandHandler]) and enabled skills,
+ * uniformly serving the `/` menu display and send-time resolution.
  *
- * - 菜单：[commands] 为合并后的 [SlashCommand] 列表——内置命令优先，同名技能被跳过，按名排序。
- * - 解析：[resolve] 把 `/name args` 拆成命令名与参数，命中内置命令或技能；纯内存，无 IO。
- * - 刷新：[refresh] 重新扫描技能（文件 IO），调用方负责触发时机。
+ * - Menu: [commands] is the merged [SlashCommand] list — built-in commands take priority, same-named skills are skipped, sorted by name.
+ * - Resolve: [resolve] splits `/name args` into command name and arguments and matches a built-in command or skill; purely in-memory, no IO.
+ * - Refresh: [refresh] rescans skills (file IO); the caller decides when to trigger it.
  */
 @Singleton
 class SlashCommandRegistry @Inject constructor(
@@ -30,16 +30,16 @@ class SlashCommandRegistry @Inject constructor(
     private val actionsByName: Map<String, ActionCommandHandler> =
         actions.associateBy { it.name.lowercase() }
 
-    /** 技能快照：由 [refresh] 在 IO 线程更新，[resolve] 只读。 */
+    /** Skill snapshot: updated on the IO thread by [refresh]; read-only for [resolve]. */
     @Volatile
     private var skills: List<Skill> = emptyList()
 
     private val _commands = MutableStateFlow<List<SlashCommand>>(emptyList())
 
-    /** `/` 菜单展示的命令列表。 */
+    /** Command list shown in the `/` menu. */
     val commands: StateFlow<List<SlashCommand>> = _commands.asStateFlow()
 
-    /** 重新扫描技能并重建菜单。涉及文件 IO，调用方应在 IO 上下文调用。 */
+    /** Rescans skills and rebuilds the menu. Involves file IO; callers should invoke it in an IO context. */
     suspend fun refresh() = withContext(Dispatchers.IO) {
         skills = skillRepository.listSkills()
         _commands.value = buildCommands()
@@ -71,8 +71,8 @@ class SlashCommandRegistry @Inject constructor(
     }
 
     /**
-     * 解析发送文本：仅当输入以 `/` 开头且命中内置命令或技能时返回非空。
-     * 内置命令不接受参数时，带参数视为未命中（回落为普通消息）。
+     * Resolves the sent text: returns non-null only when the input starts with `/` and matches a built-in command or skill.
+     * When a built-in command does not accept arguments, supplying arguments counts as a miss (falls back to a normal message).
      */
     fun resolve(input: String): ResolvedCommand? {
         val trimmed = input.trim()
@@ -90,7 +90,7 @@ class SlashCommandRegistry @Inject constructor(
         return ResolvedCommand.SkillCommand(skill, args)
     }
 
-    /** 解析结果：内置动作或技能。 */
+    /** Resolution result: a built-in action or a skill. */
     sealed interface ResolvedCommand {
         val name: String
         val args: String
@@ -106,8 +106,8 @@ class SlashCommandRegistry @Inject constructor(
 
     companion object {
         /**
-         * 构造技能本轮指令：把技能正文里的 `$ARGUMENTS` 替换为 [args]；
-         * 无占位且 [args] 非空时追加一行，保证用户输入不丢失。
+         * Builds the skill's instruction for this turn: replaces `$ARGUMENTS` in the skill body with [args];
+         * when there is no placeholder and [args] is non-empty, appends a line so no user input is lost.
          */
         fun buildSkillPrompt(skill: Skill, args: String): String =
             substituteArguments(skill.instructions, args)

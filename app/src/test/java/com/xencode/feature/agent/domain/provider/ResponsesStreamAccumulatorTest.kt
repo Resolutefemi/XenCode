@@ -14,13 +14,13 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 /**
- * Responses 流式语义事件解析（[ResponsesStreamAccumulator]）。
- * 覆盖点：结束以 response.completed/incomplete/failed 判定（官方不发 `[DONE]`）、
- * function_call 分片入参聚合、截断映射为 `length` 以触发上层续写。
+ * Responses streaming semantic event parsing ([ResponsesStreamAccumulator]).
+ * Coverage: termination is decided by response.completed/incomplete/failed (the official API sends no `[DONE]`),
+ * function_call arguments are aggregated from fragments, and truncation is mapped to `length` to trigger upper-layer continuation.
  */
 class ResponsesStreamAccumulatorTest {
 
-    /** 事件 JSON 用单引号书写，避免层层转义；解析前替换为双引号。 */
+    /** Event JSON is written with single quotes to avoid layered escaping; replaced with double quotes before parsing. */
     private fun event(json: String): JsonObject =
         JsonParser.parseString(json.replace('\'', '"')).asJsonObject
 
@@ -102,14 +102,14 @@ class ResponsesStreamAccumulatorTest {
     fun reasoning_deltas_are_separate_from_content() {
         val acc = ResponsesStreamAccumulator()
 
-        val delta = acc.accept(event("{'type':'response.reasoning_text.delta','delta':'先看文件'}"))
-        assertEquals("先看文件", (delta as ResponsesDelta.Reasoning).text)
-        acc.accept(event("{'type':'response.output_text.delta','delta':'结论'}"))
+        val delta = acc.accept(event("{'type':'response.reasoning_text.delta','delta':'look at the file first'}"))
+        assertEquals("look at the file first", (delta as ResponsesDelta.Reasoning).text)
+        acc.accept(event("{'type':'response.output_text.delta','delta':'the conclusion'}"))
         acc.accept(terminalEvent(ResponsesEvent.COMPLETED, "completed"))
 
         val response = acc.toResponse()
-        assertEquals("结论", response.content)
-        assertEquals("先看文件", response.reasoning)
+        assertEquals("the conclusion", response.content)
+        assertEquals("look at the file first", response.reasoning)
     }
 
     @Test
@@ -125,14 +125,14 @@ class ResponsesStreamAccumulatorTest {
     fun function_call_name_is_declared_before_arguments() {
         val acc = ResponsesStreamAccumulator()
 
-        // 工具名先到：UI 靠它把「正在思考」提前换成「正在读取文件」
+        // The tool name arrives first: the UI uses it to swap "thinking" for "reading the file" early
         val declared = acc.accept(itemEvent(ResponsesEvent.OUTPUT_ITEM_ADDED, 0, functionCallItem("c1", "readFile")))
         assertEquals("readFile", (declared as ResponsesDelta.ToolCallDeclared).name)
 
-        // 参数片段不产生声明
+        // Argument fragments produce no declaration
         assertNull(acc.accept(argsDelta(0, "{\"path\":")))
         assertNull(acc.accept(argsDelta(0, "\"a.txt\"}")))
-        // 同一个调用不重复播报：item.done 也带名字（它还会用完整参数覆盖累积值，见下）
+        // The same call is not announced twice: item.done also carries the name (and overwrites the accumulated value with the full arguments, see below)
         assertNull(
             acc.accept(
                 itemEvent(
@@ -143,7 +143,7 @@ class ResponsesStreamAccumulatorTest {
             )
         )
 
-        // 声明归声明：参数仍要完整聚合、工具调用不能被吞掉
+        // A declaration is just a declaration: arguments still aggregate fully and the tool call must not be swallowed
         acc.accept(terminalEvent(ResponsesEvent.COMPLETED, "completed"))
         val call = acc.toResponse().toolCalls.single()
         assertEquals("readFile", call.name)
@@ -165,7 +165,7 @@ class ResponsesStreamAccumulatorTest {
         assertEquals("call_abc", call.id)
         assertEquals("readFile", call.name)
         assertEquals(JsonPrimitive("a.txt"), call.arguments["path"])
-        // 有工具调用时 stopReason 必须是 tool_calls，Agent 循环才会继续执行工具
+        // With tool calls present stopReason must be tool_calls, or the agent loop will not keep executing tools
         assertEquals("tool_calls", response.stopReason)
     }
 
@@ -214,7 +214,7 @@ class ResponsesStreamAccumulatorTest {
             add("content", JsonArray().apply {
                 add(JsonObject().apply {
                     addProperty("type", "output_text")
-                    addProperty("text", "只在终止事件里出现的正文")
+                    addProperty("text", "body that only appears in the terminal event")
                 })
             })
         }
@@ -226,7 +226,7 @@ class ResponsesStreamAccumulatorTest {
         acc.accept(terminalEvent(ResponsesEvent.COMPLETED, "completed", output = output))
 
         val response = acc.toResponse()
-        assertEquals("只在终止事件里出现的正文", response.content)
+        assertEquals("body that only appears in the terminal event", response.content)
         assertEquals("c9", response.toolCalls.single().id)
         assertEquals(JsonPrimitive("z.txt"), response.toolCalls.single().arguments["path"])
     }
@@ -247,7 +247,7 @@ class ResponsesStreamAccumulatorTest {
     fun incomplete_by_max_output_tokens_maps_to_length() {
         val acc = ResponsesStreamAccumulator()
 
-        acc.accept(event("{'type':'response.output_text.delta','delta':'半截'}"))
+        acc.accept(event("{'type':'response.output_text.delta','delta':'half of it'}"))
         acc.accept(
             terminalEvent(
                 ResponsesEvent.INCOMPLETE,
@@ -259,7 +259,7 @@ class ResponsesStreamAccumulatorTest {
         val response = acc.toResponse()
         assertTrue(acc.terminated)
         assertEquals("length", response.stopReason)
-        // isTruncated 为 true 才会触发 Agent 循环自动续写
+        // Only isTruncated = true triggers the agent loop's automatic continuation
         assertTrue(response.isTruncated)
     }
 
@@ -267,7 +267,7 @@ class ResponsesStreamAccumulatorTest {
     fun incomplete_by_max_tokens_also_maps_to_length() {
         val acc = ResponsesStreamAccumulator()
 
-        // OpenAI 官方文档示例的截断原因写作 max_tokens，与 DeepSeek 的 max_output_tokens 不同
+        // The OpenAI official docs' example writes the truncation reason as max_tokens, unlike DeepSeek's max_output_tokens
         acc.accept(
             terminalEvent(
                 ResponsesEvent.INCOMPLETE,
@@ -343,11 +343,11 @@ class ResponsesStreamAccumulatorTest {
     fun reasoning_summary_delta_is_treated_as_reasoning() {
         val acc = ResponsesStreamAccumulator()
 
-        val delta = acc.accept(event("{'type':'response.reasoning_summary_text.delta','delta':'摘要思考'}"))
+        val delta = acc.accept(event("{'type':'response.reasoning_summary_text.delta','delta':'summary thinking'}"))
 
-        assertEquals("摘要思考", (delta as ResponsesDelta.Reasoning).text)
+        assertEquals("summary thinking", (delta as ResponsesDelta.Reasoning).text)
         acc.accept(terminalEvent(ResponsesEvent.COMPLETED, "completed"))
-        assertEquals("摘要思考", acc.toResponse().reasoning)
+        assertEquals("summary thinking", acc.toResponse().reasoning)
     }
 
     @Test
@@ -361,7 +361,7 @@ class ResponsesStreamAccumulatorTest {
             add("summary", JsonArray().apply {
                 add(JsonObject().apply {
                     addProperty("type", "summary_text")
-                    addProperty("text", "先读文件再修改")
+                    addProperty("text", "read the file first, then modify")
                 })
             })
         }
@@ -369,15 +369,15 @@ class ResponsesStreamAccumulatorTest {
 
         acc.accept(terminalEvent(ResponsesEvent.COMPLETED, "completed", output = output))
 
-        assertEquals("先读文件再修改", acc.toResponse().reasoning)
+        assertEquals("read the file first, then modify", acc.toResponse().reasoning)
     }
 
     @Test
     fun terminal_event_without_output_still_terminates() {
         val acc = ResponsesStreamAccumulator()
-        acc.accept(event("{'type':'response.output_text.delta','delta':'已输出'}"))
+        acc.accept(event("{'type':'response.output_text.delta','delta':'already output'}"))
 
-        // 部分服务在终止事件里不带 output（或给 null），不能因此认为流未结束
+        // Some services omit output in the terminal event (or send null); that must not be read as the stream not ending
         val terminal = JsonObject().apply {
             addProperty("type", ResponsesEvent.COMPLETED)
             add("response", JsonObject().apply {
@@ -388,19 +388,19 @@ class ResponsesStreamAccumulatorTest {
         acc.accept(terminal)
 
         assertTrue(acc.terminated)
-        assertEquals("已输出", acc.toResponse().content)
+        assertEquals("already output", acc.toResponse().content)
         assertEquals("stop", acc.toResponse().stopReason)
     }
 
     @Test
     fun refusal_delta_is_surfaced_as_content() {
         val acc = ResponsesStreamAccumulator()
-        // 拒答不走 output_text：不收这个事件的话用户只能看到空白回复
-        acc.accept(event("{'type':'response.refusal.delta','delta':'抱歉，我不能'}"))
-        acc.accept(event("{'type':'response.refusal.delta','delta':'帮助这个请求。'}"))
+        // Refusals do not go through output_text: ignoring this event would leave the user with a blank reply
+        acc.accept(event("{'type':'response.refusal.delta','delta':'Sorry, I cannot'}"))
+        acc.accept(event("{'type':'response.refusal.delta','delta':' help with this request.'}"))
         acc.accept(terminalEvent(ResponsesEvent.COMPLETED, "completed"))
 
-        assertEquals("抱歉，我不能帮助这个请求。", acc.toResponse().content)
+        assertEquals("Sorry, I cannot help with this request.", acc.toResponse().content)
     }
 
     @Test
@@ -411,7 +411,7 @@ class ResponsesStreamAccumulatorTest {
             add("content", JsonArray().apply {
                 add(JsonObject().apply {
                     addProperty("type", "refusal")
-                    addProperty("refusal", "抱歉，我不能帮助这个请求。")
+                    addProperty("refusal", "Sorry, I cannot help with this request.")
                 })
             })
         }
@@ -419,7 +419,7 @@ class ResponsesStreamAccumulatorTest {
 
         acc.accept(terminalEvent(ResponsesEvent.COMPLETED, "completed", output = output))
 
-        assertEquals("抱歉，我不能帮助这个请求。", acc.toResponse().content)
+        assertEquals("Sorry, I cannot help with this request.", acc.toResponse().content)
     }
 
     @Test
@@ -432,18 +432,18 @@ class ResponsesStreamAccumulatorTest {
             add("summary", JsonArray().apply {
                 add(JsonObject().apply {
                     addProperty("type", "summary_text")
-                    addProperty("text", "思考总结")
+                    addProperty("text", "thinking summary")
                 })
             })
         }
         acc.accept(itemEvent(ResponsesEvent.OUTPUT_ITEM_DONE, 0, reasoningItem))
-        acc.accept(event("{'type':'response.reasoning_summary_text.delta','delta':'思考总结'}"))
-        acc.accept(event("{'type':'response.output_text.delta','delta':'正文'}"))
+        acc.accept(event("{'type':'response.reasoning_summary_text.delta','delta':'thinking summary'}"))
+        acc.accept(event("{'type':'response.output_text.delta','delta':'the body'}"))
         acc.accept(terminalEvent(ResponsesEvent.COMPLETED, "completed"))
 
         val resp = acc.toResponse()
-        assertEquals("正文", resp.content)
-        assertEquals("思考总结", resp.reasoning)
+        assertEquals("the body", resp.content)
+        assertEquals("thinking summary", resp.reasoning)
         assertTrue(resp.thinkingBlocksJson != null && resp.thinkingBlocksJson!!.contains("gAAAAABtest_stream"))
     }
 
@@ -460,7 +460,7 @@ class ResponsesStreamAccumulatorTest {
     fun image_generation_call_in_stream_is_surfaced() {
         val acc = ResponsesStreamAccumulator()
 
-        // added 事件只有 in_progress 状态、没有 result，不应产生图片
+        // The added event only has status in_progress and no result, so it must not produce an image
         acc.accept(
             itemEvent(
                 ResponsesEvent.OUTPUT_ITEM_ADDED,
@@ -472,7 +472,7 @@ class ResponsesStreamAccumulatorTest {
                 }
             )
         )
-        // done 事件携带完整 base64 结果
+        // The done event carries the full base64 result
         acc.accept(itemEvent(ResponsesEvent.OUTPUT_ITEM_DONE, 0, imageItem("ig_1", "iVBORw0KGgoAAAANS")))
         acc.accept(terminalEvent(ResponsesEvent.COMPLETED, "completed"))
 

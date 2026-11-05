@@ -29,8 +29,8 @@ import com.xencode.feature.agent.presentation.component.MarkdownRenderCache
 import com.xencode.feature.settings.presentation.SubAgentUiEntry
 
 /**
- * 子代理详情页：分组卡片——「是否启用」开关行、「摘要」描述卡、「配置」（模型/工具集/注入项/定义文件）键值卡、
- * 「agent 提示词」正文卡（Markdown 渲染）。要改配置走顶栏的编辑按钮。
+ * Sub-agent detail page: grouped cards — an "enable" toggle row, a "summary" description card, a "configuration" (model/toolset/inject parts/definition file) key-value card,
+ * and an "agent prompt" body card (Markdown rendered). To change configuration, use the edit button in the top bar.
  */
 @Composable
 internal fun SubAgentDetailSection(
@@ -122,7 +122,7 @@ internal fun SubAgentDetailSection(
                 lazyScroll = true,
                 modifier = Modifier
                     .fillMaxWidth()
-                    // 正文卡限高：长文本在卡内懒加载滚动（外层整页仍可继续滚），避免超大 md 全量渲染卡顿。
+                    // Body card height limit: long text scrolls lazily inside the card (the whole page can still scroll), avoiding jank from rendering a huge md in full.
                     .heightIn(max = LocalConfiguration.current.screenHeightDp.dp * 0.62f)
                     .padding(horizontal = Spacing.lg, vertical = 12.dp)
             )
@@ -130,7 +130,7 @@ internal fun SubAgentDetailSection(
     }
 }
 
-/** 键值行：左标签右值，值过长时换行。 */
+/** Key-value row: label on the left, value on the right, wrapping when the value is long. */
 @Composable
 private fun InfoRow(label: String, value: String) {
     Row(
@@ -182,6 +182,6 @@ private fun injectText(inject: Set<InjectPart>): String =
     if (inject.isEmpty()) {
         stringResource(R.string.subagent_inject_none)
     } else {
-        // 直接展示 frontmatter 里的写法，便于用户照抄到手写的定义文件里。
+        // Show the exact frontmatter tokens so users can copy them into hand-written definition files.
         InjectPart.entries.filter { it in inject }.joinToString(", ") { it.token }
     }
