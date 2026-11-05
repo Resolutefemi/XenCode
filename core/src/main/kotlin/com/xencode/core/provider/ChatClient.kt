@@ -19,17 +19,32 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flow
 
 /**
+ * The transport contract consumed by [com.xencode.core.tools.AgentSession] and
+ * the goal runner. [ChatClient] is the production implementation; tests and the
+ * parallel goal runner inject fakes that implement the same surface.
+ */
+interface ChatTransport {
+    fun streamChat(
+        config: ProviderConfig,
+        messages: List<ChatClient.ChatMessage>,
+        tools: List<ChatClient.ToolSpec> = emptyList(),
+        systemPrompt: String? = null
+    ): Flow<ChatClient.ChatEvent>
+}
+
+/**
  * Streaming chat client for the PC line (CLI / desktop).
  *
- * One API surface, two wire protocols:
+ * One API surface, three wire protocols:
  * - kind = "openai"    -> /v1/chat/completions SSE (OpenAI, DeepSeek, Groq, OpenRouter, Ollama, Z.AI, ...)
  * - kind = "anthropic" -> native /v1/messages SSE
+ * - kind = "gemini"    -> native :streamGenerateContent?alt=sse (Google AI Studio)
  *
  * Emits [ChatEvent]s. Tool calls are accumulated across deltas and delivered once,
  * fully assembled, before [ChatEvent.Completed]. Non-SSE error envelopes (some
  * gateways answer HTTP 200 with a JSON error body) are surfaced as [ChatEvent.Failed].
  */
-class ChatClient(private val http: HttpClient = HttpClient(CIO)) {
+class ChatClient(private val http: HttpClient = HttpClient(CIO)) : ChatTransport {
 
     // ---- Message / tool models (wire-agnostic) ----
 
@@ -53,16 +68,19 @@ class ChatClient(private val http: HttpClient = HttpClient(CIO)) {
 
     private val gson = Gson()
 
-    fun streamChat(
+    override fun streamChat(
         config: ProviderConfig,
         messages: List<ChatMessage>,
-        tools: List<ToolSpec> = emptyList(),
-        systemPrompt: String? = null
+        tools: List<ToolSpec>,
+        systemPrompt: String?
     ): Flow<ChatEvent> = flow {
         val emitter: suspend (ChatEvent) -> Unit = { e -> emit(e) }
         try {
-            if (config.kind == "anthropic") anthropic(config, messages, tools, systemPrompt, emitter)
-            else openai(config, messages, tools, systemPrompt, emitter)
+            when (config.kind) {
+                "anthropic" -> anthropic(config, messages, tools, systemPrompt, emitter)
+                "gemini" -> gemini(config, messages, tools, systemPrompt, emitter)
+                else -> openai(config, messages, tools, systemPrompt, emitter)
+            }
         } catch (e: ClientRequestException) {
             val body = runCatching { e.response.body<String>() }.getOrDefault("")
             emitter(ChatEvent.Failed("HTTP ${e.response.status.value}: ${body.take(400)}"))
@@ -222,6 +240,159 @@ class ChatClient(private val http: HttpClient = HttpClient(CIO)) {
     }
 
     // ------------------------------------------------------------------
+    // Gemini native (Google Generative Language API)
+    // ------------------------------------------------------------------
+
+    private suspend fun gemini(
+        config: ProviderConfig,
+        messages: List<ChatMessage>,
+        tools: List<ToolSpec>,
+        systemPrompt: String?,
+        emit: suspend (ChatEvent) -> Unit
+    ): Unit = http.preparePost(geminiUrl(config)) {
+        contentType(ContentType.Application.Json)
+        authHeaders(config, "gemini")
+        setBody(gson.toJson(geminiBody(config, messages, tools, systemPrompt)))
+    }.execute { resp ->
+        val channel = resp.bodyAsChannel()
+        if (!resp.status.isSuccess()) {
+            val raw = StringBuilder()
+            while (!channel.isClosedForRead && raw.length < 400) {
+                (channel.readUTF8Line() ?: break).let { raw.appendLine(it) }
+            }
+            emit(ChatEvent.Failed("HTTP ${resp.status.value}: ${raw.toString().trim().take(400)}"))
+            return@execute
+        }
+        // name -> assembled arguments JSON. Gemini delivers each functionCall part
+        // complete in one chunk, so no cross-chunk accumulation is needed.
+        val pendingCalls = LinkedHashMap<String, String>()
+        var sawDataLine = false
+        var sawFinish = false
+        var anyText = false
+        val rawBody = StringBuilder()
+        while (!channel.isClosedForRead) {
+            val line = channel.readUTF8Line() ?: break
+            if (!line.startsWith("data:")) continue
+            sawDataLine = true
+            val payload = line.removePrefix("data:").trim()
+            if (rawBody.length < 400) rawBody.append(payload)
+            val obj = runCatching { JsonParser.parseString(payload).asJsonObject }.getOrNull() ?: continue
+            val candidate = obj.getAsJsonArray("candidates")?.firstOrNull()?.takeIf { it.isJsonObject }?.asJsonObject ?: continue
+            candidate.getAsJsonObject("content")?.getAsJsonArray("parts")?.forEach { partEl ->
+                val part = partEl.asJsonObject
+                part.get("text")?.takeIf { !it.isJsonNull }?.let {
+                    val text = it.asString
+                    if (text.isNotEmpty()) { anyText = true; emit(ChatEvent.TextDelta(text)) }
+                }
+                part.getAsJsonObject("functionCall")?.let { fc ->
+                    val name = fc.get("name")?.takeIf { !it.isJsonNull }?.asString ?: return@let
+                    val args = fc.get("args")?.takeIf { !it.isJsonNull } ?: JsonObject()
+                    pendingCalls[name] = gson.toJson(args)
+                }
+            }
+            val finish = candidate.get("finishReason")?.takeIf { !it.isJsonNull }?.asString
+            if (finish != null) {
+                sawFinish = true
+                pendingCalls.forEach { (name, args) ->
+                    // Gemini pairs calls by name, not by id: reuse the name as id.
+                    emit(ChatEvent.ToolCall(name, name, args))
+                }
+                emit(ChatEvent.Completed)
+                return@execute
+            }
+        }
+        if (!sawDataLine) {
+            emit(ChatEvent.Failed("non-SSE response: ${rawBody.toString().trim().ifBlank { "(empty body)" }}".take(400)))
+            return@execute
+        }
+        if (!sawFinish) {
+            emit(ChatEvent.Failed("stream ended without finishReason"))
+            return@execute
+        }
+        emit(ChatEvent.Completed)
+    }
+
+    private fun geminiUrl(config: ProviderConfig): String {
+        val base = config.baseUrl.trimEnd('/')
+        val root = if (base.endsWith("/v1beta")) base else "$base/v1beta"
+        return "$root/models/${config.model}:streamGenerateContent?alt=sse"
+    }
+
+    private fun geminiBody(
+        config: ProviderConfig,
+        messages: List<ChatMessage>,
+        tools: List<ToolSpec>,
+        systemPrompt: String?
+    ): Map<String, Any?> {
+        // Gemini pairs tool calls with results by NAME, while our wire-agnostic
+        // history carries the call id; map ids back to names via the preceding
+        // assistant tool_calls message.
+        val idToName = HashMap<String, String>()
+        val contents = buildList {
+            for (m in messages) {
+                when {
+                    m.toolCallId != null -> {
+                        val name = idToName[m.toolCallId] ?: m.toolCallId
+                        val responseObj = runCatching {
+                            JsonParser.parseString(m.content ?: "").takeIf { it.isJsonObject }?.asJsonObject
+                        }.getOrNull() ?: JsonObject().also { el ->
+                            el.addProperty("result", m.content ?: "")
+                        }
+                        add(
+                            mapOf(
+                                "role" to "user",
+                                "parts" to listOf(mapOf("functionResponse" to mapOf("name" to name, "response" to responseObj)))
+                            )
+                        )
+                    }
+                    m.toolCalls != null -> add(
+                        mapOf(
+                            "role" to "model",
+                            "parts" to buildList {
+                                if (!m.content.isNullOrBlank()) add(mapOf("text" to m.content))
+                                for (tc in m.toolCalls) {
+                                    idToName[tc.id] = tc.name
+                                    val parsed = runCatching { JsonParser.parseString(tc.argumentsJson) }
+                                        .getOrDefault(JsonObject())
+                                    add(mapOf("functionCall" to mapOf("name" to tc.name, "args" to parsed)))
+                                }
+                            }
+                        )
+                    )
+                    else -> add(
+                        mapOf(
+                            "role" to (if (m.role == "assistant") "model" else "user"),
+                            "parts" to listOf(mapOf("text" to (m.content ?: "")))
+                        )
+                    )
+                }
+            }
+        }
+        val body = linkedMapOf<String, Any?>("contents" to contents)
+        systemPrompt?.let {
+            body["systemInstruction"] = mapOf("parts" to listOf(mapOf("text" to it)))
+        }
+        val genConfig = linkedMapOf<String, Any?>()
+        config.temperature?.let { genConfig["temperature"] = it }
+        config.maxTokens?.let { genConfig["maxOutputTokens"] = it }
+        if (genConfig.isNotEmpty()) body["generationConfig"] = genConfig
+        if (tools.isNotEmpty()) {
+            body["tools"] = listOf(
+                mapOf(
+                    "functionDeclarations" to tools.map {
+                        mapOf(
+                            "name" to it.name,
+                            "description" to it.description,
+                            "parameters" to JsonParser.parseString(it.parametersJson)
+                        )
+                    }
+                )
+            )
+        }
+        return body
+    }
+
+    // ------------------------------------------------------------------
     // Anthropic native
     // ------------------------------------------------------------------
 
@@ -376,11 +547,13 @@ class ChatClient(private val http: HttpClient = HttpClient(CIO)) {
     private fun io.ktor.client.request.HttpRequestBuilder.authHeaders(config: ProviderConfig, kind: String) {
         headers {
             config.extraHeaders.forEach { (k, v) -> set(k, v) }
-            if (kind == "anthropic") {
-                set("x-api-key", config.apiKey)
-                set("anthropic-version", "2023-06-01")
-            } else {
-                set("Authorization", "Bearer ${config.apiKey}")
+            when (kind) {
+                "anthropic" -> {
+                    set("x-api-key", config.apiKey)
+                    set("anthropic-version", "2023-06-01")
+                }
+                "gemini" -> set("x-goog-api-key", config.apiKey)
+                else -> set("Authorization", "Bearer ${config.apiKey}")
             }
         }
     }

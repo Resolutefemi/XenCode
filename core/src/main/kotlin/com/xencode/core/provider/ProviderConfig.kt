@@ -8,13 +8,13 @@ import java.io.File
  * PC-line provider configuration, persisted at `~/.xencode/pc-config.json`.
  *
  * A provider is either an OpenAI-compatible chat-completions endpoint (OpenAI,
- * DeepSeek, Groq, OpenRouter, Ollama, Z.AI, LM Studio, ...) or a native Anthropic
- * Messages endpoint. Everything the [ChatClient] needs is here; `active` selects
- * the default.
+ * DeepSeek, Groq, OpenRouter, Ollama, Z.AI, LM Studio, ...), a native Anthropic
+ * Messages endpoint, or a native Google Gemini endpoint. Everything the
+ * [ChatClient] needs is here; `active` selects the default.
  */
 data class ProviderConfig(
     val name: String,
-    /** "openai" (chat-completions compatible) or "anthropic" (native Messages API). */
+    /** "openai" (chat-completions compatible), "anthropic" (native Messages API) or "gemini" (native Generative Language API). */
     val kind: String = "openai",
     val baseUrl: String,
     val apiKey: String,
@@ -26,7 +26,7 @@ data class ProviderConfig(
 ) {
     fun validate(): String? = when {
         name.isBlank() -> "provider name is empty"
-        kind !in setOf("openai", "anthropic") -> "kind must be openai or anthropic"
+        kind !in setOf("openai", "anthropic", "gemini") -> "kind must be openai, anthropic or gemini"
         baseUrl.isBlank() -> "baseUrl is empty"
         !baseUrl.startsWith("http://") && !baseUrl.startsWith("https://") -> "baseUrl must start with http(s)://"
         apiKey.isBlank() -> "apiKey is empty (set one even for local endpoints, e.g. 'none')"
