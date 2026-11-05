@@ -589,17 +589,17 @@ git_config() {
     # credential.helper is written into gitconfig.credential and loaded conditionally per directory via includeIf,
     # so git repositories elsewhere in the container get nothing injected (the custom xencode helper decodes the credential file and passes instantly on a hit; on a miss it pops a dialog via file IPC).
     # Use $HOME instead of hard-coding /root: the container home depends on the environment, keep them consistent (the app side points GIT_CONFIG_GLOBAL at $HOME/.xencode/.gitconfig too).
-    AICODE_DIR="$HOME/.xencode"
-    mkdir -p "$AICODE_DIR"
-    cat > "$AICODE_DIR/gitconfig.credential" <<EOF
+    XENCODE_DIR="$HOME/.xencode"
+    mkdir -p "$XENCODE_DIR"
+    cat > "$XENCODE_DIR/gitconfig.credential" <<EOF
 [credential]
-    helper = $AICODE_DIR/git-credential-xencode
+    helper = $XENCODE_DIR/git-credential-xencode
 EOF
     # Clear the old includeIf section first (idempotent), then write the workspace-root-scoped includeIf.
     # The section name must carry a subsection: the real section is [includeIf "gitdir:..."], so a bare `--remove-section includeIf`
     # does not match it; the fatal error gets swallowed by 2>/dev/null, and every initialization run would --add another duplicate path.
     git config --global --remove-section "includeIf.gitdir:$HOME/workspace/" 2>/dev/null || true
-    git config --global --add includeIf."gitdir:$HOME/workspace/".path "$AICODE_DIR/gitconfig.credential"
+    git config --global --add includeIf."gitdir:$HOME/workspace/".path "$XENCODE_DIR/gitconfig.credential"
     # Remove the global top-level [credential] section: the helper should only load per directory via the includeIf above;
     # at top level it would apply to every repository in the container, breaking the "inject only under the workspace root" minimization.
     git config --global --remove-section credential 2>/dev/null || true
