@@ -58,6 +58,17 @@ object SystemPromptBuilder {
             appendLine(it.trimEnd())
         }
 
+        // Skills: the same folders the Android app reads (.xencode/skills/<name>/SKILL.md).
+        val skills = com.xencode.core.skills.SkillStore(java.io.File(workspaceRoot)).list()
+        if (skills.isNotEmpty()) {
+            appendLine()
+            appendLine("## Skills")
+            appendLine("Load a skill's full instructions with the load_skill tool before following it.")
+            for (skill in skills) {
+                appendLine("- ${skill.name}: ${skill.description.ifBlank { "(no description)" }}")
+            }
+        }
+
         // Project rules: XENCODE.md -> CLAUDE.md -> AGENTS.md.
         val projectRules = projectRulesPath(workspaceRoot)?.let { path ->
             File(path).readText(Charsets.UTF_8)

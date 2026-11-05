@@ -96,3 +96,27 @@ Every state transition lands in `.xencode/events.ndjson` — `xencode events` ta
 | `<workspace>/.xencode/permissions.json` / `hooks.json` / `mcp.json` | agent policy |
 | `<workspace>/.xencode/telemetry.json` | streaks, radar, counters |
 | `<workspace>/.xencode/scripts/` | your `.mjs` workflows |
+| `~/.xencode/aicode_agent_db` | **the shared database** (same schema as the Android app) |
+
+## The shared database
+
+The PC line persists into the same SQLite schema the Android app writes through
+Room (`AgentDatabase`, `aicode_agent_db`): `chat_sessions`, `agent_messages`,
+`xp_events` and `llm_call_records`. Every chat turn from the desktop app or the
+CLI lands there — session row, USER/ASSISTANT/TOOL message rows, one
+`llm_call_records` row per turn (provider-reported tokens, duration, status)
+and the +5 XP turn award in `xp_events`. Goal completions (+50) land in the
+same table, so one level and one usage history span all three front ends
+(Android app, desktop, CLI). The legacy JSON ledger
+(`~/.xencode/pc-xp-ledger.json`) is imported on first use; `/costs` (chat) and
+the Progress pane read the totals.
+
+## Skills
+
+Skills are folders with a `SKILL.md` (optional `name` / `description`
+frontmatter). XenCode reads `<workspace>/.xencode/skills/` first, then
+`~/.xencode/skills/` — the same folders the mobile app uses. Available skills
+are listed in the system prompt; the agent loads one with the `load_skill`
+tool (no argument = list). `web_fetch` complements the tool set: it fetches a
+public http(s) URL and returns readable text (HTML stripped, loopback/private
+addresses blocked).

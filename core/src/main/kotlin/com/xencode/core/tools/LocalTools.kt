@@ -3,7 +3,19 @@ package com.xencode.core.tools
 import com.google.gson.Gson
 import com.google.gson.JsonParser
 import com.google.gson.reflect.TypeToken
+import com.xencode.core.skills.SkillStore
+import io.ktor.client.HttpClient
+import io.ktor.client.engine.cio.CIO
+import io.ktor.client.plugins.HttpTimeout
+import io.ktor.client.request.get
+import io.ktor.client.request.header
+import io.ktor.client.statement.HttpResponse
+import io.ktor.client.statement.bodyAsText
+import io.ktor.http.HttpHeaders
+import io.ktor.http.isSuccess
+import kotlinx.coroutines.runBlocking
 import java.io.File
+import java.net.InetAddress
 import java.util.concurrent.TimeUnit
 
 /**
@@ -28,7 +40,11 @@ data class ToolSpec(val name: String, val description: String, val parametersJso
  * Tool surface parity targets the established coding-agent set
  * (read/write/edit/glob/grep/bash/todo).
  */
-class LocalTools(private val workspaceRoot: File) : ToolExecutor {
+class LocalTools(
+    private val workspaceRoot: File,
+    /** Tests only: allows web_fetch to reach 127.0.0.1 test servers (still no private ranges). */
+    private val allowLoopbackHttp: Boolean = false
+) : ToolExecutor {
 
     companion object {
         /** Reject anything that escapes the workspace (including absolute paths). */
@@ -68,6 +84,28 @@ class LocalTools(private val workspaceRoot: File) : ToolExecutor {
         private val SKIP_DIRS = setOf(".git", "node_modules", "build", ".gradle", ".idea", "__pycache__", ".xencode")
 
         private const val MAX_OUTPUT = 12_000
+
+        /**
+         * HTML -> readable text: drops script/style/head blocks, converts
+         * block-ish closings to newlines, strips tags, decodes the common entities.
+         */
+        fun htmlToText(html: String): String {
+            var s = html
+            s = s.replace(Regex("(?is)<(script|style|noscript|svg|head)[^>]*>.*?</\\1>"), " ")
+            s = s.replace(Regex("(?is)<br\\s*/?>"), "\n")
+            s = s.replace(Regex("(?is)</(p|div|section|article|h[1-6]|li|tr|table|blockquote|pre)>"), "\n")
+            s = s.replace(Regex("(?s)<[^>]+>"), " ")
+            for ((entity, ch) in mapOf(
+                "&amp;" to "&", "&lt;" to "<", "&gt;" to ">", "&quot;" to "\"",
+                "&#39;" to "'", "&apos;" to "'", "&nbsp;" to " ", "&mdash;" to "—", "&ndash;" to "–"
+            )) {
+                s = s.replace(entity, ch)
+            }
+            s = s.replace(Regex("&#(\\d+);")) { m ->
+                m.groupValues[1].toIntOrNull()?.takeIf { it in 32..0x10FFFF }?.toChar()?.toString() ?: ""
+            }
+            return s.replace(Regex("[ \\t\\r]+"), " ").replace(Regex("\\n +"), "\n").replace(Regex("\\n{3,}"), "\n\n").trim()
+        }
 
         val TOOL_SCHEMAS: List<ToolSpec> = listOf(
             ToolSpec(
@@ -119,6 +157,16 @@ class LocalTools(private val workspaceRoot: File) : ToolExecutor {
                 "todo_read",
                 "Read the shared TODO list as a rendered checklist.",
                 """{"type":"object","properties":{},"required":[]}"""
+            ),
+            ToolSpec(
+                "web_fetch",
+                "Fetch a public http(s) URL and return its text content (HTML stripped, max 8000 chars). Loopback, private and link-local addresses are blocked.",
+                """{"type":"object","properties":{"url":{"type":"string","description":"Absolute http(s) URL"},"max_chars":{"type":"integer","description":"Maximum characters to return (default 8000)"}},"required":["url"]}"""
+            ),
+            ToolSpec(
+                "load_skill",
+                "Load a skill's full instructions into context (skills live in .xencode/skills/<name>/SKILL.md). Without a name, lists the available skills instead.",
+                """{"type":"object","properties":{"name":{"type":"string","description":"Skill folder name"}},"required":[]}"""
             )
         )
     }
@@ -245,6 +293,29 @@ class LocalTools(private val workspaceRoot: File) : ToolExecutor {
                     "TODO list updated (${items.size} items):\n${store.render()}"
                 }
                 "todo_read" -> (todoStoreOverride ?: todo).render()
+                "web_fetch" -> {
+                    val url = str("url") ?: return "ERROR: missing url"
+                    val maxChars = (int("max_chars") ?: 8000).coerceIn(200, 40_000)
+                    webFetch(url, maxChars)
+                }
+                "load_skill" -> {
+                    val requested = str("name")
+                    val store = SkillStore(root)
+                    if (requested.isNullOrBlank()) {
+                        val skills = store.list()
+                        if (skills.isEmpty()) {
+                            "(no skills found; add one at ${store.projectSkillsRoot().path}/<name>/SKILL.md)"
+                        } else {
+                            skills.joinToString("\n") { "${it.name} — ${it.description.ifBlank { "(no description)" }}" }
+                                .prependIndent("- ")
+                                .let { "Available skills (load one with {\"name\": \"<name>\"}):\n$it" }
+                        }
+                    } else {
+                        val skill = store.load(requested)
+                            ?: return "ERROR: no skill named `$requested` (call load_skill without a name to list them)"
+                        clip(skill.body.ifBlank { "(empty skill body)" }, MAX_OUTPUT)
+                    }
+                }
                 else -> "ERROR: unknown tool `$name`"
             }
         } catch (e: Exception) {
@@ -365,4 +436,96 @@ class LocalTools(private val workspaceRoot: File) : ToolExecutor {
 
     private fun clip(s: String, max: Int): String =
         if (s.length <= max) s else s.substring(0, max) + "\n...(truncated at $max chars)"
+
+    // ------------------------------------------------------------------
+    // web_fetch: public-HTTP text fetch with an SSRF guard
+    // ------------------------------------------------------------------
+
+    /** Synchronous fetch (the tool contract is blocking); 15s timeout, HTML reduced to text. */
+    private fun webFetch(url: String, maxChars: Int): String {
+        val blocked = blockedHttpReason(url)
+        if (blocked != null) return "ERROR: blocked url: $blocked"
+        return runCatching {
+            val client = HttpClient(CIO) {
+                followRedirects = false // redirects re-validated manually below
+                install(HttpTimeout) { requestTimeoutMillis = 15_000 }
+            }
+            try {
+                var current = url
+                repeat(3) {
+                    // Everything suspend runs inside one runBlocking per hop.
+                    val (status, contentType, location, body) = runBlocking {
+                        val resp: HttpResponse = client.get(current) {
+                            header(HttpHeaders.UserAgent, "XenCode/1.1 (+https://xencode.dev)")
+                            header(HttpHeaders.Accept, "text/html,application/json,text/plain;q=0.9,*/*;q=0.5")
+                        }
+                        Quad(resp.status, resp.headers[HttpHeaders.ContentType], resp.headers[HttpHeaders.Location], resp.bodyAsText())
+                    }
+                    // Follow same-scheme redirects to public hosts only.
+                    if (status.value in 300..399 && location != null) {
+                        val next = java.net.URI(current).resolve(location).toString()
+                        val reason = blockedHttpReason(next)
+                        if (reason != null) return "ERROR: redirect blocked: $reason"
+                        current = next
+                        return@repeat
+                    }
+                    if (!status.isSuccess()) return "ERROR: HTTP ${status.value} for $current"
+                    val text = if (contentType?.contains("html", ignoreCase = true) == true ||
+                        (contentType.isNullOrBlank() && body.trimStart().startsWith("<"))
+                    ) htmlToText(body) else body
+                    return clip(text.trim(), maxChars)
+                }
+                "ERROR: too many redirects"
+            } finally {
+                client.close()
+            }
+        }.getOrElse { "ERROR: ${it.javaClass.simpleName}: ${it.message ?: "fetch failed"}" }
+    }
+
+    /**
+     * SSRF guard: only absolute http(s) URLs to public hosts. Loopback is
+     * additionally allowed when this LocalTools instance was built for tests.
+     * @return null when allowed, otherwise the reason.
+     */
+    private fun blockedHttpReason(rawUrl: String): String? {
+        val uri = runCatching { java.net.URI(rawUrl.trim()) }.getOrNull()
+            ?: return "not a valid URL"
+        val scheme = uri.scheme?.lowercase()
+        if (scheme != "http" && scheme != "https") return "only http(s) URLs are allowed"
+        val host = uri.host?.lowercase() ?: return "URL has no host"
+        if (host == "localhost" || host.endsWith(".local") || host.endsWith(".internal")) {
+            return if (allowLoopbackHttp && host == "localhost") null else "private host `$host`"
+        }
+        val addresses = runCatching { InetAddress.getAllByName(host) }.getOrNull()
+            ?: return "cannot resolve host `$host`"
+        for (addr in addresses) {
+            val loopback = addr.isLoopbackAddress || host == "127.0.0.1" || host == "::1"
+            if (loopback && allowLoopbackHttp) continue
+            when {
+                addr.isLoopbackAddress -> return "loopback address `$host`"
+                addr.isAnyLocalAddress -> return "unspecified address `$host`"
+                addr.isLinkLocalAddress -> return "link-local address `$host`"
+                addr.isSiteLocalAddress -> return "private address `$host`"
+                addr.isMulticastAddress -> return "multicast address `$host`"
+                addr is java.net.Inet4Address && isUniqueLocalIpv4(addr) -> return "reserved address `$host`"
+            }
+        }
+        return null
+    }
+
+    /** 100.64.0.0/10 (CGNAT) and 169.254 metadata-style ranges beyond isLinkLocalAddress. */
+    private fun isUniqueLocalIpv4(addr: java.net.Inet4Address): Boolean {
+        val o = addr.address
+        val b0 = o[0].toInt() and 0xFF
+        val b1 = o[1].toInt() and 0xFF
+        return (b0 == 100 && b1 in 64..127) || (b0 == 169 && b1 == 254)
+    }
 }
+
+/** Destructurable holder for one HTTP hop (status, content type, location, body). */
+private data class Quad(
+    val status: io.ktor.http.HttpStatusCode,
+    val contentType: String?,
+    val location: String?,
+    val body: String
+)
