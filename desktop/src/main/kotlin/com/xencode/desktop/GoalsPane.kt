@@ -30,6 +30,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import java.io.File
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextDecoration
@@ -111,6 +112,32 @@ internal fun actionsFor(status: GoalStatus): List<Pair<String, String>> = when (
 }
 
 /**
+ * Non-UI driver for the "Run ready goals" action: one [GoalRunner] pass over
+ * the READY nodes. Returns one status line per node so the pane can render
+ * swimlane results without knowing about transports or coroutines.
+ */
+class GoalRunAction(
+    private val workspaceRoot: String,
+    private val buildRuntime: () -> com.xencode.core.agent.AgentRuntime
+) {
+    fun run(parallel: Int, onLine: (String) -> Unit): Int {
+        val runtime = buildRuntime()
+        val runner = com.xencode.core.agent.GoalRunner(
+            workspaceRoot = File(workspaceRoot),
+            provider = runtime.provider,
+            client = com.xencode.core.provider.ChatClient(),
+            runtime = runtime
+        )
+        val summary = kotlinx.coroutines.runBlocking { runner.run(parallel = parallel) }
+        summary.results.forEach { r ->
+            val where = r.worktreePath?.let { " (branch ${r.branch})" } ?: ""
+            onLine(if (r.ok) "[done] ${r.nodeId}$where — ${(r.reply ?: "").take(140)}" else "[fail] ${r.nodeId} — ${r.error}")
+        }
+        return summary.failedCount
+    }
+}
+
+/**
  * Goal DAG screen: progress header, "Next up" row, add-goal form and the node
  * list with per-status actions. All mutations go through [GoalBoard] (engine +
  * file save + goal XP), so the UI only mirrors state.
@@ -118,9 +145,13 @@ internal fun actionsFor(status: GoalStatus): List<Pair<String, String>> = when (
 @Composable
 fun GoalsPane(appState: DesktopAppState) {
     val workspace by appState.workspace.collectAsState()
+    val config by appState.config.collectAsState()
     val board = remember(workspace) { GoalBoard(workspace) }
     var dag by remember(workspace) { mutableStateOf(board.dag) }
     var statusMessage by remember(workspace) { mutableStateOf<String?>(null) }
+    var runLines by remember { mutableStateOf<List<String>>(emptyList()) }
+    var runBusy by remember { mutableStateOf(false) }
+    var parallel by remember { mutableStateOf(2) }
 
     fun run(action: GoalBoard.() -> GoalDagResult) {
         val result = board.action()
@@ -197,6 +228,83 @@ fun GoalsPane(appState: DesktopAppState) {
             }
             dag.nodes.isEmpty() -> Hint("No goals yet. Add your first goal below — small steps beat big plans.")
             else -> Hint("No goal is ready right now; finish or drop the blocking goals to unblock the rest.")
+        }
+
+        // Swimlane runner: agent-executes the READY nodes, in parallel git worktrees.
+        Surface(
+            color = MaterialTheme.colorScheme.surface,
+            shape = RoundedCornerShape(12.dp),
+            border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline),
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            Column(
+                modifier = Modifier.padding(14.dp),
+                verticalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(
+                            "Run ready goals",
+                            style = MaterialTheme.typography.titleMedium,
+                            color = MaterialTheme.colorScheme.onSurface
+                        )
+                        Text(
+                            "Each READY node gets its own agent turn; git workspaces run in isolated worktrees (never auto-merged).",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                    Row(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically) {
+                        Text("lanes", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        listOf(1, 2, 4).forEach { n ->
+                            val selected = parallel == n
+                            OutlinedButton(
+                                onClick = { parallel = n },
+                                colors = if (selected) androidx.compose.material3.ButtonDefaults.outlinedButtonColors(
+                                    containerColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.15f)
+                                ) else androidx.compose.material3.ButtonDefaults.outlinedButtonColors()
+                            ) { Text("$n") }
+                        }
+                        Button(
+                            enabled = !runBusy && config.activeProvider() != null && GoalDagEngine.readyNodes(dag).isNotEmpty(),
+                            onClick = {
+                                runBusy = true
+                                runLines = emptyList()
+                                val provider = config.activeProvider() ?: return@Button
+                                Thread {
+                                    val action = GoalRunAction(workspace) {
+                                        com.xencode.core.agent.AgentRuntime(
+                                            workspaceRoot = File(workspace),
+                                            provider = provider,
+                                            client = com.xencode.core.provider.ChatClient()
+                                        )
+                                    }
+                                    val failed = action.run(parallel) { line ->
+                                        runLines = runLines + line
+                                    }
+                                    board.reload()
+                                    dag = board.dag
+                                    runLines = runLines + "Run finished — ${if (failed == 0) "all nodes completed" else "$failed node(s) failed (see lines above)"}."
+                                    runBusy = false
+                                }.start()
+                            }
+                        ) { Text(if (runBusy) "Running…" else "Run") }
+                    }
+                }
+                if (runLines.isNotEmpty()) {
+                    runLines.forEach { line ->
+                        Text(
+                            line,
+                            fontFamily = FontFamily.Monospace,
+                            fontSize = 12.sp,
+                            color = if (line.startsWith("[fail]")) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                }
+            }
         }
 
         AddGoalForm(

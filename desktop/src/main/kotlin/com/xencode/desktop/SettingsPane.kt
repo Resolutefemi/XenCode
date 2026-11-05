@@ -15,6 +15,7 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
@@ -27,6 +28,7 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -361,6 +363,10 @@ fun SettingsPane(appState: DesktopAppState) {
                 }
             }
         )
+
+        AgentSafetyCard(workspace = appState.workspace.collectAsState().value)
+        McpCard(workspace = appState.workspace.collectAsState().value)
+        HooksCard(workspace = appState.workspace.collectAsState().value)
     }
 }
 
@@ -597,7 +603,7 @@ private fun AddProviderCard(
     }
 }
 
-/** Kind selector: read-only text field plus a dropdown with the two wire protocols. */
+/** Kind selector: read-only text field plus a dropdown with the three wire protocols. */
 @Composable
 private fun KindField(kind: String, error: String?, onKindChange: (String) -> Unit) {
     var expanded by remember { mutableStateOf(false) }
@@ -619,7 +625,7 @@ private fun KindField(kind: String, error: String?, onKindChange: (String) -> Un
             modifier = Modifier.fillMaxWidth()
         )
         DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
-            listOf("openai", "anthropic").forEach { option ->
+            listOf("openai", "anthropic", "gemini").forEach { option ->
                 DropdownMenuItem(
                     text = { Text(option) },
                     onClick = {
@@ -674,6 +680,230 @@ private fun WorkspaceCard(config: PcConfig, onSave: (String) -> Boolean) {
                     enabled = draft.trim() != (config.defaultWorkspace ?: "")
                 ) { Text("Save workspace") }
             }
+        }
+    }
+}
+
+/**
+ * Agent-safety card: permission mode (read-only / default / yolo) plus the
+ * per-rule globs (allow / ask / deny), persisted to
+ * `<workspace>/.xencode/permissions.json` — the same file the CLI reads.
+ */
+@Composable
+private fun AgentSafetyCard(workspace: String) {
+    val store = remember(workspace) { com.xencode.core.tools.PermissionStore(java.io.File(workspace)) }
+    var cfg by remember(workspace) { mutableStateOf(store.load()) }
+
+    Surface(
+        color = MaterialTheme.colorScheme.surface,
+        shape = RoundedCornerShape(12.dp),
+        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline),
+        modifier = Modifier.fillMaxWidth()
+    ) {
+        Column(
+            modifier = Modifier.padding(14.dp),
+            verticalArrangement = Arrangement.spacedBy(10.dp)
+        ) {
+            Text(
+                "Agent safety (workspace)",
+                style = MaterialTheme.typography.titleMedium,
+                color = MaterialTheme.colorScheme.onBackground
+            )
+            Text(
+                "Tool permission policy for this workspace: read-only blocks every mutation, default asks before destructive commands, yolo allows everything (still sandboxed). Rules: tool:<glob> or cmd:<glob>, e.g. cmd:git push*, deny wins over ask wins over allow.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                listOf("read-only", "default", "yolo").forEach { mode ->
+                    val selected = cfg.mode.lowercase() == mode
+                    OutlinedButton(
+                        onClick = { cfg = cfg.copy(mode = mode) },
+                        colors = if (selected) ButtonDefaults.outlinedButtonColors(
+                            containerColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.15f)
+                        ) else ButtonDefaults.outlinedButtonColors()
+                    ) { Text(mode) }
+                }
+            }
+            listOf(
+                "allow" to "Allow rules (one per line)",
+                "ask" to "Ask rules (decision card)",
+                "deny" to "Deny rules (hard block)"
+            ).forEach { (field, label) ->
+                var value by remember(workspace, field) {
+                    mutableStateOf(cfg.let { c -> when (field) { "allow" -> c.allow; "ask" -> c.ask; else -> c.deny } }.joinToString("\n"))
+                }
+                OutlinedTextField(
+                    value = value,
+                    onValueChange = { value = it },
+                    label = { Text(label) },
+                    textStyle = TextStyle(fontFamily = FontFamily.Monospace, fontSize = 12.sp),
+                    modifier = Modifier.fillMaxWidth()
+                )
+                // Keep the draft in sync for the save button.
+                LaunchedEffect(value) {
+                    val lines = value.lines().map { it.trim() }.filter { it.isNotEmpty() }
+                    cfg = when (field) {
+                        "allow" -> cfg.copy(allow = lines)
+                        "ask" -> cfg.copy(ask = lines)
+                        else -> cfg.copy(deny = lines)
+                    }
+                }
+            }
+            Button(
+                onClick = { store.save(cfg) },
+                enabled = true
+            ) { Text("Save agent safety") }
+        }
+    }
+}
+
+/**
+ * MCP card: edit `<workspace>/.xencode/mcp.json` by table (name / command /
+ * args), persisted through [com.xencode.core.mcp.McpRegistry].
+ */
+@Composable
+private fun McpCard(workspace: String) {
+    val registry = remember(workspace) { com.xencode.core.mcp.McpRegistry(java.io.File(workspace)) }
+    var servers by remember(workspace) { mutableStateOf(registry.loadConfig()) }
+    var newName by remember { mutableStateOf("") }
+    var newCommand by remember { mutableStateOf("") }
+
+    Surface(
+        color = MaterialTheme.colorScheme.surface,
+        shape = RoundedCornerShape(12.dp),
+        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline),
+        modifier = Modifier.fillMaxWidth()
+    ) {
+        Column(
+            modifier = Modifier.padding(14.dp),
+            verticalArrangement = Arrangement.spacedBy(10.dp)
+        ) {
+            Text(
+                "MCP servers (workspace)",
+                style = MaterialTheme.typography.titleMedium,
+                color = MaterialTheme.colorScheme.onBackground
+            )
+            Text(
+                "Model Context Protocol servers over stdio; their tools appear to the agent as mcp_<server>_<tool>. Env and full JSON live in .xencode/mcp.json.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+            if (servers.isEmpty()) {
+                Text("No servers configured yet.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+            servers.forEach { (name, cfg) ->
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(name, style = MaterialTheme.typography.titleSmall, color = MaterialTheme.colorScheme.onSurface)
+                        Text(
+                            cfg.command + if (cfg.args.isEmpty()) "" else " " + cfg.args.joinToString(" "),
+                            fontFamily = FontFamily.Monospace,
+                            fontSize = 12.sp,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                    OutlinedButton(onClick = {
+                        servers = servers - name
+                        registry.saveConfig(servers)
+                    }) { Text("Remove") }
+                }
+            }
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(10.dp)
+            ) {
+                OutlinedTextField(
+                    value = newName,
+                    onValueChange = { newName = it },
+                    label = { Text("Name") },
+                    singleLine = true,
+                    modifier = Modifier.weight(1f)
+                )
+                OutlinedTextField(
+                    value = newCommand,
+                    onValueChange = { newCommand = it },
+                    label = { Text("Command (args after space)") },
+                    singleLine = true,
+                    textStyle = TextStyle(fontFamily = FontFamily.Monospace, fontSize = 12.sp),
+                    modifier = Modifier.weight(2f)
+                )
+                Button(
+                    enabled = newName.isNotBlank() && newCommand.isNotBlank(),
+                    onClick = {
+                        val parts = newCommand.trim().split(Regex("\\s+"))
+                        val cfg = com.xencode.core.mcp.McpRegistry.ServerConfig(command = parts.first(), args = parts.drop(1))
+                        servers = servers + (newName.trim() to cfg)
+                        registry.saveConfig(servers)
+                        newName = ""
+                        newCommand = ""
+                    }
+                ) { Text("Add") }
+            }
+        }
+    }
+}
+
+/**
+ * Hooks card: pre/post tool-use shell hooks, persisted to
+ * `<workspace>/.xencode/hooks.json`. Pre-hooks block the tool call when they
+ * exit non-zero.
+ */
+@Composable
+private fun HooksCard(workspace: String) {
+    val store = remember(workspace) { com.xencode.core.tools.HookStore(java.io.File(workspace)) }
+    var pre by remember(workspace) { mutableStateOf(store.load().preToolUse.joinToString("\n") { "${it.matcher} = ${it.command}" }) }
+    var post by remember(workspace) { mutableStateOf(store.load().postToolUse.joinToString("\n") { "${it.matcher} = ${it.command}" }) }
+
+    fun parse(lines: String) = lines.lines().mapNotNull { line ->
+        val idx = line.indexOf('=')
+        if (idx <= 0) null
+        else com.xencode.core.tools.Hooks.Hook(
+            matcher = line.substring(0, idx).trim().ifBlank { "*" },
+            command = line.substring(idx + 1).trim()
+        ).takeIf { it.command.isNotBlank() }
+    }
+
+    Surface(
+        color = MaterialTheme.colorScheme.surface,
+        shape = RoundedCornerShape(12.dp),
+        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline),
+        modifier = Modifier.fillMaxWidth()
+    ) {
+        Column(
+            modifier = Modifier.padding(14.dp),
+            verticalArrangement = Arrangement.spacedBy(10.dp)
+        ) {
+            Text(
+                "Tool hooks (workspace)",
+                style = MaterialTheme.typography.titleMedium,
+                color = MaterialTheme.colorScheme.onBackground
+            )
+            Text(
+                "One per line: <tool glob> = <shell command>. Pre-tool hooks run first (non-zero exit blocks the call, stdout becomes the reason); post hooks get XENCODE_HOOK_TOOL/ARGS/RESULT in the environment.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+            OutlinedTextField(
+                value = pre,
+                onValueChange = { pre = it },
+                label = { Text("Pre-tool hooks") },
+                textStyle = TextStyle(fontFamily = FontFamily.Monospace, fontSize = 12.sp),
+                modifier = Modifier.fillMaxWidth()
+            )
+            OutlinedTextField(
+                value = post,
+                onValueChange = { post = it },
+                label = { Text("Post-tool hooks") },
+                textStyle = TextStyle(fontFamily = FontFamily.Monospace, fontSize = 12.sp),
+                modifier = Modifier.fillMaxWidth()
+            )
+            Button(onClick = {
+                store.save(com.xencode.core.tools.Hooks.Config(preToolUse = parse(pre), postToolUse = parse(post)))
+            }) { Text("Save hooks") }
         }
     }
 }

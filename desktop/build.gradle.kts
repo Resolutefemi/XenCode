@@ -47,7 +47,7 @@ compose.desktop {
             targetFormats(TargetFormat.Dmg, TargetFormat.Msi, TargetFormat.Deb)
 
             packageName = "XenCode"
-            packageVersion = "1.0.0"
+            packageVersion = "1.1.0"
             description = "XenCode — AI coding agent and mobile-class workstation for the desktop"
             vendor = "XenCode"
 

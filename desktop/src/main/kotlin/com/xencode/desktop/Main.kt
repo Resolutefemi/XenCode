@@ -96,6 +96,7 @@ enum class Destination(val label: String, val glyph: String) {
     CHAT("Chat", "❯"),
     GOALS("Goals", "◆"),
     PROGRESS("Progress", "★"),
+    AUTOMATION("Automation", "⟳"),
     SETTINGS("Settings", "⚙")
 }
 
@@ -165,6 +166,7 @@ fun XenCodeApp(appState: DesktopAppState) {
                     )
                     Destination.GOALS -> GoalsPane(appState)
                     Destination.PROGRESS -> ProgressPane(appState)
+                    Destination.AUTOMATION -> AutomationPane(appState)
                     Destination.SETTINGS -> SettingsPane(appState)
                 }
             }
@@ -212,6 +214,7 @@ private fun StatusBar(appState: DesktopAppState, controller: DesktopAgentControl
     val workspace by appState.workspace.collectAsState()
     val busy = controller?.busy?.collectAsState()?.value ?: false
     val provider = config.activeProvider()
+    val mode = controller?.permissionMode?.collectAsState()?.value
 
     Surface(
         color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.45f),
@@ -241,6 +244,13 @@ private fun StatusBar(appState: DesktopAppState, controller: DesktopAgentControl
                 fontSize = 11.sp,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
+            mode?.let {
+                Text(
+                    "Mode: ${it.name.lowercase()}",
+                    fontSize = 11.sp,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
             Spacer(modifier = Modifier.weight(1f))
             Text(
                 "Workspace: $workspace",

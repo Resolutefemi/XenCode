@@ -20,6 +20,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -32,22 +33,38 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.xencode.core.state.XenEventLog
+import com.xencode.core.telemetry.Telemetry
 import com.xencode.core.telemetry.XpLedger
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
+import java.io.File
 
 /**
- * XP screen: big level card (level, total/today XP, next-level progress bar),
- * streak card and the recent ledger events. Reads ~/.xencode/pc-xp-ledger.json
- * through [DesktopXp]; refreshed every time the pane is opened.
+ * XP + engineering-telemetry screen: big level card (level, total/today XP,
+ * next-level progress bar), streak card, the recent ledger events, plus the
+ * workspace telemetry (command streak, spec radar) and the live event log.
  */
 @Composable
 fun ProgressPane(appState: DesktopAppState) {
+    val workspace by appState.workspace.collectAsState()
     var summary by remember { mutableStateOf<XpLedger.Summary?>(null) }
+    var telemetry by remember { mutableStateOf<com.xencode.core.telemetry.Telemetry.State?>(null) }
+    var events by remember { mutableStateOf<List<String>>(emptyList()) }
 
-    // Re-runs every time the pane enters composition, i.e. on every pane open.
+    // Re-runs every time the pane enters composition, i.e. on every pane open;
+    // the event feed keeps refreshing while the pane is visible.
     LaunchedEffect(Unit) {
         summary = withContext(Dispatchers.IO) { DesktopXp.defaultLedger().summary() }
+    }
+    LaunchedEffect(workspace) {
+        while (true) {
+            val root = File(workspace)
+            telemetry = withContext(Dispatchers.IO) { Telemetry(root).load() }
+            events = withContext(Dispatchers.IO) { XenEventLog(root).latest(20) }
+            delay(2000)
+        }
     }
 
     val s = summary
@@ -70,6 +87,74 @@ fun ProgressPane(appState: DesktopAppState) {
             style = MaterialTheme.typography.headlineSmall,
             color = MaterialTheme.colorScheme.onBackground
         )
+
+        // Engineering telemetry: command streak + spec radar + counters.
+        val t = telemetry
+        Surface(
+            color = MaterialTheme.colorScheme.surface,
+            shape = RoundedCornerShape(14.dp),
+            border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline),
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            Column(
+                modifier = Modifier.padding(16.dp),
+                verticalArrangement = Arrangement.spacedBy(6.dp)
+            ) {
+                Text(
+                    "Engineering telemetry (${workspace}/.xencode)",
+                    style = MaterialTheme.typography.titleMedium,
+                    color = MaterialTheme.colorScheme.onSurface
+                )
+                Text(
+                    if (t != null) Telemetry.renderRadar(t) else "spec radar: loading…",
+                    fontFamily = FontFamily.Monospace,
+                    fontSize = 13.sp,
+                    color = MaterialTheme.colorScheme.onSurface
+                )
+                Text(
+                    if (t != null)
+                        "command streak ${t.commandStreak} (best ${t.bestStreak}) · commands ${t.commands} · tool calls ${t.toolCalls} · files written ${t.filesWritten}"
+                    else "loading…",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+        }
+
+        // Live event feed.
+        Surface(
+            color = MaterialTheme.colorScheme.surface,
+            shape = RoundedCornerShape(14.dp),
+            border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline),
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            Column(
+                modifier = Modifier.padding(16.dp),
+                verticalArrangement = Arrangement.spacedBy(4.dp)
+            ) {
+                Text(
+                    "Recent events (synced CLI / desktop / scripts)",
+                    style = MaterialTheme.typography.titleMedium,
+                    color = MaterialTheme.colorScheme.onSurface
+                )
+                if (events.isEmpty()) {
+                    Text(
+                        "No events yet.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                } else {
+                    events.asReversed().forEach { line ->
+                        Text(
+                            XenEventLog.pretty(line),
+                            fontFamily = FontFamily.Monospace,
+                            fontSize = 11.sp,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                }
+            }
+        }
 
         // Level card.
         Surface(
