@@ -33,3 +33,7 @@ log-*.txt
 # Python (model data update scripts)
 __pycache__/
 *.pyc
+
+# Rust PC line
+rust/target/
+*.deb
