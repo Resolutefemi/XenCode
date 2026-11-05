@@ -31,7 +31,19 @@ class AgentSession(
         suspend fun onTurnCompleted(reply: String?) {}
     }
 
+    /** Provider-reported token usage accumulated over one user turn (all tool rounds). */
+    data class TurnUsage(val inputTokens: Int, val outputTokens: Int)
+
     private val history = mutableListOf<ChatClient.ChatMessage>()
+
+    /**
+     * Usage the provider reported for the most recent turn (summed across the
+     * tool rounds of that turn); null when the provider reported nothing.
+     * Read by the desktop/CLI persistence layer to fill llm_call_records and
+     * the chat_sessions token totals.
+     */
+    var lastTurnUsage: TurnUsage? = null
+        private set
 
     /**
      * @param onDelta        streamed assistant text (already de-duplicated fragments)
@@ -59,6 +71,9 @@ class AgentSession(
             ChatClient.ToolSpec(it.name, it.description, it.parametersJson)
         }
         var rounds = 0
+        var usedIn = 0
+        var usedOut = 0
+        var sawUsage = false
         while (true) {
             val text = StringBuilder()
             val pendingCalls = mutableListOf<ChatClient.ToolCallMsg>()
@@ -71,10 +86,15 @@ class AgentSession(
                     }
                     is ChatClient.ChatEvent.ToolCall ->
                         pendingCalls.add(ChatClient.ToolCallMsg(event.id, event.name, event.argumentsJson))
-                    ChatClient.ChatEvent.Completed -> { /* handled after collect */ }
+                    is ChatClient.ChatEvent.Completed -> {
+                        usedIn += event.inputTokens
+                        usedOut += event.outputTokens
+                        if (event.inputTokens > 0 || event.outputTokens > 0) sawUsage = true
+                    }
                     is ChatClient.ChatEvent.Failed -> failure = event.message
                 }
             }
+            lastTurnUsage = if (sawUsage) TurnUsage(usedIn, usedOut) else null
             if (failure != null) {
                 // Nothing was appended to the history for this round; the user message
                 // stays so a retry can continue the conversation.

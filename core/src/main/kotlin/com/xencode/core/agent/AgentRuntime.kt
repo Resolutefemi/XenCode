@@ -11,6 +11,7 @@ import com.xencode.core.state.SessionStore
 import com.xencode.core.state.XenEventLog
 import com.xencode.core.telemetry.Telemetry
 import com.xencode.core.telemetry.XpLedger
+import com.xencode.core.telemetry.XpStore
 import com.xencode.core.tools.AgentSession
 import com.xencode.core.tools.HookStore
 import com.xencode.core.tools.LocalTools
@@ -38,7 +39,12 @@ class AgentRuntime(
     val provider: ProviderConfig,
     private val client: ChatTransport = ChatClient(),
     val autoCheckpoint: Boolean = true,
-    ledgerFile: File? = null
+    /**
+     * XP sink override. Null (the CLI default) keeps the per-machine JSON ledger;
+     * the desktop passes the shared-database ledger (DbXpLedger) so goal awards
+     * land in the same `xp_events` table its chat turns do.
+     */
+    xpStore: XpStore? = null
 ) {
     val events = XenEventLog(workspaceRoot)
     val decisions = DecisionStore(workspaceRoot)
@@ -51,10 +57,9 @@ class AgentRuntime(
     val mcp = McpRegistry(workspaceRoot)
     val local = LocalTools(workspaceRoot)
 
-    /** Per-machine XP ledger (~/.xencode/pc-xp-ledger.json), shared with the CLI. */
-    val ledger: XpLedger = XpLedger(
-        ledgerFile ?: File(File(System.getProperty("user.home") ?: ".", ".xencode"), "pc-xp-ledger.json")
-    )
+    /** XP sink: the injected [xpStore], or the per-machine JSON ledger (~/.xencode/pc-xp-ledger.json). */
+    val ledger: XpStore = xpStore
+        ?: XpLedger(File(File(System.getProperty("user.home") ?: ".", ".xencode"), "pc-xp-ledger.json"))
 
     private var mcpConnected = false
 

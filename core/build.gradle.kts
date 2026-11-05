@@ -15,6 +15,7 @@ val ktorVersion = "3.6.1"
 val gsonVersion = "2.13.1"
 val coroutinesVersion = "1.10.2"
 val graalJsVersion = "24.2.1"
+val sqliteJdbcVersion = "3.47.1.0"
 
 dependencies {
     api("io.ktor:ktor-client-core:$ktorVersion")
@@ -31,6 +32,12 @@ dependencies {
     implementation("org.graalvm.polyglot:polyglot:$graalJsVersion")
     implementation("org.graalvm.js:js-language:$graalJsVersion")
     implementation("org.graalvm.truffle:truffle-runtime:$graalJsVersion")
+
+    // The shared database: the PC-side writer for the same SQLite schema the
+    // Android app persists through Room (aicode_agent_db). Bundles native
+    // SQLite binaries for Windows/macOS/Linux, so the desktop app and CLI run
+    // everywhere without system packages.
+    implementation("org.xerial:sqlite-jdbc:$sqliteJdbcVersion")
 
     testImplementation(kotlin("test"))
     // MockEngine: SSE fixtures for ChatClient protocol tests without a network.

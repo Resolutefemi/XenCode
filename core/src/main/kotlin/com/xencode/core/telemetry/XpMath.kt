@@ -62,10 +62,11 @@ object XpMath {
 
 /**
  * File-backed XP ledger for the PC line. Append-only rows; summaries derived on read.
- * Not synchronized with the Android Room ledger — each machine keeps its own,
- * the curves match so a level means the same thing everywhere.
+ * The desktop app and the CLI share this path so both front ends feed one level.
+ * The desktop additionally mirrors rows into the shared database (xp_events) via
+ * DbXpLedger — same curve, same awards, so a level means the same thing everywhere.
  */
-class XpLedger(private val file: File) {
+class XpLedger(private val file: File) : XpStore {
 
     constructor(root: String) : this(File(root.trimEnd('/') + "/pc-xp-ledger.json"))
 
@@ -76,7 +77,7 @@ class XpLedger(private val file: File) {
     /** Backing ledger file, for callers that need to share the same store. */
     fun backingFile(): File = file
 
-    fun load(): List<Event> = runCatching {
+    override fun load(): List<Event> = runCatching {
         val type = object : TypeToken<List<Event>>() {}.type
         gson.fromJson<List<Event>>(file.readText(Charsets.UTF_8), type) ?: emptyList()
     }.getOrElse { emptyList() }
@@ -88,11 +89,11 @@ class XpLedger(private val file: File) {
         return all
     }
 
-    fun awardTurn(label: String, now: Long = System.currentTimeMillis()) {
+    override fun awardTurn(label: String, now: Long) {
         maybeStreakBonus(append(Event("TURN_COMPLETED", XpMath.turnAward(), label, now)), now)
     }
 
-    fun awardGoal(goalTitle: String, now: Long = System.currentTimeMillis()) {
+    override fun awardGoal(goalTitle: String, now: Long) {
         maybeStreakBonus(append(Event("GOAL_COMPLETED", XpMath.goalAward(), goalTitle, now)), now)
     }
 
@@ -109,7 +110,7 @@ class XpLedger(private val file: File) {
 
     data class Summary(val totalXp: Long, val level: Int, val nextLevelXp: Long, val streakDays: Int, val todayXp: Long, val recent: List<Event>)
 
-    fun summary(now: Long = System.currentTimeMillis()): Summary {
+    override fun summary(now: Long): Summary {
         val all = load()
         val total = all.sumOf { it.amount }
         val dayStart = now - (now % XpMath.MILLIS_PER_DAY)

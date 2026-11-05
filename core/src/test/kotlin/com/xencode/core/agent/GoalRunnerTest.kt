@@ -7,6 +7,7 @@ import com.xencode.core.goal.GoalStatus
 import com.xencode.core.provider.ChatClient
 import com.xencode.core.provider.ChatTransport
 import com.xencode.core.provider.ProviderConfig
+import com.xencode.core.telemetry.XpLedger
 import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.runBlocking
 import org.junit.jupiter.api.Assertions.assertEquals
@@ -38,7 +39,7 @@ class GoalRunnerTest {
             val goal = messages.last { it.role == "user" }.content!!.lineSequence()
                 .firstOrNull { it.startsWith("Goal ") } ?: "unknown"
             emit(ChatClient.ChatEvent.TextDelta("goal done: $goal"))
-            emit(ChatClient.ChatEvent.Completed)
+            emit(ChatClient.ChatEvent.Completed(12, 34))
         }
     }
 
@@ -46,7 +47,7 @@ class GoalRunnerTest {
     fun goalRunner_completesReadyNodesSequentiallyAndAwardsXp() = runBlocking {
         val ws = File(tmp, "ws").also { it.mkdirs() }
         val provider = ProviderConfig(name = "t", kind = "openai", baseUrl = "http://x", apiKey = "k", model = "m")
-        val runtime = AgentRuntime(ws, provider, ScriptedTransport(), ledgerFile = File(tmp, "ledger1.json"))
+        val runtime = AgentRuntime(ws, provider, ScriptedTransport(), xpStore = XpLedger(File(tmp, "ledger1.json")))
         val transport = ScriptedTransport()
 
         // g1 (ready) <- g2 depends on g1
@@ -95,7 +96,7 @@ class GoalRunnerTest {
         dag = (GoalDagEngine.addGoal(dag, "dependent", "", listOf("g1"), 2L) as GoalDagResult.Ok).graph
         GoalDagFile.save(ws.absolutePath, dag)
 
-        val runtime = AgentRuntime(ws, provider, failing, ledgerFile = File(tmp, "ledger2.json"))
+        val runtime = AgentRuntime(ws, provider, failing, xpStore = XpLedger(File(tmp, "ledger2.json")))
         val runner = GoalRunner(ws, provider, failing, runtime)
         val summary = runner.run(parallel = 1)
 

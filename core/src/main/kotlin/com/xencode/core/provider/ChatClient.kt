@@ -62,7 +62,13 @@ class ChatClient(private val http: HttpClient = HttpClient(CIO)) : ChatTransport
     sealed class ChatEvent {
         data class TextDelta(val text: String) : ChatEvent()
         data class ToolCall(val id: String, val name: String, val argumentsJson: String) : ChatEvent()
-        object Completed : ChatEvent()
+
+        /**
+         * Stream finished. [inputTokens]/[outputTokens] carry the provider's
+         * reported usage for the round when it was included in the stream
+         * (0 when the gateway did not report usage).
+         */
+        data class Completed(val inputTokens: Int = 0, val outputTokens: Int = 0) : ChatEvent()
         data class Failed(val message: String) : ChatEvent()
     }
 
@@ -120,6 +126,8 @@ class ChatClient(private val http: HttpClient = HttpClient(CIO)) : ChatTransport
         var sawDataLine = false
         var sawFinish = false
         var anyText = false
+        var inputTokens = 0
+        var outputTokens = 0
         val rawBody = StringBuilder()
         while (!channel.isClosedForRead) {
             val line = channel.readUTF8Line() ?: break
@@ -129,6 +137,11 @@ class ChatClient(private val http: HttpClient = HttpClient(CIO)) : ChatTransport
             if (payload == "[DONE]") { sawFinish = true; break }
             if (rawBody.length < 400) rawBody.append(payload)
             val obj = runCatching { JsonParser.parseString(payload).asJsonObject }.getOrNull() ?: continue
+            // The usage chunk (requested via stream_options.include_usage) has no choices.
+            obj.getAsJsonObject("usage")?.let { u ->
+                u.get("prompt_tokens")?.takeIf { !it.isJsonNull }?.let { inputTokens = it.asInt }
+                u.get("completion_tokens")?.takeIf { !it.isJsonNull }?.let { outputTokens = it.asInt }
+            }
             val choice = obj.getAsJsonArray("choices")?.firstOrNull()?.takeIf { it.isJsonObject }?.asJsonObject ?: continue
             val delta = choice.getAsJsonObject("delta") ?: continue
             delta.get("content")?.takeIf { !it.isJsonNull }?.let {
@@ -148,11 +161,6 @@ class ChatClient(private val http: HttpClient = HttpClient(CIO)) : ChatTransport
             }
             (choice.get("finish_reason")?.takeIf { !it.isJsonNull })?.let { finish ->
                 sawFinish = true
-                if (finish.asString == "tool_calls" || finish.asString == "stop") {
-                    flushTools(toolIds, toolNames, toolArgs, emit)
-                    emit(ChatEvent.Completed)
-                    return@execute
-                }
             }
         }
         if (!sawDataLine) {
@@ -170,7 +178,7 @@ class ChatClient(private val http: HttpClient = HttpClient(CIO)) : ChatTransport
             emit(ChatEvent.Failed("empty model response"))
             return@execute
         }
-        emit(ChatEvent.Completed)
+        emit(ChatEvent.Completed(inputTokens, outputTokens))
     }
 
     private fun openaiBody(
@@ -206,7 +214,10 @@ class ChatClient(private val http: HttpClient = HttpClient(CIO)) : ChatTransport
         val body = linkedMapOf<String, Any?>(
             "model" to config.model,
             "messages" to msgs,
-            "stream" to true
+            "stream" to true,
+            // OpenAI-documented opt-in: makes the final chunk carry the usage
+            // object. Gateways that predate it ignore the extra field.
+            "stream_options" to mapOf("include_usage" to true)
         )
         config.temperature?.let { body["temperature"] = it }
         config.maxTokens?.let { body["max_tokens"] = it }
@@ -269,6 +280,8 @@ class ChatClient(private val http: HttpClient = HttpClient(CIO)) : ChatTransport
         var sawDataLine = false
         var sawFinish = false
         var anyText = false
+        var inputTokens = 0
+        var outputTokens = 0
         val rawBody = StringBuilder()
         while (!channel.isClosedForRead) {
             val line = channel.readUTF8Line() ?: break
@@ -277,6 +290,11 @@ class ChatClient(private val http: HttpClient = HttpClient(CIO)) : ChatTransport
             val payload = line.removePrefix("data:").trim()
             if (rawBody.length < 400) rawBody.append(payload)
             val obj = runCatching { JsonParser.parseString(payload).asJsonObject }.getOrNull() ?: continue
+            // usageMetadata rides on every chunk; the last one carries the totals.
+            obj.getAsJsonObject("usageMetadata")?.let { u ->
+                u.get("promptTokenCount")?.takeIf { !it.isJsonNull }?.let { inputTokens = it.asInt }
+                u.get("candidatesTokenCount")?.takeIf { !it.isJsonNull }?.let { outputTokens = it.asInt }
+            }
             val candidate = obj.getAsJsonArray("candidates")?.firstOrNull()?.takeIf { it.isJsonObject }?.asJsonObject ?: continue
             candidate.getAsJsonObject("content")?.getAsJsonArray("parts")?.forEach { partEl ->
                 val part = partEl.asJsonObject
@@ -297,7 +315,7 @@ class ChatClient(private val http: HttpClient = HttpClient(CIO)) : ChatTransport
                     // Gemini pairs calls by name, not by id: reuse the name as id.
                     emit(ChatEvent.ToolCall(name, name, args))
                 }
-                emit(ChatEvent.Completed)
+                emit(ChatEvent.Completed(inputTokens, outputTokens))
                 return@execute
             }
         }
@@ -309,7 +327,7 @@ class ChatClient(private val http: HttpClient = HttpClient(CIO)) : ChatTransport
             emit(ChatEvent.Failed("stream ended without finishReason"))
             return@execute
         }
-        emit(ChatEvent.Completed)
+        emit(ChatEvent.Completed(inputTokens, outputTokens))
     }
 
     private fun geminiUrl(config: ProviderConfig): String {
@@ -421,6 +439,8 @@ class ChatClient(private val http: HttpClient = HttpClient(CIO)) : ChatTransport
         var currentToolId: String? = null
         var sawEvent = false
         var anyText = false
+        var inputTokens = 0
+        var outputTokens = 0
         while (!channel.isClosedForRead) {
             val line = channel.readUTF8Line() ?: break
             if (!line.startsWith("data:")) continue
@@ -428,6 +448,13 @@ class ChatClient(private val http: HttpClient = HttpClient(CIO)) : ChatTransport
             val payload = line.removePrefix("data:").trim()
             val obj = runCatching { JsonParser.parseString(payload).asJsonObject }.getOrNull() ?: continue
             when (obj.get("type")?.takeIf { !it.isJsonNull }?.asString) {
+                // message_start.usage.input_tokens = the whole prompt; the final
+                // message_delta.usage.output_tokens is cumulative for the reply.
+                "message_start" -> {
+                    obj.getAsJsonObject("message")?.getAsJsonObject("usage")?.let { u ->
+                        u.get("input_tokens")?.takeIf { !it.isJsonNull }?.let { inputTokens = it.asInt }
+                    }
+                }
                 "content_block_start" -> {
                     val block = obj.getAsJsonObject("content_block")
                     if (block.get("type")?.asString == "tool_use") {
@@ -453,10 +480,14 @@ class ChatClient(private val http: HttpClient = HttpClient(CIO)) : ChatTransport
                     }
                 }
                 "message_delta" -> {
+                    obj.getAsJsonObject("usage")?.let { u ->
+                        u.get("output_tokens")?.takeIf { !it.isJsonNull }?.let { outputTokens = it.asInt }
+                        u.get("input_tokens")?.takeIf { !it.isJsonNull }?.let { inputTokens = it.asInt }
+                    }
                     for (id in toolNames.keys) {
                         emit(ChatEvent.ToolCall(id, toolNames[id] ?: "tool", toolArgs[id]?.toString() ?: "{}"))
                     }
-                    emit(ChatEvent.Completed)
+                    emit(ChatEvent.Completed(inputTokens, outputTokens))
                     return@execute
                 }
                 "error" -> {
@@ -469,7 +500,7 @@ class ChatClient(private val http: HttpClient = HttpClient(CIO)) : ChatTransport
             emit(ChatEvent.Failed("non-SSE response: (empty body)"))
             return@execute
         }
-        emit(ChatEvent.Completed)
+        emit(ChatEvent.Completed(inputTokens, outputTokens))
     }
 
     private fun anthropicBody(

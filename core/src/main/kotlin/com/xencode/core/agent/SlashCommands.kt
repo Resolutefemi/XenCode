@@ -23,6 +23,7 @@ object SlashCommands {
         "/goal" to "goal DAG: /goal list · /goal add <title> after g1 · /goal done g1 · /goal run",
         "/dag" to "show the goal DAG",
         "/xp" to "XP level, streak and recent awards",
+        "/costs" to "lifetime token usage from the shared database (llm_call_records)",
         "/mcp" to "MCP server status and tools",
         "/events" to "recent sync events (Windows UI + Mobile App feed)",
         "/decide" to "open decision cards; /decide approve|reject <id>",
