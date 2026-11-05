@@ -61,6 +61,18 @@ pub fn current_streak(day_epochs: &BTreeSet<i64>, today_epoch_day: i64) -> i64 {
     streak
 }
 
+/// The write/read surface both PC ledgers implement: the legacy file ledger
+/// (`~/.xencode/pc-xp-ledger.json`) and the shared-database ledger
+/// (`store::xp::DbXpLedger` — rows in `xp_events` inside `aicode_agent_db`,
+/// the same table the Android app and the desktop/CLI write). Award amounts
+/// live here; implementations only persist rows and derive summaries.
+pub trait XpSink: Send + Sync {
+    fn load(&self) -> Vec<XpEvent>;
+    fn award_turn(&self, label: &str, now: i64);
+    fn award_goal(&self, goal_title: &str, now: i64);
+    fn summary(&self, now: i64) -> XpSummary;
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct XpEvent {
     pub kind: String, // TURN_COMPLETED | GOAL_COMPLETED | DAILY_STREAK_BONUS
@@ -178,6 +190,21 @@ pub struct XpSummary {
     pub streak_days: i64,
     pub today_xp: i64,
     pub recent: Vec<XpEvent>,
+}
+
+impl XpSummary {
+    /// One-line + recent-events rendering (same format as the file ledger's
+    /// `render_summary`, usable for any `XpSummary` regardless of its source).
+    pub fn render(&self) -> String {
+        let mut out = format!(
+            "Level {} · {} XP (next at {}) · {}d streak · today {} XP",
+            self.level, self.total_xp, self.next_level_xp, self.streak_days, self.today_xp
+        );
+        for e in &self.recent {
+            out.push_str(&format!("\n  {} {} {} {}", crate::state::sessions::fmt_ts(e.at), e.kind, e.amount, e.label));
+        }
+        out
+    }
 }
 
 /// Spec-radar / compile-streak telemetry — tracks verification health.
@@ -314,5 +341,20 @@ mod tests {
         assert_eq!(t.compile_streak, 1);
         let r = t.render_radar();
         assert!(r.contains("3/3 GREEN"), "{r}");
+    }
+}
+
+impl XpSink for XpLedger {
+    fn load(&self) -> Vec<XpEvent> {
+        XpLedger::load(self)
+    }
+    fn award_turn(&self, label: &str, now: i64) {
+        XpLedger::award_turn(self, label, now)
+    }
+    fn award_goal(&self, goal_title: &str, now: i64) {
+        XpLedger::award_goal(self, goal_title, now)
+    }
+    fn summary(&self, now: i64) -> XpSummary {
+        XpLedger::summary(self, now)
     }
 }

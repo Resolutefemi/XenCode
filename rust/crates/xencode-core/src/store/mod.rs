@@ -9,6 +9,8 @@
 //! connections created on one platform are first-class on the other.
 
 pub mod schema;
+pub mod xp;
+pub mod chatlog;
 
 use crate::error::{Result, XeError};
 use crate::{now_ms, short_id};
@@ -421,6 +423,19 @@ impl SharedStore {
         }
         let conn = Connection::open(path).map_err(sql_err)?;
         Self::init(conn)
+    }
+
+    /// The production database path on this machine:
+    /// `~/.xencode/aicode_agent_db` (one file for every workspace and front
+    /// end; `chat_sessions.workspacePath` keeps workspaces apart).
+    pub fn default_db_path() -> std::path::PathBuf {
+        let home = std::env::var("USER_HOME_XENCODE")
+            .ok()
+            .or_else(|| std::env::var("HOME").ok())
+            .unwrap_or_else(|| ".".to_string());
+        std::path::Path::new(&home)
+            .join(".xencode")
+            .join(DATABASE_NAME)
     }
 
     /// In-memory store (tests, dry runs, `xencode db doctor --memory`).
@@ -978,6 +993,19 @@ impl SharedStore {
             .collect::<std::result::Result<Vec<_>, _>>()
             .map_err(sql_err)?;
         Ok(rows)
+    }
+
+    /// Lifetime totals across every front end on this machine (`/costs` source).
+    pub fn llm_totals(&self) -> Result<(i64, i64, i64, i64)> {
+        // (calls, errors, input_tokens, output_tokens)
+        self.conn
+            .query_row(
+                "SELECT COUNT(*), COALESCE(SUM(CASE WHEN status='error' THEN 1 ELSE 0 END),0), \
+                 COALESCE(SUM(inputTokens),0), COALESCE(SUM(outputTokens),0) FROM llm_call_records",
+                [],
+                |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?)),
+            )
+            .map_err(sql_err)
     }
 
     // -- xp_events --------------------------------------------------------------
