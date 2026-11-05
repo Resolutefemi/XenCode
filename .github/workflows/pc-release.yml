@@ -1,106 +1,161 @@
-name: PC Release (CLI + Desktop)
+name: PC Release (Rust CLI + Desktop)
 
-# Tag-driven release for the PC line: push a tag `pc-v1.2.3` (or run manually)
-# and every artifact — CLI for Windows/macOS/Linux plus the desktop packages
-# (deb, rpm, msi, exe, dmg) — is built simultaneously and attached to a GitHub
-# Release. The Android app keeps its own android-release.yml on `v*` tags.
+# Tag-driven release for the Rust PC line: push a tag `pc-v2.0.0` (or run
+# manually) and every artifact — the CLI for Windows/macOS/Linux plus the
+# desktop packages (deb, zip, .app/zip) — is built simultaneously and attached
+# to a GitHub Release. The Android app keeps its own android-release.yml.
 
 on:
   push:
     tags: [ 'pc-v*' ]
   workflow_dispatch:
 
+env:
+  CARGO_TERM_COLOR: always
+
 jobs:
   test:
-    name: JVM tests (core / cli / desktop)
+    name: Rust tests
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - name: Set up JDK 21
-        uses: actions/setup-java@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
         with:
-          distribution: temurin
-          java-version: '21'
-          cache: gradle
-      - name: Run unit tests
-        run: ./gradlew :core:test :cli:test :desktop:test --console=plain
+          workspaces: rust
+      - run: cargo test --workspace
+        working-directory: rust
 
-  build:
-    name: Build ${{ matrix.label }}
+  cli:
+    name: CLI ${{ matrix.os }}
     needs: test
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
       matrix:
         include:
-          # CLI dists for every OS.
-          - label: cli-linux
-            os: ubuntu-latest
-            script: |
-              ./gradlew :cli:installDist --console=plain
-              cd cli/build/install/xencode && tar -czf ../../../xencode-cli-linux-amd64.tar.gz .
-          - label: cli-windows
-            os: windows-latest
-            script: |
-              ./gradlew :cli:installDist --console=plain
-              Push-Location cli/build/install/xencode
-              Compress-Archive -Path * -DestinationPath ../../../xencode-cli-windows-amd64.zip -Force
-              Pop-Location
-          - label: cli-macos
-            os: macos-latest
-            script: |
-              ./gradlew :cli:installDist --console=plain
-              cd cli/build/install/xencode && tar -czf ../../../xencode-cli-macos-universal.tar.gz .
-          # Desktop native packages.
-          - label: desktop-linux
-            os: ubuntu-latest
-            script: |
-              sudo apt-get update && sudo apt-get install -y rpm
-              ./gradlew :desktop:packageDeb :desktop:packageRpm --console=plain
-          - label: desktop-windows
-            os: windows-latest
-            script: ./gradlew :desktop:packageMsi :desktop:packageExe --console=plain
-          - label: desktop-macos
-            os: macos-latest
-            script: ./gradlew :desktop:packageDmg --console=plain
+          - os: ubuntu-latest
+            archive: xencode-cli-linux-amd64.tar.gz
+          - os: windows-latest
+            archive: xencode-cli-windows-amd64.zip
+          - os: macos-latest
+            archive: xencode-cli-macos-arm64.tar.gz
     steps:
       - uses: actions/checkout@v4
-      - name: Set up JDK 21
-        uses: actions/setup-java@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
         with:
-          distribution: temurin
-          java-version: '21'
-          cache: gradle
-      - name: Build artifacts
-        run: ${{ matrix.script }}
-      - name: Stage upload
-        uses: actions/upload-artifact@v4
+          workspaces: rust
+      - run: cargo build --release -p xencode-cli
+        working-directory: rust
+      - name: Package (unix)
+        if: runner.os != 'Windows'
+        run: |
+          stage=$(mktemp -d)
+          cp rust/target/release/xencode "$stage/"
+          cp -r art "$stage/art"
+          cp README.md "$stage/"
+          tar -czf "${{ matrix.archive }}" -C "$stage" .
+      - name: Package (windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path stage | Out-Null
+          Copy-Item rust/target/release/xencode.exe stage/
+          Copy-Item art stage -Recurse
+          Copy-Item README.md stage/
+          Compress-Archive -Path stage/* -DestinationPath ${{ matrix.archive }} -Force
+      - uses: actions/upload-artifact@v4
         with:
-          name: release-${{ matrix.label }}
-          path: |
-            cli/build/xencode-cli-*
-            desktop/build/compose/binaries/main/**
+          name: rel-${{ matrix.archive }}
+          path: ${{ matrix.archive }}
+
+  desktop:
+    name: Desktop ${{ matrix.os }}
+    needs: test
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            target: linux
+          - os: windows-latest
+            target: windows
+          - os: macos-latest
+            target: macos
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: rust
+      - name: Install Linux GUI build deps
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libxkbcommon-dev libgtk-3-dev libxcb1-dev libwayland-dev
+      - run: cargo build --release -p xencode-desktop
+        working-directory: rust
+      - name: Package deb (Linux)
+        if: runner.os == 'Linux'
+        run: |
+          cargo install cargo-deb --locked || cargo install cargo-deb
+          cargo deb -p xencode-desktop
+          mv target/debian/*.deb ../xencode-desktop-linux-amd64.deb
+        working-directory: rust
+      - name: Package zip (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path stage | Out-Null
+          Copy-Item rust/target/release/xencode-desktop.exe stage/
+          Copy-Item art/xencode-icon-512.png stage/xencode.png
+          Compress-Archive -Path stage/* -DestinationPath xencode-desktop-windows-amd64.zip -Force
+      - name: Package app bundle (macOS)
+        if: runner.os == 'macOS'
+        run: |
+          APP=Xencode.app
+          mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
+          cp rust/target/release/xencode-desktop "$APP/Contents/MacOS/"
+          cp art/xencode-icon-512.png /tmp/xencode.png
+          mkdir -p /tmp/xencode.iconset
+          for size in 16 32 64 128 256 512; do
+            sips -z $size $size /tmp/xencode.png --out /tmp/xencode.iconset/icon_${size}x${size}.png
+          done
+          iconutil -c icns /tmp/xencode.iconset -o "$APP/Contents/Resources/xencode.icns"
+          cat > "$APP/Contents/Info.plist" <<'PLIST'
+          <?xml version="1.0" encoding="UTF-8"?>
+          <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+          <plist version="1.0"><dict>
+            <key>CFBundleName</key><string>XenCode</string>
+            <key>CFBundleDisplayName</key><string>XenCode</string>
+            <key>CFBundleIdentifier</key><string>com.xencode.desktop</string>
+            <key>CFBundleVersion</key><string>2.0.0</string>
+            <key>CFBundleShortVersionString</key><string>2.0.0</string>
+            <key>CFBundleIconFile</key><string>xencode</string>
+            <key>CFBundleExecutable</key><string>xencode-desktop</string>
+            <key>CFBundlePackageType</key><string>APPL</string>
+            <key>NSHighResolutionCapable</key><true/>
+          </dict></plist>
+          PLIST
+          zip -qry xencode-desktop-macos-arm64.zip "$APP"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: rel-desktop-${{ matrix.target }}
+          path: xencode-desktop-*
 
   release:
-    name: Create GitHub Release
-    needs: build
-    if: startsWith(github.ref, 'refs/tags/pc-v')
+    name: Attach to GitHub Release
+    needs: [cli, desktop]
     runs-on: ubuntu-latest
     steps:
-      - name: Download all artifacts
-        uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v4
         with:
-          path: artifacts
+          path: dist
           merge-multiple: true
-      - name: Flatten into a release bundle
-        run: |
-          mkdir bundle
-          find artifacts -type f \( -name 'xencode-cli-*' -o -name '*.deb' -o -name '*.rpm' -o -name '*.msi' -o -name '*.exe' -o -name '*.dmg' \) -exec cp {} bundle/ \;
-          ls -la bundle
-      - name: Create release
+      - name: Publish release
         uses: softprops/action-gh-release@v2
         with:
-          draft: false
-          prerelease: ${{ contains(github.ref, '-') }}
+          files: dist/*
           generate_release_notes: true
-          files: bundle/*
