@@ -1,0 +1,106 @@
+name: PC Release (CLI + Desktop)
+
+# Tag-driven release for the PC line: push a tag `pc-v1.2.3` (or run manually)
+# and every artifact — CLI for Windows/macOS/Linux plus the desktop packages
+# (deb, rpm, msi, exe, dmg) — is built simultaneously and attached to a GitHub
+# Release. The Android app keeps its own android-release.yml on `v*` tags.
+
+on:
+  push:
+    tags: [ 'pc-v*' ]
+  workflow_dispatch:
+
+jobs:
+  test:
+    name: JVM tests (core / cli / desktop)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Set up JDK 21
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+          cache: gradle
+      - name: Run unit tests
+        run: ./gradlew :core:test :cli:test :desktop:test --console=plain
+
+  build:
+    name: Build ${{ matrix.label }}
+    needs: test
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # CLI dists for every OS.
+          - label: cli-linux
+            os: ubuntu-latest
+            script: |
+              ./gradlew :cli:installDist --console=plain
+              cd cli/build/install/xencode && tar -czf ../../../xencode-cli-linux-amd64.tar.gz .
+          - label: cli-windows
+            os: windows-latest
+            script: |
+              ./gradlew :cli:installDist --console=plain
+              Push-Location cli/build/install/xencode
+              Compress-Archive -Path * -DestinationPath ../../../xencode-cli-windows-amd64.zip -Force
+              Pop-Location
+          - label: cli-macos
+            os: macos-latest
+            script: |
+              ./gradlew :cli:installDist --console=plain
+              cd cli/build/install/xencode && tar -czf ../../../xencode-cli-macos-universal.tar.gz .
+          # Desktop native packages.
+          - label: desktop-linux
+            os: ubuntu-latest
+            script: |
+              sudo apt-get update && sudo apt-get install -y rpm
+              ./gradlew :desktop:packageDeb :desktop:packageRpm --console=plain
+          - label: desktop-windows
+            os: windows-latest
+            script: ./gradlew :desktop:packageMsi :desktop:packageExe --console=plain
+          - label: desktop-macos
+            os: macos-latest
+            script: ./gradlew :desktop:packageDmg --console=plain
+    steps:
+      - uses: actions/checkout@v4
+      - name: Set up JDK 21
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+          cache: gradle
+      - name: Build artifacts
+        run: ${{ matrix.script }}
+      - name: Stage upload
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-${{ matrix.label }}
+          path: |
+            cli/build/xencode-cli-*
+            desktop/build/compose/binaries/main/**
+
+  release:
+    name: Create GitHub Release
+    needs: build
+    if: startsWith(github.ref, 'refs/tags/pc-v')
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+          merge-multiple: true
+      - name: Flatten into a release bundle
+        run: |
+          mkdir bundle
+          find artifacts -type f \( -name 'xencode-cli-*' -o -name '*.deb' -o -name '*.rpm' -o -name '*.msi' -o -name '*.exe' -o -name '*.dmg' \) -exec cp {} bundle/ \;
+          ls -la bundle
+      - name: Create release
+        uses: softprops/action-gh-release@v2
+        with:
+          draft: false
+          prerelease: ${{ contains(github.ref, '-') }}
+          generate_release_notes: true
+          files: bundle/*

@@ -1,7 +1,9 @@
 name: PC (CLI + Desktop)
 
 # PC line: shared JVM core, CLI and Compose Desktop app for Windows/macOS/Linux.
-# Android CI lives in ci.yml; this workflow covers :core/:cli/:desktop only.
+# The CLI is distributed for all three operating systems and the desktop app is
+# packaged in the native formats of each (deb+rpm, msi+exe, dmg) — everything
+# built simultaneously from the same commit. Android CI lives in ci.yml.
 
 on:
   push:
@@ -45,9 +47,22 @@ jobs:
         run: ./gradlew :core:test :cli:test :desktop:test --console=plain
 
   cli-dist:
-    name: CLI distribution
-    runs-on: ubuntu-latest
+    name: CLI distribution (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
     needs: test
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            archive: xencode-cli-linux-amd64.tar.gz
+            pack: tar -czf
+          - os: windows-latest
+            archive: xencode-cli-windows-amd64.zip
+            pack: powershell Compress-Archive -Path * -DestinationPath
+          - os: macos-latest
+            archive: xencode-cli-macos-universal.tar.gz
+            pack: tar -czf
     steps:
       - uses: actions/checkout@v4
       - name: Set up JDK 21
@@ -58,29 +73,37 @@ jobs:
           cache: gradle
       - name: Build install distribution
         run: ./gradlew :cli:installDist --console=plain
-      - name: Package
+      - name: Package (unix)
+        if: runner.os != 'Windows'
         run: |
           cd cli/build/install/xencode
-          tar -czf ../../../xencode-cli-linux-amd64.tar.gz .
+          tar -czf ../../../${{ matrix.archive }} .
+      - name: Package (windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          Push-Location cli/build/install/xencode
+          Compress-Archive -Path * -DestinationPath ../../../${{ matrix.archive }} -Force
+          Pop-Location
       - name: Upload CLI artifact
         uses: actions/upload-artifact@v4
         with:
-          name: xencode-cli-linux-amd64
-          path: cli/build/xencode-cli-linux-amd64.tar.gz
+          name: ${{ matrix.archive }}
+          path: cli/build/${{ matrix.archive }}
 
   desktop-package:
-    name: Desktop package (${{ matrix.os }})
+    name: Desktop ${{ matrix.format }} (${{ matrix.os }})
     needs: test
     strategy:
       fail-fast: false
       matrix:
         include:
           - os: ubuntu-latest
-            tasks: :desktop:packageDeb
-            format: deb
+            tasks: :desktop:packageDeb :desktop:packageRpm
+            format: deb-rpm
           - os: windows-latest
-            tasks: :desktop:packageMsi
-            format: msi
+            tasks: :desktop:packageMsi :desktop:packageExe
+            format: msi-exe
           - os: macos-latest
             tasks: :desktop:packageDmg
             format: dmg
@@ -93,6 +116,9 @@ jobs:
           distribution: temurin
           java-version: '21'
           cache: gradle
+      - name: Install rpmbuild (Linux rpm packaging)
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y rpm
       - name: Build native package
         run: ./gradlew ${{ matrix.tasks }} --console=plain
       - name: Upload desktop artifact

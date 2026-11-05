@@ -44,7 +44,8 @@ compose.desktop {
         mainClass = "com.xencode.desktop.MainKt"
 
         nativeDistributions {
-            targetFormats(TargetFormat.Dmg, TargetFormat.Msi, TargetFormat.Deb)
+            // One format set per OS: deb+rpm on Linux, msi+exe on Windows, dmg on macOS.
+            targetFormats(TargetFormat.Dmg, TargetFormat.Msi, TargetFormat.Deb, TargetFormat.Rpm, TargetFormat.Exe)
 
             packageName = "XenCode"
             packageVersion = "1.1.0"
