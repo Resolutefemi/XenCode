@@ -20,11 +20,20 @@ import com.xencode.core.provider.PcConfigStore
  */
 class XenCode : CliktCommand(name = "xencode") {
     init {
-        versionOption("1.0.0", help = "Show version and exit") { "xencode-cli $it" }
+        versionOption(CLI_VERSION, help = "Show version and exit") { "xencode-cli $it" }
         subcommands(
             ChatCommand(),
+            ExecCommand(),
             GoalCommand(),
             DagCommand(),
+            SessionCommand(),
+            CheckpointCommand(),
+            TodoCommand(),
+            McpCommand(),
+            RunCommand(),
+            DecideCommand(),
+            EventsCommand(),
+            WorktreeCommand(),
             XpCommand(),
             ConfigCommand(),
             DoctorCommand(),
@@ -39,7 +48,7 @@ class XenCode : CliktCommand(name = "xencode") {
     )
 
     override fun help(context: Context): String =
-        "XenCode command-line coding agent (chat / goal / dag / xp / config / doctor / init)"
+        "XenCode command-line coding agent (chat / exec / goal / dag / session / checkpoint / todo / mcp / run / decide / events / worktree / xp / config / doctor / init)"
 
     override fun run() {
         val config = PcConfigStore.load()
@@ -48,11 +57,17 @@ class XenCode : CliktCommand(name = "xencode") {
     }
 }
 
+/** Kept in sync with cli/build.gradle.kts `version`. */
+const val CLI_VERSION = "1.1.0"
+
 fun main(args: Array<String>) {
     // Ktor drags in slf4j-api but no provider, which would print a 3-line NOP
     // warning to stderr on every network-touching command; silence it before
     // any HttpClient is constructed (verbosity property exists since 2.0.10).
     System.setProperty("slf4j.internal.verbosity", "ERROR")
+    // Stock-JVM GraalJS prints a fallback-implementation warning on every engine
+    // start; silence it before any `xencode run` creates a polyglot Context.
+    System.setProperty("polyglot.engine.WarnInterpreterOnly", "false")
     // A rejected chat turn or doctor failure exits non-zero via ProgramResult;
     // UsageError/PrintHelpMessage keep their standard Clikt semantics.
     XenCode().main(args)

@@ -22,6 +22,9 @@ sealed class GoalRequest {
     /** `goal add <title> [after g2 g5] [note <text>]`. */
     data class Add(val title: String, val deps: List<String>, val note: String?) : GoalRequest()
 
+    /** `goal run [--parallel N]` — agent-executes the READY nodes. */
+    data class Run(val parallel: Int) : GoalRequest()
+
     /** `goal <done|fail|retry|start|drop> <id> [note <text>]`. */
     data class ById(val verb: String, val id: String, val note: String?) : GoalRequest()
 
@@ -69,6 +72,16 @@ fun parseGoalArgs(tokens: List<String>): GoalRequest {
                 tokens.subList(noteIdx + 1, tokens.size).joinToString(" ").trim().takeIf { it.isNotEmpty() }
             } else null
             GoalRequest.Add(title, deps, note)
+        }
+
+        "run" -> {
+            // `goal run`, `goal run --parallel 4` / `goal run parallel 4`
+            var parallel = 2
+            val pIdx = tokens.indexOfFirst { it.equals("--parallel", ignoreCase = true) || it.equals("parallel", ignoreCase = true) }
+            if (pIdx >= 0) {
+                tokens.getOrNull(pIdx + 1)?.toIntOrNull()?.let { parallel = it }
+            }
+            GoalRequest.Run(parallel.coerceIn(1, 8))
         }
 
         "done", "fail", "retry", "start", "drop" -> {
@@ -141,7 +154,8 @@ fun statusGlyph(status: GoalStatus): String = when (status) {
 /** The one-line usage text shared by `goal` rejection and help screens. */
 const val GOAL_USAGE: String =
     "Usage: `xencode goal list` · `xencode goal add <title> [after g2 g5] [note <text>]` · " +
-        "`xencode goal done <id> [note <text>]` · `xencode goal fail|retry|start|drop <id>`"
+        "`xencode goal done <id> [note <text>]` · `xencode goal fail|retry|start|drop <id>` · " +
+        "`xencode goal run [--parallel N]` (agent-executes READY nodes)"
 
 /** Waiting-on text for a pending node, used by tests and the renderer above. */
 fun waitingOnLine(node: GoalNode, byId: Map<String, GoalNode>): String? {

@@ -9,7 +9,7 @@ group = "com.xencode"
 
 // The app derives its version from git tags (see app/build.gradle.kts gitVersionName); the CLI is
 // versioned with the repo instead, so a plain constant keeps source and distro in sync.
-version = "1.0.0"
+version = "1.1.0"
 
 java {
     toolchain {
