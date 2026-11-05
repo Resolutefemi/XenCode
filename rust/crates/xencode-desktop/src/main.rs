@@ -72,6 +72,9 @@ struct XenApp {
     chat_input: String,
     chat_log: Vec<(String, String)>, // (role, text)
     worker: Option<ChatWorker>,
+    /// Shared-database writer (aicode_agent_db); None when the DB cannot be
+    /// opened — the chat keeps working without persistence.
+    persister: Option<std::sync::Arc<xencode_core::store::chatlog::ChatPersister>>,
     automation_script: String,
     automation_out: String,
     settings_note: String,
@@ -86,6 +89,7 @@ impl XenApp {
             chat_input: String::new(),
             chat_log: vec![],
             worker: None,
+            persister: xencode_core::store::chatlog::ChatPersister::open_default(),
             automation_script: String::new(),
             automation_out: String::new(),
             settings_note: String::new(),
@@ -105,6 +109,7 @@ impl XenApp {
         let stream2 = stream.clone();
         let busy2 = busy.clone();
         let failure2 = failure.clone();
+        let persister = self.persister.clone();
         std::thread::spawn(move || {
             let rt = tokio::runtime::Builder::new_multi_thread().enable_all().build().expect("tokio runtime");
             let cfg = xencode_core::config::load_config().unwrap_or_default();
@@ -122,14 +127,46 @@ impl XenApp {
                     return;
                 }
             };
+            // Shared-database persistence: session + USER row per prompt,
+            // TOOL rows through the agent hook, ASSISTANT row + llm_call
+            // record + token totals after the turn, XP in xp_events (the
+            // session's xp sink is the DB ledger — see session_from_config).
+            let ws_str = workspace.display().to_string();
+            if let Some(p) = &persister {
+                let p2 = p.clone();
+                session.on_tool_result = Some(Box::new(move |name, args, result| {
+                    p2.tool_row(name, args, result);
+                }));
+            }
             for prompt in rx.iter() {
                 busy2.store(true, Ordering::SeqCst);
                 stream2.lock().unwrap().clear();
                 *failure2.lock().unwrap() = None;
+                if let Some(p) = &persister {
+                    p.user_turn(&ws_str, &session.provider.name, session.provider.model.as_str(), &prompt);
+                }
+                let started = std::time::Instant::now();
                 let stream = stream2.clone();
                 let out = rt.block_on(session.send(&prompt, &mut |d| {
                     stream.lock().unwrap().push_str(d);
                 }, &mut |_| {}));
+                let duration = started.elapsed().as_millis() as i64;
+                if let Some(p) = &persister {
+                    match &out {
+                        Some(reply) => p.assistant_turn(
+                            &ws_str,
+                            &session.provider.name,
+                            session.provider.model.as_str(),
+                            reply,
+                            session.last_turn_usage,
+                            duration,
+                        ),
+                        None => {
+                            let failure = session.last_failure.clone().unwrap_or_else(|| "empty reply".into());
+                            p.failed_turn(&session.provider.name, session.provider.model.as_str(), &failure, session.last_turn_usage, duration);
+                        }
+                    }
+                }
                 if out.is_none() {
                     *failure2.lock().unwrap() = session.last_failure.clone();
                 }
@@ -276,8 +313,28 @@ impl XenApp {
     fn pane_telemetry(&mut self, ui: &mut egui::Ui) {
         ui.heading("Telemetry — XP · streaks · spec radar");
         ui.separator();
-        let xp = xencode_core::telemetry::XpLedger::default();
-        ui.monospace(xp.render_summary(xencode_core::now_ms()));
+        // XP comes from the shared database (xp_events in aicode_agent_db —
+        // the same table the Android app writes); the legacy JSON ledger is
+        // imported on first use. Falls back to the file ledger offline.
+        let now = xencode_core::now_ms();
+        match xencode_core::store::xp::DbXpLedger::open_default() {
+            Ok(xp) => {
+                ui.monospace(xencode_core::telemetry::XpSink::summary(&xp, now).render());
+                if let Some(p) = &self.persister {
+                    if let Some((calls, errors, in_tok, out_tok)) = p.llm_totals() {
+                        ui.monospace(format!(
+                            "tokens (shared DB): in {in_tok} · out {out_tok} · {calls} llm calls ({errors} errored)"
+                        ));
+                    }
+                }
+                ui.monospace(format!("shared DB: {}", xencode_core::store::SharedStore::default_db_path().display()));
+            }
+            Err(_) => {
+                let xp = xencode_core::telemetry::XpLedger::default();
+                ui.monospace(xp.render_summary(now));
+                ui.monospace("! shared database unavailable — showing the legacy file ledger");
+            }
+        }
         ui.add_space(12.0);
         ui.monospace(xencode_core::telemetry::Telemetry::load(&self.workspace).render_radar());
     }

@@ -8,6 +8,7 @@ use xencode_core::state::checkpoints::CheckpointStore;
 use xencode_core::state::decisions::DecisionStore;
 use xencode_core::state::events::EventLog;
 use xencode_core::state::sessions::{Session, SessionMeta, SessionStore};
+use xencode_core::store::chatlog::ChatPersister;
 use xencode_core::telemetry::{Telemetry, XpLedger};
 
 const HELP: &str = "\
@@ -19,6 +20,7 @@ XenCode REPL commands:
   /goal [add|list|run]  goal DAG operations
   /dag                  render the DAG
   /xp                   XP + streak summary
+  /costs                lifetime token usage from the shared database
   /radar                spec radar / compile streak
   /checkpoint [args]    list | create <label> <summary> | restore <id>
   /session [list|save]  list sessions or save this one
@@ -45,6 +47,18 @@ pub async fn run_repl(workspace: &Path, mode: PermissionMode) -> Result<()> {
         }
     };
     println!("provider: {} ({}) — type /help for commands", session.provider.name, session.provider.kind.as_str());
+
+    // Shared-database persistence (aicode_agent_db): every turn lands in the
+    // same tables the Android app writes — chat_sessions, agent_messages,
+    // llm_call_records — and XP goes to xp_events via the session's DB sink.
+    let persister = ChatPersister::open_default();
+    if let Some(p) = &persister {
+        let p2 = p.clone();
+        session.on_tool_result = Some(Box::new(move |name, args, result| {
+            p2.tool_row(name, args, result);
+        }));
+        println!("shared DB: {} (chat + XP persisted)", xencode_core::store::SharedStore::default_db_path().display());
+    }
 
     let mut rl = DefaultEditor::new()?;
     loop {
@@ -124,7 +138,19 @@ pub async fn run_repl(workspace: &Path, mode: PermissionMode) -> Result<()> {
                     }
                 }
                 "dag" => println!("{}", xencode_core::goal::file::load(workspace).render()),
-                "xp" => println!("{}", XpLedger::default().render_summary(xencode_core::now_ms())),
+                "xp" => match xencode_core::store::xp::DbXpLedger::open_default() {
+                    Ok(db) => println!("{}", xencode_core::telemetry::XpSink::summary(&db, xencode_core::now_ms()).render()),
+                    Err(_) => println!("{}", XpLedger::default().render_summary(xencode_core::now_ms())),
+                },
+                "costs" => match &persister {
+                    Some(p) => match p.llm_totals() {
+                        Some((calls, errors, in_tok, out_tok)) => println!(
+                            "Lifetime (shared DB): {calls} llm calls ({errors} errored) · tokens in {in_tok} · out {out_tok}"
+                        ),
+                        None => println!("! token totals unavailable"),
+                    },
+                    None => println!("! shared database unavailable"),
+                },
                 "radar" => println!("{}", Telemetry::load(workspace).render_radar()),
                 "checkpoint" => {
                     let store = CheckpointStore::new(workspace);
@@ -211,6 +237,15 @@ pub async fn run_repl(workspace: &Path, mode: PermissionMode) -> Result<()> {
         print!("… ");
         use std::io::Write;
         let _ = std::io::stdout().flush();
+        if let Some(p) = &persister {
+            p.user_turn(
+                workspace.display().to_string().as_str(),
+                &session.provider.name,
+                session.provider.model.as_str(),
+                &line,
+            );
+        }
+        let started = std::time::Instant::now();
         let out = session
             .send(&line, &mut |d| {
                 print!("\r\x1b[K{d}");
@@ -220,6 +255,23 @@ pub async fn run_repl(workspace: &Path, mode: PermissionMode) -> Result<()> {
             })
             .await;
         println!();
+        if let Some(p) = &persister {
+            let duration = started.elapsed().as_millis() as i64;
+            match &out {
+                Some(reply) => p.assistant_turn(
+                    workspace.display().to_string().as_str(),
+                    &session.provider.name,
+                    session.provider.model.as_str(),
+                    reply,
+                    session.last_turn_usage,
+                    duration,
+                ),
+                None => {
+                    let failure = session.last_failure.clone().unwrap_or_else(|| "unknown".into());
+                    p.failed_turn(&session.provider.name, session.provider.model.as_str(), &failure, session.last_turn_usage, duration);
+                }
+            }
+        }
         match out {
             Some(_) => {}
             None => println!("! failed: {}", session.last_failure.clone().unwrap_or_else(|| "unknown".into())),
