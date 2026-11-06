@@ -18,7 +18,9 @@ section = "devel"
 extended-description = "XenCode — autonomous coding agent desktop app (Rust)."
 assets = [
     ["target/release/xencode-desktop", "usr/bin/", "755"],
-    ["../../art/xencode-icon-512.png", "usr/share/icons/hicolor/512x512/apps/xencode.png", "644"],
+    # cargo-deb resolves asset paths relative to the crate manifest
+    # (rust/crates/xencode-desktop), so art/ at the repo root is three levels up.
+    ["../../../art/xencode-icon-512.png", "usr/share/icons/hicolor/512x512/apps/xencode.png", "644"],
 ]
 
 [dependencies]
