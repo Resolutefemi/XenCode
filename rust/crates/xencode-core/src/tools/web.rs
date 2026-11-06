@@ -31,7 +31,7 @@ pub fn blocked_reason(raw_url: &str) -> Option<String> {
         return Some(format!("private host `{host}`"));
     }
     // Literal IPs first (no DNS needed).
-    if let Some(ip) = host.parse::<std::net::IpAddr>().ok() {
+    if let Ok(ip) = host.parse::<std::net::IpAddr>() {
         return ip_blocked(&ip, &host);
     }
     // Resolve every address; all of them must be public.

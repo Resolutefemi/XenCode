@@ -6,6 +6,39 @@ use crate::config::ProviderConfig;
 
 const ANTHROPIC_VERSION: &str = "2023-06-01";
 
+/// One user message as Anthropic `content`: a plain string without images, or
+/// content blocks `[{type:"text"},{type:"image",source:{type:"base64",…}}]`.
+fn user_content(m: &ChatMessage) -> serde_json::Value {
+    if m.images.is_empty() {
+        return serde_json::json!(m.content.clone().unwrap_or_default());
+    }
+    let mut blocks: Vec<serde_json::Value> = vec![serde_json::json!({
+        "type": "text",
+        "text": m.content.clone().unwrap_or_default(),
+    })];
+    for img in &m.images {
+        match img.data_url() {
+            Ok(data_url) => {
+                // data:<mime>;base64,<payload> → the Anthropic source block.
+                let (media_type, data) = data_url
+                    .strip_prefix("data:")
+                    .and_then(|rest| rest.split_once(";base64,"))
+                    .map(|(mt, b64)| (mt.to_string(), b64.to_string()))
+                    .unwrap_or((img.mime.clone(), String::new()));
+                blocks.push(serde_json::json!({
+                    "type": "image",
+                    "source": { "type": "base64", "media_type": media_type, "data": data },
+                }));
+            }
+            Err(reason) => blocks.push(serde_json::json!({
+                "type": "text",
+                "text": format!("(attachment unavailable: {reason})"),
+            })),
+        }
+    }
+    serde_json::Value::Array(blocks)
+}
+
 pub fn build_body(
     cfg: &ProviderConfig,
     messages: &[ChatMessage],
@@ -22,7 +55,7 @@ pub fn build_body(
                 if !pending_results.is_empty() {
                     msgs.push(serde_json::json!({"role": "user", "content": std::mem::take(&mut pending_results)}));
                 }
-                msgs.push(serde_json::json!({"role": "user", "content": m.content.clone().unwrap_or_default()}));
+                msgs.push(serde_json::json!({"role": "user", "content": user_content(m)}));
             }
             Role::Assistant => {
                 if !pending_results.is_empty() {
@@ -248,6 +281,7 @@ mod tests {
                 }],
                 tool_call_id: None,
                 name: None,
+            images: vec![],
             },
             ChatMessage::tool_result("tu_1", "grep", "match"),
         ];
@@ -297,5 +331,38 @@ mod tests {
         }).collect();
         assert_eq!(tools, vec![("tu_9".to_string(), "edit_file".to_string(), r#"{"path":"a.rb"}"#.to_string())]);
         assert!(matches!(out.last(), Some(ChatEvent::Completed { finish_reason, .. }) if finish_reason == "tool_use"));
+    }
+
+    #[test]
+    fn user_images_become_base64_source_blocks() {
+        let tmp = tempfile::tempdir().unwrap();
+        let png = tmp.path().join("shot.png");
+        std::fs::write(&png, b"\x89PNG\r\n\x1a\nxx").unwrap();
+        let cfg = ProviderConfig {
+            name: "t".into(),
+            kind: crate::config::ProviderKind::Anthropic,
+            base_url: "https://api.anthropic.com".into(),
+            api_key: "k".into(),
+            model: "claude-test".into(),
+            temperature: None,
+            max_tokens: Some(64),
+            extra_headers: Default::default(),
+        };
+        let msgs = vec![ChatMessage::user_with_images(
+            "read this",
+            vec![crate::chat::ImagePart::from_path(png.display().to_string())],
+        )];
+        let body = build_body(&cfg, &msgs, &[], "sys");
+        let content = &body["messages"][0]["content"];
+        assert!(content.is_array(), "content should be blocks: {content}");
+        assert_eq!(content[0]["type"], "text");
+        assert_eq!(content[1]["type"], "image");
+        assert_eq!(content[1]["source"]["type"], "base64");
+        assert_eq!(content[1]["source"]["media_type"], "image/png");
+        assert!(!content[1]["source"]["data"].as_str().unwrap().is_empty());
+
+        // Text-only turns keep the plain string shape.
+        let body = build_body(&cfg, &[ChatMessage::user("plain")], &[], "sys");
+        assert_eq!(body["messages"][0]["content"], "plain");
     }
 }

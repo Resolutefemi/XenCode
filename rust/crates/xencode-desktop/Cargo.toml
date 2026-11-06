@@ -26,6 +26,7 @@ xencode-core = { path = "../xencode-core" }
 xencode-automation = { path = "../xencode-automation" }
 eframe.workspace = true
 image.workspace = true
+rfd.workspace = true
 tokio.workspace = true
 serde_json.workspace = true
 anyhow.workspace = true

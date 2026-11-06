@@ -4,6 +4,29 @@ use super::{http_sse_events, truncate};
 use crate::chat::{next_json_blob, with_v1beta, ChatEvent, ChatMessage, ChatTransport, Role, ToolSpec};
 use crate::config::ProviderConfig;
 
+/// One user turn as Gemini `parts`: `[{text}, {inline_data:{mime_type,data}}]`.
+/// Text-only turns stay `[{text}]`, exactly the pre-image wire shape.
+fn user_parts(m: &ChatMessage) -> Vec<serde_json::Value> {
+    let mut parts: Vec<serde_json::Value> =
+        vec![serde_json::json!({ "text": m.content.clone().unwrap_or_default() })];
+    for img in &m.images {
+        match img.data_url() {
+            Ok(data_url) => {
+                let (mime, data) = data_url
+                    .strip_prefix("data:")
+                    .and_then(|rest| rest.split_once(";base64,"))
+                    .map(|(mt, b64)| (mt.to_string(), b64.to_string()))
+                    .unwrap_or((img.mime.clone(), String::new()));
+                parts.push(serde_json::json!({ "inline_data": { "mime_type": mime, "data": data } }));
+            }
+            Err(reason) => parts.push(serde_json::json!({
+                "text": format!("(attachment unavailable: {reason})"),
+            })),
+        }
+    }
+    parts
+}
+
 pub fn build_url(cfg: &ProviderConfig) -> String {
     let root = with_v1beta(&cfg.base_url);
     format!("{root}/models/{}:streamGenerateContent?alt=sse", cfg.model)
@@ -21,7 +44,7 @@ pub fn build_body(
         match m.role {
             Role::System => { /* via systemInstruction */ }
             Role::User => {
-                contents.push(serde_json::json!({"role": "user", "parts": [{"text": m.content.clone().unwrap_or_default()}]}));
+                contents.push(serde_json::json!({"role": "user", "parts": user_parts(m)}));
             }
             Role::Assistant => {
                 let mut parts: Vec<serde_json::Value> = vec![];
@@ -215,6 +238,7 @@ mod tests {
                 }],
                 tool_call_id: None,
                 name: None,
+            images: vec![],
             },
             ChatMessage::tool_result("gem_glob", "glob", "{\"files\":[\"a.rs\"]}"),
         ];
@@ -237,5 +261,35 @@ mod tests {
         assert!(matches!(&out[0], ChatEvent::TextDelta(t) if t == "Looking"));
         assert!(matches!(&out[1], ChatEvent::ToolCall { name, args_json, .. } if name == "glob" && args_json.contains("*.rs")));
         assert!(matches!(out.last(), Some(ChatEvent::Completed { finish_reason, .. }) if finish_reason == "STOP"));
+    }
+
+    #[test]
+    fn user_images_become_inline_data_parts() {
+        let tmp = tempfile::tempdir().unwrap();
+        let jpg = tmp.path().join("shot.jpg");
+        std::fs::write(&jpg, b"\xff\xd8\xff\xe0xx").unwrap();
+        let cfg = ProviderConfig {
+            name: "t".into(),
+            kind: crate::config::ProviderKind::Gemini,
+            base_url: "https://generativelanguage.googleapis.com".into(),
+            api_key: "k".into(),
+            model: "gemini-test".into(),
+            temperature: Some(0.3),
+            max_tokens: None,
+            extra_headers: Default::default(),
+        };
+        let msgs = vec![ChatMessage::user_with_images(
+            "describe",
+            vec![crate::chat::ImagePart::from_path(jpg.display().to_string())],
+        )];
+        let body = build_body(&cfg, &msgs, &[], "");
+        let parts = &body["contents"][0]["parts"];
+        assert_eq!(parts[0]["text"], "describe");
+        assert_eq!(parts[1]["inline_data"]["mime_type"], "image/jpeg");
+        assert!(!parts[1]["inline_data"]["data"].as_str().unwrap().is_empty());
+
+        let body = build_body(&cfg, &[ChatMessage::user("plain")], &[], "");
+        assert_eq!(body["contents"][0]["parts"].as_array().unwrap().len(), 1);
+        assert_eq!(body["contents"][0]["parts"][0]["text"], "plain");
     }
 }

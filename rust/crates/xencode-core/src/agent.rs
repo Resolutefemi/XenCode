@@ -3,11 +3,11 @@
 //! send() drives: stream → accumulate → execute tools (permission gate +
 //! hooks + MCP) → feed results back → until a final answer or max rounds.
 
-use crate::chat::{ChatEvent, ChatMessage, ChatTransport, Role, ToolCallReq, ToolSpec};
+use crate::chat::{ChatEvent, ChatMessage, ChatTransport, ImagePart, Role, ToolCallReq, ToolSpec};
 use crate::config::ProviderConfig;
 use crate::hooks::{self, Hooks};
 use crate::mcp::McpRegistry;
-use crate::permissions::{Decision, PermissionGate};
+use crate::permissions::{Decision, PermissionGate, PermissionMode};
 use crate::state::events::{types as evt, EventLog};
 use crate::telemetry::XpSink;
 use crate::tools::compactor;
@@ -16,6 +16,10 @@ use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 
 pub const MAX_TOOL_ROUNDS: u32 = 20;
+
+/// Front-end hook fired after each tool execution (DB TOOL rows, UI
+/// rendering). Args: (tool name, args json, result text).
+pub type ToolResultHook = Box<dyn Fn(&str, &str, &str) + Send + Sync>;
 
 /// Provider-reported token usage of one user turn (all tool rounds summed).
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
@@ -47,7 +51,7 @@ pub struct AgentSession {
     pub last_turn_usage: TurnUsage,
     /// Optional front-end hook fired after each tool execution (DB TOOL rows,
     /// UI rendering). Args: (tool name, args json, result text).
-    pub on_tool_result: Option<Box<dyn Fn(&str, &str, &str) + Send + Sync>>,
+    pub on_tool_result: Option<ToolResultHook>,
     /// Enable the `task` subagent tool (disabled inside subagents).
     pub subagents_enabled: bool,
 }
@@ -121,17 +125,39 @@ impl AgentSession {
         self.messages.clear();
     }
 
-    /// One user turn: streams, executes tools, and loops until the model gives
-    /// a final answer. Returns None on failure (see `last_failure`).
+    /// One user turn (text only). See [`AgentSession::send_with_images`].
     pub async fn send(
         &mut self,
         user_text: &str,
         on_delta: &mut dyn FnMut(&str),
         on_tool_call: &mut dyn FnMut(&ToolCallReq),
     ) -> Option<String> {
-        if !user_text.is_empty() {
-            self.messages.push(ChatMessage::user(user_text));
+        self.send_with_images(user_text, &[], on_delta, on_tool_call).await
+    }
+
+    /// One user turn with attached images: streams, executes tools, and loops
+    /// until the model gives a final answer. Returns None on failure (see
+    /// `last_failure`). In plan mode the plan addendum is appended to the
+    /// system prompt for this turn, so flipping modes mid-session takes
+    /// effect immediately.
+    pub async fn send_with_images(
+        &mut self,
+        user_text: &str,
+        images: &[ImagePart],
+        on_delta: &mut dyn FnMut(&str),
+        on_tool_call: &mut dyn FnMut(&ToolCallReq),
+    ) -> Option<String> {
+        if !user_text.is_empty() || !images.is_empty() {
+            self.messages.push(ChatMessage::user_with_images(
+                if user_text.is_empty() { "(see attached images)" } else { user_text },
+                images.to_vec(),
+            ));
         }
+        let system = if self.permission.mode == PermissionMode::Plan {
+            format!("{}\n\n{}", self.system_prompt, crate::prompt::PLAN_MODE_ADDENDUM)
+        } else {
+            self.system_prompt.clone()
+        };
         let mut final_text = String::new();
         let mut round: u32 = 0;
         let mut used_in: i64 = 0;
@@ -150,7 +176,7 @@ impl AgentSession {
                 &self.provider,
                 &self.messages,
                 &specs,
-                &self.system_prompt,
+                &system,
             );
             let mut text = String::new();
             let mut tool_calls: Vec<ToolCallReq> = vec![];
@@ -199,6 +225,7 @@ impl AgentSession {
                 tool_calls: tool_calls.clone(),
                 tool_call_id: None,
                 name: None,
+                images: vec![],
             });
 
             if tool_calls.is_empty() {
@@ -459,6 +486,24 @@ mod tests {
         }
     }
 
+    /// Records the system prompt of every stream call.
+    struct SystemCapturingTransport {
+        inner: MockTransport,
+        seen: Arc<StdMutex<Vec<String>>>,
+    }
+    impl ChatTransport for SystemCapturingTransport {
+        fn stream_chat<'a>(
+            &'a self,
+            cfg: &'a ProviderConfig,
+            messages: &'a [ChatMessage],
+            tools: &'a [ToolSpec],
+            system: &'a str,
+        ) -> futures_util::stream::BoxStream<'a, ChatEvent> {
+            self.seen.lock().unwrap().push(system.to_string());
+            self.inner.stream_chat(cfg, messages, tools, system)
+        }
+    }
+
     fn mock_session(workspace: &Path, scripts: Vec<Vec<ChatEvent>>, mode: crate::permissions::PermissionMode) -> AgentSession {
         let provider = ProviderConfig {
             name: "mock".into(),
@@ -609,5 +654,52 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let cfg = crate::config::PcConfig::default();
         assert!(session_from_config(dir.path(), &cfg, crate::permissions::PermissionMode::Confirm, false).is_err());
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn plan_mode_addendum_applies_per_turn() {
+        let dir = tempfile::tempdir().unwrap();
+        let seen: Arc<StdMutex<Vec<String>>> = Arc::new(StdMutex::new(vec![]));
+        let mut s = mock_session(
+            dir.path(),
+            vec![vec![ChatEvent::TextDelta("a".into()), ChatEvent::Completed { finish_reason: "stop".into(), input_tokens: 0, output_tokens: 0 }],
+                vec![ChatEvent::TextDelta("b".into()), ChatEvent::Completed { finish_reason: "stop".into(), input_tokens: 0, output_tokens: 0 }]],
+            crate::permissions::PermissionMode::Confirm,
+        );
+        // Swap in the capturing transport.
+        let scripts = Arc::new(StdMutex::new(vec![
+            vec![ChatEvent::TextDelta("a".into()), ChatEvent::Completed { finish_reason: "stop".into(), input_tokens: 0, output_tokens: 0 }],
+            vec![ChatEvent::TextDelta("b".into()), ChatEvent::Completed { finish_reason: "stop".into(), input_tokens: 0, output_tokens: 0 }],
+        ]));
+        s.transport = Box::new(SystemCapturingTransport {
+            inner: MockTransport { scripts },
+            seen: seen.clone(),
+        });
+
+        s.send("one", &mut |_| {}, &mut |_| {}).await.unwrap();
+        assert!(!seen.lock().unwrap()[0].contains("PLAN MODE ACTIVE"));
+
+        s.permission.mode = crate::permissions::PermissionMode::Plan;
+        s.send("two", &mut |_| {}, &mut |_| {}).await.unwrap();
+        assert!(seen.lock().unwrap()[1].contains("PLAN MODE ACTIVE"));
+
+        s.permission.mode = crate::permissions::PermissionMode::Yolo;
+        s.send("three", &mut |_| {}, &mut |_| {}).await.unwrap();
+        assert!(!seen.lock().unwrap()[2].contains("PLAN MODE ACTIVE"));
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn images_ride_on_the_user_message() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut s = mock_session(
+            dir.path(),
+            vec![vec![ChatEvent::TextDelta("saw it".into()), ChatEvent::Completed { finish_reason: "stop".into(), input_tokens: 0, output_tokens: 0 }]],
+            crate::permissions::PermissionMode::Yolo,
+        );
+        let imgs = vec![ImagePart::from_path("shot.png")];
+        let out = s.send_with_images("what is this?", &imgs, &mut |_| {}, &mut |_| {}).await;
+        assert_eq!(out.as_deref(), Some("saw it"));
+        assert_eq!(1, s.messages[0].images.len());
+        assert_eq!("shot.png", s.messages[0].images[0].path);
     }
 }

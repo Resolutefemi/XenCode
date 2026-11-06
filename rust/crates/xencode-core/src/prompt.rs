@@ -1,5 +1,16 @@
 //! System prompt builder — the XenCode agent persona (Iron Laws edition).
 
+/// Appended to the system prompt for every turn that runs in plan mode.
+/// Kept separate from the base persona so the mode can flip mid-session
+/// without rebuilding anything.
+pub const PLAN_MODE_ADDENDUM: &str = "\
+PLAN MODE ACTIVE — the user wants a plan before any changes.
+- You may read, search and list files, fetch web pages, load skills, write the draft plan with todo_write, and spawn research subagents (they inherit the same restrictions).
+- You MUST NOT write, edit or delete files, and MUST NOT run mutating commands; those tools are disabled this turn.
+- Investigate the workspace as needed, then present a concise numbered plan: the goal, the steps (each independently verifiable), the files each step touches, the risks, and the command that verifies it.
+- State assumptions explicitly instead of asking questions, unless something truly blocks planning.
+The user will switch you out of plan mode to execute the approved plan.";
+
 pub fn build_system_prompt(workspace_root: &std::path::Path, tool_names: &[String]) -> String {
     let tools = if tool_names.is_empty() {
         "(no tools)".to_string()
@@ -65,5 +76,16 @@ mod tests {
         assert!(p.contains("EIGHT IRON LAWS"));
         assert!(p.contains("read_file, run_command"));
         assert!(p.contains(dir.path().to_str().unwrap()));
+    }
+
+    #[test]
+    fn plan_addendum_is_self_contained() {
+        assert!(PLAN_MODE_ADDENDUM.contains("PLAN MODE ACTIVE"));
+        assert!(PLAN_MODE_ADDENDUM.contains("MUST NOT write, edit or delete files"));
+        assert!(PLAN_MODE_ADDENDUM.contains("numbered plan"));
+        // Not part of the base persona: only appended in plan mode.
+        let dir = tempfile::tempdir().unwrap();
+        let base = build_system_prompt(dir.path(), &[]);
+        assert!(!base.contains("PLAN MODE ACTIVE"));
     }
 }

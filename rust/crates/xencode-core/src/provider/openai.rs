@@ -5,6 +5,32 @@ use super::{http_sse_events, truncate};
 use crate::chat::{next_json_blob, with_v1, ChatEvent, ChatMessage, ChatTransport, Role, ToolSpec};
 use crate::config::ProviderConfig;
 
+/// Renders one user message as an OpenAI `content` value: a plain string when
+/// there are no images, otherwise the multimodal parts array
+/// (`[{type:"text"},{type:"image_url",image_url:{url:"data:…"}}]`).
+fn user_content(m: &ChatMessage) -> serde_json::Value {
+    if m.images.is_empty() {
+        return serde_json::json!(m.content.clone().unwrap_or_default());
+    }
+    let mut parts: Vec<serde_json::Value> = vec![serde_json::json!({
+        "type": "text",
+        "text": m.content.clone().unwrap_or_default(),
+    })];
+    for img in &m.images {
+        match img.data_url() {
+            Ok(url) => parts.push(serde_json::json!({
+                "type": "image_url",
+                "image_url": { "url": url },
+            })),
+            Err(reason) => parts.push(serde_json::json!({
+                "type": "text",
+                "text": format!("(attachment unavailable: {reason})"),
+            })),
+        }
+    }
+    serde_json::Value::Array(parts)
+}
+
 pub fn build_body(
     cfg: &ProviderConfig,
     messages: &[ChatMessage],
@@ -17,7 +43,7 @@ pub fn build_body(
     }
     for m in messages {
         match m.role {
-            Role::System | Role::User | Role::Assistant => {
+            Role::System | Role::Assistant => {
                 let mut v = serde_json::json!({"role": m.role.as_str(), "content": m.content.clone().unwrap_or_default()});
                 if m.role == Role::Assistant && !m.tool_calls.is_empty() {
                     v["tool_calls"] = serde_json::Value::Array(
@@ -36,6 +62,9 @@ pub fn build_body(
                     }
                 }
                 msgs.push(v);
+            }
+            Role::User => {
+                msgs.push(serde_json::json!({"role": "user", "content": user_content(m)}));
             }
             Role::Tool => {
                 msgs.push(serde_json::json!({
@@ -79,6 +108,8 @@ pub struct OpenAiAccumulator {
     input_tokens: i64,
     output_tokens: i64,
     completed_seen: bool,
+    /// True once a `usage` object has been delivered as a supplementary
+    /// Completed event (guards against gateways that repeat usage per chunk).
     usage_emitted: bool,
 }
 
@@ -145,6 +176,23 @@ impl OpenAiAccumulator {
                 }
             }
         }
+        // `stream_options.include_usage` makes the final chunk carry a usage
+        // object with no choices at all: flush it as one supplementary
+        // Completed so the agent's summed usage picks the tokens up.
+        if let Some(usage) = v.get("usage").and_then(|u| u.as_object()) {
+            let prompt = usage.get("prompt_tokens").and_then(|x| x.as_i64()).unwrap_or(0);
+            let completion = usage.get("completion_tokens").and_then(|x| x.as_i64()).unwrap_or(0);
+            if (prompt > 0 || completion > 0) && !self.usage_emitted {
+                self.usage_emitted = true;
+                self.input_tokens = prompt;
+                self.output_tokens = completion;
+                out.push(ChatEvent::Completed {
+                    finish_reason: "usage".into(),
+                    input_tokens: prompt,
+                    output_tokens: completion,
+                });
+            }
+        }
         out
     }
 }
@@ -173,6 +221,7 @@ impl ChatTransport for OpenAiTransport {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::chat::ImagePart;
 
     fn cfg() -> ProviderConfig {
         ProviderConfig {
@@ -207,6 +256,7 @@ mod tests {
                 }],
                 tool_call_id: None,
                 name: None,
+            images: vec![],
             },
             ChatMessage::tool_result("c1", "read_file", "data"),
         ];
@@ -238,6 +288,7 @@ mod tests {
         assert_eq!(tool[0].1, "glob");
         assert_eq!(tool[0].2, r#"{"pattern":"*.rs"}"#);
         assert!(matches!(out.last(), Some(ChatEvent::Completed { .. })));
+    }
 
     #[test]
     fn body_requests_stream_options_include_usage() {
@@ -277,6 +328,36 @@ mod tests {
         assert_eq!(1, done.len());
         assert_eq!((0, 0), done[0]);
     }
+
+    #[test]
+    fn user_images_become_multimodal_content_parts() {
+        let tmp = tempfile::tempdir().unwrap();
+        let png = tmp.path().join("shot.png");
+        std::fs::write(&png, b"\x89PNG\r\n\x1a\nxx").unwrap();
+        let msg = ChatMessage::user_with_images(
+            "what is this?",
+            vec![ImagePart::from_path(png.display().to_string())],
+        );
+        let body = build_body(&cfg(), &[msg], &[], "sys");
+        let content = &body["messages"][1]["content"];
+        assert!(content.is_array(), "content should be a parts array: {content}");
+        assert_eq!(content[0]["type"], "text");
+        assert_eq!(content[0]["text"], "what is this?");
+        assert_eq!(content[1]["type"], "image_url");
+        let url = content[1]["image_url"]["url"].as_str().unwrap();
+        assert!(url.starts_with("data:image/png;base64,"));
+
+        // A missing file degrades to a text note instead of failing the turn.
+        let missing = ChatMessage::user_with_images("x", vec![ImagePart::from_path("gone.png")]);
+        let body = build_body(&cfg(), &[missing], &[], "sys");
+        assert!(body["messages"][1]["content"][1]["text"]
+            .as_str()
+            .unwrap()
+            .contains("attachment unavailable"));
+
+        // Plain text users stay a plain string (byte-identical to before).
+        let body = build_body(&cfg(), &[ChatMessage::user("plain")], &[], "sys");
+        assert_eq!(body["messages"][1]["content"], "plain");
     }
 
     #[test]

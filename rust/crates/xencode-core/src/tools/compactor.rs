@@ -98,6 +98,7 @@ mod tests {
                 tool_calls: vec![ToolCallReq { id: "1".into(), name: "grep".into(), args_json: "{}".into() }],
                 tool_call_id: None,
                 name: None,
+            images: vec![],
             });
         }
         let out = compact(&msgs).unwrap();

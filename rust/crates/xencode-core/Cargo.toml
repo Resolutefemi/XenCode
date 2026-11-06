@@ -21,6 +21,7 @@ regex.workspace = true
 walkdir.workspace = true
 glob.workspace = true
 uuid.workspace = true
+base64.workspace = true
 
 [dev-dependencies]
 tempfile.workspace = true

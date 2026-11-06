@@ -43,6 +43,52 @@ pub struct ToolCallReq {
     pub args_json: String,
 }
 
+/// A user-attached image, carried by path (the file is read when the wire
+/// body is built, so history snapshots stay small and re-runnable).
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct ImagePart {
+    /// Absolute or workspace-relative path of the image file.
+    pub path: String,
+    /// MIME type sent to the provider (image/png, image/jpeg, image/gif,
+    /// image/webp — sniffed from the extension in [`ImagePart::from_path`]).
+    pub mime: String,
+}
+
+impl ImagePart {
+    /// Builds a part from a file path, sniffing the MIME type from the
+    /// extension. Does not touch the disk; missing files surface later as a
+    /// clear error when the body is built.
+    pub fn from_path(path: impl Into<String>) -> Self {
+        let path = path.into();
+        let ext = path.rsplit('.').next().unwrap_or("").to_ascii_lowercase();
+        let mime = match ext.as_str() {
+            "png" => "image/png",
+            "jpg" | "jpeg" => "image/jpeg",
+            "gif" => "image/gif",
+            "webp" => "image/webp",
+            "bmp" => "image/bmp",
+            _ => "application/octet-stream",
+        };
+        Self { path, mime: mime.to_string() }
+    }
+
+    /// Reads the file and renders it as a `data:<mime>;base64,…` URL.
+    /// Returns None (with the reason in the string) when the file is missing,
+    /// too large (> 8 MiB) or unreadable — callers surface that to the model
+    /// instead of failing the whole turn.
+    pub fn data_url(&self) -> Result<String, String> {
+        const MAX_BYTES: u64 = 8 * 1024 * 1024;
+        let meta = std::fs::metadata(&self.path).map_err(|e| format!("image `{}`: {e}", self.path))?;
+        if meta.len() > MAX_BYTES {
+            return Err(format!("image `{}` is {} MiB (max 8 MiB)", self.path, meta.len() / (1024 * 1024)));
+        }
+        let bytes = std::fs::read(&self.path).map_err(|e| format!("image `{}`: {e}", self.path))?;
+        use base64::Engine as _;
+        let b64 = base64::engine::general_purpose::STANDARD.encode(bytes);
+        Ok(format!("data:{};base64,{}", self.mime, b64))
+    }
+}
+
 /// Provider-neutral conversation message.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ChatMessage {
@@ -57,14 +103,21 @@ pub struct ChatMessage {
     /// For role=tool: tool name (some providers require it).
     #[serde(default)]
     pub name: Option<String>,
+    /// User-attached images on this turn (role=user only). Older serialized
+    /// histories predate the field; `#[serde(default)]` keeps them loadable.
+    #[serde(default)]
+    pub images: Vec<ImagePart>,
 }
 
 impl ChatMessage {
     pub fn user(text: impl Into<String>) -> Self {
-        Self { role: Role::User, content: Some(text.into()), tool_calls: vec![], tool_call_id: None, name: None }
+        Self { role: Role::User, content: Some(text.into()), tool_calls: vec![], tool_call_id: None, name: None, images: vec![] }
+    }
+    pub fn user_with_images(text: impl Into<String>, images: Vec<ImagePart>) -> Self {
+        Self { role: Role::User, content: Some(text.into()), tool_calls: vec![], tool_call_id: None, name: None, images }
     }
     pub fn assistant(text: impl Into<String>) -> Self {
-        Self { role: Role::Assistant, content: Some(text.into()), tool_calls: vec![], tool_call_id: None, name: None }
+        Self { role: Role::Assistant, content: Some(text.into()), tool_calls: vec![], tool_call_id: None, name: None, images: vec![] }
     }
     pub fn tool_result(call_id: impl Into<String>, tool_name: impl Into<String>, text: impl Into<String>) -> Self {
         Self {
@@ -73,6 +126,7 @@ impl ChatMessage {
             tool_calls: vec![],
             tool_call_id: Some(call_id.into()),
             name: Some(tool_name.into()),
+            images: vec![],
         }
     }
 }
@@ -187,5 +241,34 @@ mod tests {
         assert_eq!(v["b"]["c"][1], 2);
         assert!(next <= s.len());
         assert!(next_json_blob("no json here", 0).is_none());
+    }
+
+    #[test]
+    fn image_parts_sniff_mime_and_build_data_urls() {
+        assert_eq!(ImagePart::from_path("a.PNG").mime, "image/png");
+        assert_eq!(ImagePart::from_path("b.jpeg").mime, "image/jpeg");
+        assert_eq!(ImagePart::from_path("c.webp").mime, "image/webp");
+        assert_eq!(ImagePart::from_path("noext").mime, "application/octet-stream");
+
+        let tmp = tempfile::tempdir().unwrap();
+        let f = tmp.path().join("tiny.png");
+        std::fs::write(&f, b"\x89PNG\r\n\x1a\nnot-really").unwrap();
+        let part = ImagePart::from_path(f.display().to_string());
+        let url = part.data_url().unwrap();
+        assert!(url.starts_with("data:image/png;base64,"));
+
+        let missing = ImagePart::from_path(tmp.path().join("gone.png").display().to_string());
+        assert!(missing.data_url().is_err());
+    }
+
+    #[test]
+    fn old_serialized_histories_still_deserialize_without_images() {
+        let legacy = r#"[{"role":"user","content":"hi"},{"role":"assistant","content":"yo"}]"#;
+        let msgs: Vec<ChatMessage> = serde_json::from_str(legacy).unwrap();
+        assert_eq!(msgs.len(), 2);
+        assert!(msgs[0].images.is_empty());
+        let round = serde_json::to_string(&ChatMessage::user_with_images("look", vec![ImagePart::from_path("x.png")])).unwrap();
+        assert!(round.contains("\"images\":"));
+        assert!(round.contains("\"path\":\"x.png\""));
     }
 }

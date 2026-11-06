@@ -34,7 +34,7 @@ pub struct Cli {
     #[arg(long, global = true)]
     pub db: Option<PathBuf>,
 
-    /// Permission mode: read-only | confirm | yolo
+    /// Permission mode: read-only | confirm | plan | yolo
     #[arg(long, global = true, default_value = "confirm")]
     pub mode: String,
 
@@ -45,13 +45,20 @@ pub struct Cli {
 #[derive(Subcommand)]
 pub enum Command {
     /// Interactive chat REPL with slash commands
-    Chat,
+    Chat {
+        /// Images attached to the first message (repeatable)
+        #[arg(long = "image")]
+        images: Vec<PathBuf>,
+    },
     /// One-shot agent run: xencode exec "do the thing"
     Exec {
         prompt: String,
         /// Emit the full final answer only (no streaming dots)
         #[arg(long)]
         quiet: bool,
+        /// Images attached to the prompt (repeatable)
+        #[arg(long = "image")]
+        images: Vec<PathBuf>,
     },
     /// Run a .mjs automation script (rquickjs engine)
     Run {
@@ -284,8 +291,10 @@ async fn run(cli: Cli) -> anyhow::Result<()> {
     let mode = parse_mode(&cli.mode)?;
 
     match cli.command {
-        Command::Chat => repl::run_repl(&workspace, mode).await?,
-        Command::Exec { prompt, quiet } => exec_once(&workspace, mode, &prompt, quiet).await?,
+        Command::Chat { images } => repl::run_repl(&workspace, mode, images).await?,
+        Command::Exec { prompt, quiet, images } => {
+            exec_once(&workspace, mode, &prompt, quiet, images).await?
+        }
         Command::Run { script, args } => run_mjs(&workspace, &script, args)?,
         Command::Session { cmd } => session_cmd(&workspace, cmd)?,
         Command::Checkpoint { cmd } => checkpoint_cmd(&workspace, cmd)?,
@@ -423,11 +432,41 @@ fn make_session(
     Ok(session)
 }
 
-async fn exec_once(workspace: &Path, mode: PermissionMode, prompt: &str, quiet: bool) -> anyhow::Result<()> {
+async fn exec_once(
+    workspace: &Path,
+    mode: PermissionMode,
+    prompt: &str,
+    quiet: bool,
+    images: Vec<PathBuf>,
+) -> anyhow::Result<()> {
     let mut session = make_session(workspace, mode, true)?;
+    // Shared-DB persistence, same as the REPL: every exec turn lands in
+    // aicode_agent_db (chat_sessions / agent_messages / llm_call_records).
+    let persister = xencode_core::store::chatlog::ChatPersister::open_default();
+    if let Some(p) = &persister {
+        let p2 = p.clone();
+        session.on_tool_result = Some(Box::new(move |name, args, result| {
+            p2.tool_row(name, args, result);
+        }));
+    }
+    let parts: Vec<xencode_core::chat::ImagePart> = images
+        .iter()
+        .map(|p| xencode_core::chat::ImagePart::from_path(p.display().to_string()))
+        .collect();
+    if let Some(p) = &persister {
+        p.set_permission_mode(mode);
+        p.user_turn_with_attachments(
+            &workspace.display().to_string(),
+            &session.provider.name,
+            session.provider.model.as_str(),
+            prompt,
+            &parts,
+        );
+    }
     let mut buf = String::new();
+    let started = std::time::Instant::now();
     let out = session
-        .send(prompt, &mut |d| {
+        .send_with_images(prompt, &parts, &mut |d| {
             if !quiet {
                 print!("{d}");
                 use std::io::Write;
@@ -441,14 +480,32 @@ async fn exec_once(workspace: &Path, mode: PermissionMode, prompt: &str, quiet: 
             }
         })
         .await;
+    let duration = started.elapsed().as_millis() as i64;
     if !quiet {
         println!();
+    }
+    if let Some(p) = &persister {
+        match &out {
+            Some(reply) => p.assistant_turn(
+                &workspace.display().to_string(),
+                &session.provider.name,
+                session.provider.model.as_str(),
+                reply,
+                session.last_turn_usage,
+                duration,
+            ),
+            None => {
+                let failure = session.last_failure.clone().unwrap_or_else(|| "unknown".into());
+                p.failed_turn(&session.provider.name, session.provider.model.as_str(), &failure, session.last_turn_usage, duration);
+            }
+        }
     }
     match out {
         Some(text) => {
             if quiet {
                 println!("{text}");
             }
+            let _ = buf;
             // persist session
             let store = SessionStore::new(workspace);
             let mut s = Session {

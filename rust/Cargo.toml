@@ -30,9 +30,11 @@ glob = "0.3"
 uuid = { version = "1", features = ["v4"] }
 rquickjs = { version = "0.9", features = ["loader", "allocator", "futures"] }
 rusqlite = { version = "0.32", features = ["bundled"] }
+base64 = "0.22"
 rustyline = "15"
 eframe = "0.29"
-image = { version = "0.25", default-features = false, features = ["png"] }
+image = { version = "0.25", default-features = false, features = ["png", "jpeg"] }
+rfd = "0.15"
 tempfile = "3"
 
 [profile.release]
