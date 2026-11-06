@@ -27,7 +27,9 @@ class GoalDagEngineTest {
         assertEquals(listOf("g1", "g2"), g.nodes.map { it.id })
         assertEquals(GoalStatus.READY, g.nodes[0].status)
         assertEquals(GoalStatus.READY, g.nodes[1].status)
-        assertEquals(2, g.nextId)
+        // Two goals minted from nextId=1 (g1, g2) -> the next id to mint is 3.
+        // Same semantics as the comment in addGoal_rejectsUnknownDependency…: "next id will be g2" after one add.
+        assertEquals(3, g.nextId)
     }
 
     @Test
