@@ -35,8 +35,9 @@ Providers can be `openai` (any compatible endpoint), `anthropic` (native Message
 
 | Command | Purpose |
 | --- | --- |
-| `xencode chat` | Interactive REPL — `/help /tools /mode /todo /goal /dag /xp /radar /checkpoint /session /compact /decide /events /run /quit` |
-| `xencode exec "<prompt>"` | One-shot agent run (streams, saves a session, exits) |
+| `xencode chat` | Interactive REPL — `/help /tools /mode /plan /image /resume /todo /goal /dag /xp /radar /checkpoint /session /compact /decide /events /run /quit` |
+| `xencode chat --image shot.png` | Start the REPL with images staged for the first message |
+| `xencode exec "<prompt>" [--image x.png]` | One-shot agent run (streams, persists to the shared DB, exits) |
 | `xencode run <script.mjs>` | Execute an automation script on the embedded rquickjs engine |
 | `xencode goal add/list/run/set` | The Goal DAG: add nodes, run READY nodes in parallel swimlanes (isolated `git worktree` per lane) |
 | `xencode dag` | Render the DAG |
@@ -52,8 +53,11 @@ Providers can be `openai` (any compatible endpoint), `anthropic` (native Message
 
 ## Agent features
 
-- **Tools** — `read_file` (offset/limit), `write_file`, `edit_file` (exact replace + `replace_all`), `list_files`, `glob`, `grep` (content/files/count, case-insensitive, glob filter, head limit), `delete_file`, `run_command` (timeout), `todo_write/read`, plus `task` (spawn a fresh subagent with its own context; depth-limited) and every connected MCP tool. Results are clipped at 12 000 chars; errors are `ERROR: …` strings.
-- **Permissions** — `read-only` (mutation denied), `confirm` (interactive ask; auto-asks become decision cards in non-interactive runs), `yolo`.
+- **Tools** — `read_file` (offset/limit), `write_file`, `edit_file` (exact replace + `replace_all`), `list_files`, `glob`, `grep` (content/files/count, case-insensitive, glob filter, head limit), `delete_file`, `run_command` (timeout), `todo_write/read`, `web_fetch` (SSRF-guarded), `load_skill`, plus `task` (spawn a fresh subagent with its own context; depth-limited) and every connected MCP tool. Results are clipped at 12 000 chars; errors are `ERROR: …` strings.
+- **Permissions** — `read-only` (mutation denied), `confirm` (interactive ask; auto-asks become decision cards in non-interactive runs), `plan`, `yolo`.
+- **Plan mode** — `/plan` in the CLI, the 🗓 Plan chip on the desktop. The agent may read, search, fetch web pages, load skills, draft the plan with `todo_write` and spawn research subagents; writes, edits, deletes and shell commands are denied with plan-mode guidance. The mode lands in `chat_sessions.mode` (the app's `PLAN` badge) with the previous mode remembered in `mode_before_plan`, exactly like the Android app's plan mode. Switch back (toggle `/plan` again or the 🛠 Build chip) and say “go ahead” to execute the approved plan.
+- **Images** — attach screenshots or photos to any message: 📎 in the desktop chat pane (png / jpg / gif / webp / bmp, ≤ 8 MiB each) or `xencode chat --image a.png --image b.png` / `/image <path…>` in the CLI. All three protocols get proper vision parts (OpenAI `image_url` data URLs, Anthropic base64 `image` blocks, Gemini `inline_data`), thumbnails render inline on the desktop, and every attachment is persisted in `agent_messages.attachments` using the app's `AgentAttachment` JSON — so the phone shows the same attachments on the same rows.
+- **Session resume (row sync)** — `/resume` lists the newest shared-DB sessions and `/resume <id>` continues one; the desktop's “⟲ Resume latest (shared DB)” button does the same in one click. USER / ASSISTANT rows are rebound as model history (images re-attach when the files still exist) and new turns append to the same session — a conversation started on the phone keeps going on the PC with full context.
 - **Hooks** — `.xencode/hooks.json`: `pre` hooks (failing exit code blocks the tool) and `post` hooks, matched by tool name or `*`; they receive `XENCODE_TOOL` / `XENCODE_TOOL_ARGS`.
 - **Checkpoints** — every checkpoint is an atomic git commit that excludes `.xencode/`, recorded in `.xencode/checkpoints.json`; `restore` hard-resets, `diff` shows the stat.
 - **Compaction** — past a threshold the loop folds older turns into a digest so long sessions keep going.
