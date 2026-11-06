@@ -181,7 +181,7 @@ impl GoalDag {
 
     pub fn render(&self) -> String {
         if self.nodes.is_empty() {
-            return "(goal DAG is empty — add nodes with `xencode goal add`)".into();
+            return "(goal DAG is empty: add nodes with `xencode goal add`)".into();
         }
         self.nodes
             .iter()
@@ -191,7 +191,7 @@ impl GoalDag {
                 } else {
                     format!("  deps: {}", n.depends_on.join(","))
                 };
-                format!("[{:>8}] {} — {}{}", n.status.as_str(), n.id, n.title, deps)
+                format!("[{:>8}] {}: {}{}", n.status.as_str(), n.id, n.title, deps)
             })
             .collect::<Vec<_>>()
             .join("\n")

@@ -114,7 +114,7 @@ impl PermissionGate {
                     Decision::Allow
                 } else {
                     Decision::Deny(format!(
-                        "plan mode: `{tool}` is disabled — research the workspace, then present a numbered plan; switch out of plan mode to execute it"
+                        "plan mode: `{tool}` is disabled: research the workspace, then present a numbered plan; switch out of plan mode to execute it"
                     ))
                 }
             }

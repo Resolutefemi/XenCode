@@ -42,7 +42,7 @@ impl CheckpointStore {
     /// Create a checkpoint: stage everything except `.xencode`, commit, record.
     pub fn create(&self, label: &str, summary: &str) -> Result<Checkpoint, String> {
         if !gitx::is_git_repo(&self.root) {
-            return Err("not a git repository — `git init` the workspace to enable checkpoints".into());
+            return Err("not a git repository: `git init` the workspace to enable checkpoints".into());
         }
         let dirty = gitx::porcelain_status(&self.root).map_err(|e| e.to_string())?;
         if dirty.trim().is_empty() {

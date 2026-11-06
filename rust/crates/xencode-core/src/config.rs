@@ -87,7 +87,7 @@ impl PcConfig {
     pub fn validate(&self) -> Result<()> {
         if self.providers.is_empty() {
             return Err(XeError::Config(
-                "no providers configured — run `xencode config set-provider` or edit ~/.xencode/pc-config.json".into(),
+                "no providers configured: run `xencode config set-provider` or edit ~/.xencode/pc-config.json".into(),
             ));
         }
         let names: Vec<_> = self.providers.iter().map(|p| p.name.clone()).collect();

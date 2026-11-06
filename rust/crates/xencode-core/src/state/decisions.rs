@@ -103,7 +103,7 @@ impl DecisionStore {
         all.iter()
             .map(|c| match c.chosen_index {
                 Some(i) => format!("{}  [resolved: {}]  {}", c.id, c.options.get(i).map(|s| s.as_str()).unwrap_or("?"), c.title),
-                None => format!("{}  [PENDING]  {} — options: {}", c.id, c.title, c.options.join("/")),
+                None => format!("{}  [PENDING]  {}: options: {}", c.id, c.title, c.options.join("/")),
             })
             .collect::<Vec<_>>()
             .join("\n")

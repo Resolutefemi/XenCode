@@ -134,7 +134,7 @@ fn blockers_note(root: &Path, node_id: &str, reason: &str) {
     let dir = root.join(".xencode");
     let _ = std::fs::create_dir_all(&dir);
     let entry = format!(
-        "\n## {} — node {node_id}\n- {}\n",
+        "\n## {} · node {node_id}\n- {}\n",
         crate::state::sessions::fmt_ts(crate::now_ms()),
         reason.replace('\n', " ")
     );
@@ -152,7 +152,7 @@ pub async fn run_ready(workspace_root: &Path, parallel: usize) -> String {
     let mut dag = dag_file::load(workspace_root);
     if dag.nodes.is_empty() {
         log.emit_simple(evt::GOAL_INITIALIZED, Some("empty DAG"));
-        return "(goal DAG is empty — add nodes with `xencode goal add`)".into();
+        return "(goal DAG is empty, add nodes with `xencode goal add`)".into();
     }
     dag.refresh();
     let ready: Vec<_> = dag.ready_nodes().into_iter().cloned().collect();
@@ -209,10 +209,10 @@ pub async fn run_ready(workspace_root: &Path, parallel: usize) -> String {
                     serde_json::Value::Bool(true),
                 )]),
             );
-            lines.push(format!("DONE {} — {}", outcome.id, first_line(&outcome.detail)));
+            lines.push(format!("DONE {}: {}", outcome.id, first_line(&outcome.detail)));
         } else {
             let _ = dag.mark_failed(&outcome.id, Some(&outcome.detail));
-            lines.push(format!("FAILED {} — {}", outcome.id, first_line(&outcome.detail)));
+            lines.push(format!("FAILED {}: {}", outcome.id, first_line(&outcome.detail)));
         }
     }
     dag.refresh();

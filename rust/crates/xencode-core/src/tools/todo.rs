@@ -66,7 +66,7 @@ impl TodoStore {
                 "completed" => "✓",
                 _ => "·",
             };
-            out.push_str(&format!("{}. [{}] {} ({}) — {}\n", i + 1, t.priority, mark, t.status, t.content));
+            out.push_str(&format!("{}. [{}] {} ({}): {}\n", i + 1, t.priority, mark, t.status, t.content));
         }
         let done = items.iter().filter(|t| t.status == "completed").count();
         out.push_str(&format!("{}/{} completed", done, items.len()));

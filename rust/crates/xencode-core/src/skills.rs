@@ -153,7 +153,7 @@ mod tests {
         write_skill(
             &tmp.path().join(".xencode").join("skills"),
             "reviewer",
-            "No frontmatter — the folder name is the skill name.\n",
+            "No frontmatter: the folder name is the skill name.\n",
         );
         let store = SkillStore::new(tmp.path());
         let skills = store.list();

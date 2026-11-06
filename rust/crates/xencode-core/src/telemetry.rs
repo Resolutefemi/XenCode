@@ -274,7 +274,7 @@ impl Telemetry {
         let total = self.spec_radar.len();
         let green = self.spec_radar.values().filter(|v| **v == TestVerdict::Green).count();
         let mut out = format!(
-            "compile streak: {} (best {}) · radar: {green}/{total} GREEN · tests ↑{} ✗{}",
+            "compile streak: {} (best {}) · radar: {green}/{total} GREEN · tests +{} / -{}",
             self.compile_streak, self.best_compile_streak, self.tests_passed, self.tests_failed
         );
         let mut reds: Vec<_> = self.spec_radar.iter().filter(|(_, v)| **v == TestVerdict::Red).collect();

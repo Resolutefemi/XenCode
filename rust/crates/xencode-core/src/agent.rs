@@ -318,7 +318,7 @@ impl AgentSession {
                     }
                 }
                 return format!(
-                    "ERROR: permission required for `{name}` — rerun in yolo mode or approve interactively"
+                    "ERROR: permission required for `{name}`: rerun in yolo mode or approve interactively"
                 );
             }
             Decision::Allow => {}
@@ -435,7 +435,7 @@ pub fn session_from_config(
     let provider = cfg
         .active_provider()
         .cloned()
-        .ok_or_else(|| "no active provider — run `xencode config set-provider`".to_string())?;
+        .ok_or_else(|| "no active provider: run `xencode config set-provider`".to_string())?;
     let log = if with_events { Some(EventLog::new(workspace_root)) } else { None };
     // XP lands in the shared database (xp_events in aicode_agent_db) — the
     // same table the Android app writes; the legacy JSON ledger is imported
