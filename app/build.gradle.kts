@@ -459,6 +459,13 @@ dependencies {
     testImplementation("io.mockk:mockk:1.14.11")
     // XML layout renderer tests: XmlPullParserFactory needs a real implementation on the JVM (android.jar ships stubs only)
     testImplementation("net.sf.kxml:kxml2:2.3.0")
+    // Home-screen screenshot capture under Robolectric: renders the real Compose UI on the JVM (no emulator needed).
+    // captureToImage needs NATIVE graphics mode (Robolectric 4.10+) and the Compose test machinery.
+    testImplementation(composeBom)
+    testImplementation("androidx.compose.ui:ui-test-junit4")
+    // Hilt test infra: @HiltAndroidTest + HiltTestApplication so MainActivity's @AndroidEntryPoint graph resolves on the JVM
+    testImplementation("com.google.dagger:hilt-android-testing:2.56.1")
+    kspTest("com.google.dagger:hilt-compiler:2.56.1")
 }
 
 ksp {

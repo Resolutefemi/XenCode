@@ -22,6 +22,18 @@ A general-purpose AI coding agent on Android · Linux dev environment · Local &
 
 <div align="center">
 
+> **Home pages — mobile & PC (rendered from the real apps)**
+
+<p>
+  <img src="docs/screenshots/mobile-home.png" width="31%" alt="XenCode Android app — chat home" />
+  <img src="docs/screenshots/pc-home.png" width="63%" alt="XenCode PC desktop app — chat home" />
+  <br/><b>Android (Compose) · PC desktop (Rust/egui) — the same shared-DB brain on both</b>
+</p>
+
+</div>
+
+<div align="center">
+
 > **About this repository**
 > This project is a secondary-development fork of the original [jieapi/XenCode](https://github.com/jieapi/xencode); on top of the original project it adds a **Liquid Glass UI**, **AI todo task placement preferences**, a **floating glass title bar**, and more, and fixes container channel and performance issues.
 > The original project remains the copyright of its original author; this fork is open-sourced under the same [GPL-3.0](LICENSE) license.
@@ -201,7 +213,7 @@ Head to [GitHub Releases](https://github.com/Resolutefemi/XenCode/releases/lates
 
 XenCode ships beyond Android: the same goal-driven workflow on every desktop, plus a terminal-native CLI — both built in **Rust** with the full coding-agent feature set (streaming providers, permission-gated tools, MCP, hooks, subagents, checkpoints, sessions, `.mjs` automation via an embedded **rquickjs** engine, telemetry).
 
-**Desktop (Windows / macOS / Linux)** — a native `eframe`/egui app with chat streaming, the permission-gated tool loop (read/write/edit/glob/grep/run + MCP + `task` subagents), decision-card banners, a live Goal DAG board with the parallel swimlane runner, XP/streak & spec-radar telemetry, the `.mjs` Automation pane, decision-card resolution, a live event log, and provider management (OpenAI-compatible, native Anthropic, native Gemini). The window and taskbar icon is the XenCode mark on every OS — CI packages `deb` (Linux), `zip` (Windows) and a signed-layout `.app` bundle (macOS) from the same commit.
+**Desktop (Windows / macOS / Linux)** — a native `eframe`/egui app with chat streaming, the permission-gated tool loop (read/write/edit/glob/grep/run + MCP + `task` subagents), decision-card banners, a live Goal DAG board with the parallel swimlane runner, XP/streak & spec-radar telemetry, the `.mjs` Automation pane, decision-card resolution, a live event log, and provider management (OpenAI-compatible, native Anthropic, native Gemini). The **🕘 Sessions picker** lists recent shared-DB sessions (title · mode · recency · tokens) — pick any conversation created on the phone or the PC and its rows rebound as the transcript. The window and taskbar icon is the XenCode mark on every OS — CI packages `deb` (Linux), `zip` (Windows) and a signed-layout `.app` bundle (macOS) from the same commit.
 
 **CLI** — a single static binary with the same brain and the full command surface:
 
@@ -236,6 +248,8 @@ cargo test --workspace                         # 86-check verification gate
 ```
 
 CI (`.github/workflows/pc.yml`) builds and packages the CLI for all three operating systems and the desktop app (`deb` / `zip` / `.app`) on every push to the PC line; tag `pc-v*` publishes a full release.
+
+The home-page captures in the Preview section are generated from the real apps: the desktop shot comes from the running `xencode-desktop` binary, and the mobile shot is rendered on the JVM by `HomeScreenshotTest` (Robolectric + Compose `captureToImage`, no emulator) — CI keeps it reproducible by running that test and uploading the PNG as a workflow artifact.
 
 ## Project Structure
 

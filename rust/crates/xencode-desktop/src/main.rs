@@ -115,6 +115,10 @@ struct XenApp {
     settings_note: String,
     status: String,
     chat_note: String,
+    /// Row-sync session picker: popup open flag + cached recent shared-DB sessions
+    /// (id, title, mode, updated_at, tokens) refreshed every time the picker opens.
+    sessions_open: bool,
+    cached_sessions: Vec<(String, String, String, i64, i64)>,
 }
 
 impl XenApp {
@@ -135,6 +139,8 @@ impl XenApp {
             settings_note: String::new(),
             status: "idle".into(),
             chat_note: String::new(),
+            sessions_open: false,
+            cached_sessions: vec![],
         }
     }
 
@@ -349,8 +355,61 @@ impl XenApp {
                 if resume.clicked() {
                     self.resume_latest();
                 }
+                let picker = ui
+                    .button("🕘 Sessions ▾")
+                    .on_hover_text(
+                        "Row sync in: pick ANY session from the shared DB (created on the phone or the PC) \
+                         and continue its rows here",
+                    );
+                if picker.clicked() {
+                    self.cached_sessions = self
+                        .persister
+                        .as_ref()
+                        .map(|p| {
+                            p.recent_sessions(12)
+                                .into_iter()
+                                .map(|s| {
+                                    (
+                                        s.id,
+                                        s.title,
+                                        s.mode,
+                                        s.updated_at,
+                                        s.total_input_tokens + s.total_output_tokens,
+                                    )
+                                })
+                                .collect()
+                        })
+                        .unwrap_or_default();
+                    self.sessions_open = !self.sessions_open;
+                }
             });
         });
+
+        // Shared-DB session picker (row sync in): list recent sessions with title,
+        // mode, recency and tokens; clicking one adopts its rows as the transcript.
+        if self.sessions_open {
+            let sessions = self.cached_sessions.clone();
+            egui::Frame::group(ui.style()).show(ui, |ui| {
+                ui.set_min_width(ui.available_width());
+                if sessions.is_empty() {
+                    ui.label("no sessions in the shared database yet");
+                } else {
+                    for (id, title, mode, updated_at, tokens) in &sessions {
+                        let label = format!(
+                            "💬 {title} — {mode} · {} · {} tokens",
+                            fmt_age(*updated_at),
+                            tokens
+                        );
+                        if ui.selectable_label(false, label).clicked() {
+                            let id = id.clone();
+                            self.sessions_open = false;
+                            self.resume_session(&id);
+                        }
+                    }
+                }
+            });
+            ui.add_space(4.0);
+        }
 
         if self.mode == PermissionMode::Plan {
             egui::CollapsingHeader::new("🗓 Plan mode — XenCode will research and propose a plan, not edit files")
@@ -448,6 +507,27 @@ impl XenApp {
             self.chat_note = "no sessions in the shared database yet".into();
             return;
         };
+        self.bind_resumed(resumed);
+    }
+
+    /// Row sync in: adopt a specific shared-DB session (picked in the Sessions
+    /// list) — its rows become the transcript and the next turns append to the
+    /// same `chat_sessions`/`agent_messages` rows, on phone or PC.
+    fn resume_session(&mut self, id: &str) {
+        let Some(p) = self.persister.clone() else {
+            self.chat_note = "shared database unavailable — chat works, but nothing is persisted".into();
+            return;
+        };
+        let Some(resumed) = p.session_by_id(id) else {
+            self.chat_note = format!("session `{id}` not found in the shared database");
+            return;
+        };
+        self.bind_resumed(resumed);
+    }
+
+    /// Adopts a loaded session: replay its rows into the chat log and hand the
+    /// worker the session id so persistence continues on the same rows.
+    fn bind_resumed(&mut self, resumed: xencode_core::store::chatlog::ResumedSession) {
         self.chat_log.clear();
         for row in &resumed.rows {
             if row.is_compacted || row.is_context_summary || row.is_compaction_marker || row.is_context_excluded {
@@ -686,5 +766,28 @@ fn thumbnail(
                 .max_width(320.0)
                 .rounding(6.0),
         );
+    }
+}
+
+/// Renders a session's `updated_at` (Room stores epoch millis; older rows may
+/// carry seconds) as a compact relative age for the Sessions picker.
+fn fmt_age(value: i64) -> String {
+    if value <= 0 {
+        return "—".into();
+    }
+    let millis = if value > 1_000_000_000_000 { value } else { value * 1000 };
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_millis() as i64)
+        .unwrap_or(millis);
+    let secs = ((now - millis) / 1000).max(0);
+    if secs < 60 {
+        format!("{secs}s ago")
+    } else if secs < 3600 {
+        format!("{}m ago", secs / 60)
+    } else if secs < 86_400 {
+        format!("{}h ago", secs / 3600)
+    } else {
+        format!("{}d ago", secs / 86_400)
     }
 }

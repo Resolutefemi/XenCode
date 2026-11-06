@@ -110,3 +110,15 @@ jobs:
       # running all 6 flavor variants would just recompile the same code for no extra coverage.
       - name: Run unit tests
         run: ./gradlew :app:testUniversalDebugUnitTest
+
+      # Home-page screenshot artifact: HomeScreenshotTest (part of the unit tests above)
+      # renders the real MainActivity under Robolectric (Compose captureToImage, no emulator)
+      # and saves the capture to the temp dir; publish it so docs/screenshots/mobile-home.png
+      # can be refreshed from a reproducible CI run.
+      - name: Upload mobile home-page screenshot
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: mobile-home-${{ github.sha }}
+          path: /tmp/xencode-mobile-home.png
+          if-no-files-found: ignore
