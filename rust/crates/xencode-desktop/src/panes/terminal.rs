@@ -3,7 +3,7 @@
 //! tracked working directory; `cd` is handled locally.
 
 use crate::theme::palette;
-use egui::{Color32, FontId, Ui};
+use eframe::egui::{Color32, FontId, Ui};
 use std::process::{Command, Stdio};
 use std::sync::mpsc::{channel, Receiver, Sender};
 use std::thread;
@@ -40,7 +40,7 @@ impl TerminalPane {
             cwd: workspace.to_string(),
             lines: vec![TermLine {
                 text: format!("XenCode terminal · {} · type a command", workspace),
-                color: palette::ON_SURFACE_VARIANT,
+                color: palette::on_surface_variant(),
             }],
             input: String::new(),
             history: Vec::new(),
@@ -76,7 +76,7 @@ impl TerminalPane {
         self.history_idx = None;
         self.lines.push(TermLine {
             text: format!("{} {}", self.prompt(), cmdline),
-            color: palette::PRIMARY,
+            color: palette::primary(),
         });
 
         // Builtins.
@@ -138,7 +138,7 @@ impl TerminalPane {
             Ok(path) => self.cwd = path.to_string_lossy().into_owned(),
             Err(_) => self.lines.push(TermLine {
                 text: format!("cd: no such directory: {target}"),
-                color: palette::ERROR,
+                color: palette::error(),
             }),
         }
     }
@@ -150,7 +150,7 @@ impl TerminalPane {
                     for line in text.lines() {
                         self.lines.push(TermLine {
                             text: line.to_string(),
-                            color: palette::ON_BACKGROUND,
+                            color: palette::on_background(),
                         });
                     }
                 }
@@ -158,7 +158,7 @@ impl TerminalPane {
                     if code != 0 {
                         self.lines.push(TermLine {
                             text: format!("exit code {code}"),
-                            color: palette::ERROR,
+                            color: palette::error(),
                         });
                     }
                     self.busy = false;
@@ -166,7 +166,7 @@ impl TerminalPane {
                 TermMsg::Failed(err) => {
                     self.lines.push(TermLine {
                         text: format!("error: {err}"),
-                        color: palette::ERROR,
+                        color: palette::error(),
                     });
                     self.busy = false;
                 }
@@ -178,28 +178,28 @@ impl TerminalPane {
         self.drain();
 
         // Scrollback.
-        egui::ScrollArea::vertical()
+        eframe::egui::ScrollArea::vertical()
             .stick_to_bottom(true)
             .id_salt("terminal_scroll")
             .show(ui, |ui| {
-                egui::Frame::default()
-                    .fill(palette::CODE_BG)
-                    .rounding(egui::Rounding::same(6.0))
-                    .inner_margin(egui::Margin::same(8.0))
+                eframe::egui::Frame::default()
+                    .fill(palette::code_bg())
+                    .rounding(eframe::egui::Rounding::same(6.0))
+                    .inner_margin(eframe::egui::Margin::same(8.0))
                     .show(ui, |ui| {
                         ui.set_width(ui.available_width());
                         ui.style_mut().override_font_id = Some(FontId::monospace(11.5));
                         for line in &self.lines {
                             ui.add(
-                                egui::Label::new(
-                                    egui::RichText::new(line.text.as_str()).color(line.color),
+                                eframe::egui::Label::new(
+                                    eframe::egui::RichText::new(line.text.as_str()).color(line.color),
                                 )
                                 .truncate()
                                 .selectable(true),
                             );
                         }
                         if self.busy {
-                            ui.colored_label(palette::WARNING, "...running");
+                            ui.colored_label(palette::warning(), "...running");
                         }
                     });
             });
@@ -209,21 +209,21 @@ impl TerminalPane {
         // Input.
         ui.horizontal(|ui| {
             ui.style_mut().override_font_id = Some(FontId::monospace(11.5));
-            ui.colored_label(palette::PRIMARY, self.prompt());
+            ui.colored_label(palette::primary(), self.prompt());
             let resp = ui.add(
-                egui::TextEdit::singleline(&mut self.input)
+                eframe::egui::TextEdit::singleline(&mut self.input)
                     .hint_text(if self.busy { "running..." } else { "command" })
                     .desired_width(ui.available_width() - 60.0)
                     .interactive(!self.busy),
             );
-            if resp.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter)) && !self.busy {
+            if resp.lost_focus() && ui.input(|i| i.key_pressed(eframe::egui::Key::Enter)) && !self.busy {
                 let cmd = std::mem::take(&mut self.input);
                 self.run(&cmd);
                 resp.request_focus();
             }
             // History recall.
             if resp.has_focus() {
-                if ui.input(|i| i.key_pressed(egui::Key::ArrowUp)) && !self.history.is_empty() {
+                if ui.input(|i| i.key_pressed(eframe::egui::Key::ArrowUp)) && !self.history.is_empty() {
                     let idx = self
                         .history_idx
                         .map(|i| i.saturating_sub(1))
@@ -231,7 +231,7 @@ impl TerminalPane {
                     self.history_idx = Some(idx);
                     self.input = self.history[idx].clone();
                 }
-                if ui.input(|i| i.key_pressed(egui::Key::ArrowDown)) {
+                if ui.input(|i| i.key_pressed(eframe::egui::Key::ArrowDown)) {
                     if let Some(idx) = self.history_idx {
                         if idx + 1 < self.history.len() {
                             self.history_idx = Some(idx + 1);

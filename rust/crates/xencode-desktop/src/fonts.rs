@@ -47,7 +47,8 @@ pub fn install(ctx: &eframe::egui::Context) {
 
     // Proportional: Noto Sans SC first (the Linux entry of the ZCode
     // --font-sans stack, replaces egui's bundled Ubuntu-Light), DejaVu
-    // appended as the symbol fallback.
+    // appended as the symbol fallback, then egui's bundled emoji/symbol
+    // faces for anything the system fonts miss.
     let prop = fonts.families.entry(FontFamily::Proportional).or_default();
     prop.clear();
     if has_sc {
@@ -56,6 +57,8 @@ pub fn install(ctx: &eframe::egui::Context) {
     if has_dejavu {
         prop.push("XenDejaVu".into());
     }
+    prop.push("NotoEmoji-Regular".into());
+    prop.push("emoji-icon-font".into());
 
     // Bold family: Noto Sans SC Bold with DejaVu Bold fallback.
     fonts.families.insert(FontFamily::Name("XenBold".into()), {

@@ -164,6 +164,9 @@ impl Palette {
         }
         over(self.user_message_bubble(), self.background())
     }
+    pub fn panel(self) -> egui::Color32 {
+        if self.dark() { tokens::dark::color_panel() } else { tokens::light::color_panel() }
+    }
     pub fn header(self) -> egui::Color32 {
         if self.dark() { tokens::dark::color_header() } else { tokens::light::color_header() }
     }
@@ -183,6 +186,7 @@ impl Palette {
 
 /// Install the ZCode design system into the egui context.
 pub fn install(ctx: &egui::Context, mode: Mode) {
+    CURRENT_MODE.store(mode as u8 == Mode::Dark as u8, std::sync::atomic::Ordering::SeqCst);
     let p = Palette { mode };
     let mut style = (*ctx.style()).clone();
 
@@ -222,4 +226,79 @@ pub fn install(ctx: &egui::Context, mode: Mode) {
     style.visuals.dark_mode = mode == Mode::Dark;
     style.visuals.override_text_color = Some(p.foreground());
     ctx.set_style(style);
+}
+
+/// Active dark flag for the compatibility layer below (kept in sync by
+/// `install`, which runs at startup and on every theme toggle).
+static CURRENT_MODE: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(true);
+
+fn compat() -> Palette {
+    Palette {
+        mode: if CURRENT_MODE.load(std::sync::atomic::Ordering::SeqCst) {
+            Mode::Dark
+        } else {
+            Mode::Light
+        },
+    }
+}
+
+/// Mode-resolved color statics: the panes module predates the semantic
+/// `Palette` and reads constants; each resolves lazily through the active
+/// mode so both themes stay token-exact.
+/// Mode-resolved colors: the panes module predates the semantic
+/// `Palette` and calls constants; each resolves through the active mode so
+/// both themes stay token-exact.
+pub mod palette {
+    fn p() -> super::Palette {
+        super::compat()
+    }
+
+    /// Text on a primary-filled control.
+    pub fn on_primary() -> eframe::egui::Color32 { p().primary_foreground() }
+    pub fn primary() -> eframe::egui::Color32 { p().primary() }
+    /// Muted container surface (tags, chips).
+    pub fn surface_variant() -> eframe::egui::Color32 { p().tag() }
+    pub fn on_surface_variant() -> eframe::egui::Color32 { p().foreground_subtle() }
+    pub fn on_background() -> eframe::egui::Color32 { p().foreground() }
+    pub fn error() -> eframe::egui::Color32 { p().destructive() }
+    pub fn warning() -> eframe::egui::Color32 { p().warning() }
+    pub fn code_bg() -> eframe::egui::Color32 { p().tag() }
+    pub fn primary_container() -> eframe::egui::Color32 { p().selected() }
+    pub fn on_primary_container() -> eframe::egui::Color32 { p().foreground() }
+    pub fn link() -> eframe::egui::Color32 { p().brand() }
+    pub fn diff_del() -> eframe::egui::Color32 { p().destructive() }
+    pub fn diff_add() -> eframe::egui::Color32 { p().success() }
+}
+
+
+/// Font families used by the panes (real-bold companion from fonts.rs).
+pub mod families {
+    pub fn bold() -> eframe::egui::FontFamily {
+        eframe::egui::FontFamily::Name("xen-bold".into())
+    }
+}
+
+/// Rounded pill label (old theme API, kept for the panes).
+pub fn chip(ui: &mut eframe::egui::Ui, text: &str, fg: eframe::egui::Color32, bg: eframe::egui::Color32) {
+    eframe::egui::Frame::default()
+        .fill(bg)
+        .rounding(eframe::egui::Rounding::same(20.0))
+        .inner_margin(eframe::egui::Margin::symmetric(8.0, 3.0))
+        .show(ui, |ui| {
+            ui.style_mut().override_font_id =
+                Some(eframe::egui::FontId::proportional(11.0));
+            ui.colored_label(fg, text);
+        });
+}
+
+/// Uppercase small-caps section title (old theme API, kept for the panes).
+pub fn section_header(ui: &mut eframe::egui::Ui, text: &str) {
+    ui.add_space(4.0);
+    ui.style_mut().override_font_id =
+        Some(eframe::egui::FontId::proportional(11.0));
+    ui.colored_label(
+        compat().foreground_subtle(),
+        text.to_uppercase(),
+    );
+    ui.add_space(2.0);
 }

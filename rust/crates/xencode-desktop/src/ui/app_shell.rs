@@ -16,6 +16,12 @@ pub(crate) fn show(app: &mut XenApp, ctx: &egui::Context) {
         sidebar::show(app, ctx);
     }
 
+    // Right dock first: SidePanels claim their edge before the main view,
+    // so the conversation reflows instead of sliding under the dock.
+    if app.dock.open {
+        dock_panel(app, ctx);
+    }
+
     // Main view (ZCode `<main class="flex h-full min-h-0 flex-1 flex-col
     // bg-background">`): the conversation workspace or a tool page.
     match app.pane {
@@ -134,6 +140,38 @@ fn top_overlay(app: &mut XenApp, ctx: &egui::Context) {
             if theme_resp.clicked() {
                 app.dark = !app.dark;
                 app.apply_theme(ctx);
+            }
+
+            // Dock toggles (Git / Terminal / Files) left of the theme toggle:
+            // ZCode resizable side panes; clicking the active tab closes it.
+            let dock_glyphs = [
+                (crate::panes::DockTab::Git, "\u{2387}"),
+                (crate::panes::DockTab::Terminal, ">_"),
+                (crate::panes::DockTab::Files, "\u{25A4}"),
+            ];
+            let mut cx = theme_r.left() - 8.0 - 14.0;
+            for (tab, glyph) in dock_glyphs {
+                let r = egui::Rect::from_center_size(egui::pos2(cx, cy), egui::vec2(28.0, 28.0));
+                let active = app.dock.open && app.dock.tab == tab;
+                let resp = ui.interact(r, egui::Id::new(format!("dock_{:?}", tab)), egui::Sense::click());
+                if resp.hovered() || active {
+                    ui.painter().rect_filled(r, 6.0, if active { p.selected() } else { p.hover() });
+                }
+                ui.painter().text(
+                    r.center(),
+                    egui::Align2::CENTER_CENTER,
+                    glyph,
+                    egui::FontId::proportional(13.0),
+                    if active { p.foreground() } else { p.foreground_subtle() },
+                );
+                if resp.clicked() {
+                    if active {
+                        app.dock.open = false;
+                    } else {
+                        app.dock.open_tab(tab);
+                    }
+                }
+                cx -= 32.0;
             }
 
             // Hairline bottom border.
@@ -272,4 +310,61 @@ fn menu_model(app: &mut XenApp, ui: &mut egui::Ui, p: Palette) {
             app.open_menu = None;
         }
     }
+}
+
+/// The right dock panel: tab header + Git/Terminal/Files content
+/// (ZCode resizable side panes on --color-panel).
+fn dock_panel(app: &mut XenApp, ctx: &egui::Context) {
+    let p = app.palette();
+    egui::SidePanel::right("dock")
+        .resizable(true)
+        .default_width(340.0)
+        .min_width(240.0)
+        .frame(egui::Frame::none().fill(p.panel()))
+        .show_separator_line(false)
+        .show(ctx, |ui| {
+            let rect = ui.max_rect();
+            let header = egui::Rect::from_min_size(rect.left_top(), egui::vec2(rect.width(), 32.0));
+            ui.painter().text(
+                egui::pos2(header.left() + 12.0, header.center().y),
+                egui::Align2::LEFT_CENTER,
+                app.dock.tab.label(),
+                egui::FontId::proportional(theme::text::SM),
+                p.foreground_subtle(),
+            );
+            let close_r = egui::Rect::from_center_size(
+                egui::pos2(header.right() - 16.0, header.center().y),
+                egui::vec2(20.0, 20.0),
+            );
+            let close = ui.interact(close_r, egui::Id::new("dock_close"), egui::Sense::click());
+            if close.hovered() {
+                ui.painter().rect_filled(close_r, 5.0, p.hover());
+            }
+            ui.painter().text(
+                close_r.center(),
+                egui::Align2::CENTER_CENTER,
+                "✕",
+                egui::FontId::proportional(10.0),
+                p.foreground_subtlest(),
+            );
+            if close.clicked() {
+                app.dock.open = false;
+            }
+            ui.painter().line_segment(
+                [header.left_bottom(), header.right_bottom()],
+                crate::ui::hairline(p),
+            );
+            let body = egui::Rect::from_min_max(
+                egui::pos2(rect.left(), header.bottom()),
+                rect.right_bottom(),
+            );
+            ui.allocate_rect(body, egui::Sense::hover());
+            let mut dock_ui = egui::Ui::new(
+                ui.ctx().clone(),
+                egui::LayerId::new(egui::Order::Background, egui::Id::new("dock_body")),
+                egui::Id::new("dock_body_ui"),
+                egui::UiBuilder::new().max_rect(body),
+            );
+            crate::panes::dock_ui(&mut dock_ui, &mut app.dock);
+        });
 }

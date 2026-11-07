@@ -1,7 +1,7 @@
 //! Files side pane: an expandable workspace tree with kind + size info.
 
 use crate::theme::palette;
-use egui::{FontId, Ui};
+use eframe::egui::{FontId, Ui};
 use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 
@@ -26,8 +26,8 @@ impl FilesPane {
         let root = PathBuf::from(&self.workspace);
         ui.horizontal(|ui| {
             ui.style_mut().override_font_id = Some(FontId::proportional(11.0));
-            ui.colored_label(palette::ON_SURFACE_VARIANT, self.workspace.clone());
-            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+            ui.colored_label(palette::on_surface_variant(), self.workspace.clone());
+            ui.with_layout(eframe::egui::Layout::right_to_left(eframe::egui::Align::Center), |ui| {
                 if ui.small_button("Collapse").clicked() {
                     self.expanded.clear();
                 }
@@ -35,7 +35,7 @@ impl FilesPane {
         });
         ui.separator();
 
-        egui::ScrollArea::vertical()
+        eframe::egui::ScrollArea::vertical()
             .id_salt("files_scroll")
             .show(ui, |ui| {
                 self.dir_ui(ui, &root, 0);
@@ -44,11 +44,11 @@ impl FilesPane {
         ui.separator();
         ui.style_mut().override_font_id = Some(FontId::monospace(10.5));
         if let Some(sel) = &self.selected {
-            ui.colored_label(palette::ON_SURFACE_VARIANT, sel.to_string_lossy().as_ref());
-            ui.colored_label(palette::PRIMARY, &self.selected_info);
+            ui.colored_label(palette::on_surface_variant(), sel.to_string_lossy().as_ref());
+            ui.colored_label(palette::primary(), &self.selected_info);
         } else {
             ui.colored_label(
-                palette::ON_SURFACE_VARIANT,
+                palette::on_surface_variant(),
                 "select a file to see its details",
             );
         }
@@ -85,11 +85,11 @@ impl FilesPane {
             let selected = self.selected.as_deref() == Some(path.as_path());
 
             let frame = if selected {
-                egui::Frame::default()
-                    .fill(palette::SURFACE_VARIANT)
-                    .rounding(egui::Rounding::same(6.0))
+                eframe::egui::Frame::default()
+                    .fill(palette::surface_variant())
+                    .rounding(eframe::egui::Rounding::same(6.0))
             } else {
-                egui::Frame::default()
+                eframe::egui::Frame::default()
             };
             let resp = frame
                 .show(ui, |ui| {
@@ -103,14 +103,14 @@ impl FilesPane {
                             } else {
                                 crate::icons::glyph::CHEVRON_RIGHT
                             };
-                            ui.colored_label(palette::PRIMARY, arrow);
-                            ui.colored_label(palette::ON_BACKGROUND, name);
+                            ui.colored_label(palette::primary(), arrow);
+                            ui.colored_label(palette::on_background(), name);
                         } else {
                             ui.colored_label(
-                                palette::ON_SURFACE_VARIANT,
+                                palette::on_surface_variant(),
                                 crate::icons::glyph::FILE,
                             );
-                            ui.colored_label(palette::ON_SURFACE_VARIANT, name);
+                            ui.colored_label(palette::on_surface_variant(), name);
                         }
                     });
                 })

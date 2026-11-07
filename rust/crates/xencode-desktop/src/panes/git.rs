@@ -2,7 +2,7 @@
 //! per-file diff and the recent log. All git calls run on a worker thread.
 
 use crate::theme::{self, palette};
-use egui::{FontId, Ui};
+use eframe::egui::{FontId, Ui};
 use std::process::{Command, Stdio};
 use std::sync::mpsc::{channel, Receiver, Sender};
 use std::thread;
@@ -234,27 +234,27 @@ impl GitPane {
 
         // Header: branch + ahead/behind + refresh.
         ui.horizontal(|ui| {
-            ui.colored_label(palette::PRIMARY, crate::icons::glyph::GIT_BRANCH);
+            ui.colored_label(palette::primary(), crate::icons::glyph::GIT_BRANCH);
             ui.style_mut().override_font_id =
                 Some(FontId::new(13.0, crate::theme::families::bold()));
-            ui.colored_label(palette::ON_BACKGROUND, self.branch.clone());
+            ui.colored_label(palette::on_background(), self.branch.clone());
             if self.ahead > 0 {
                 theme::chip(
                     ui,
                     &format!("↑{}", self.ahead),
-                    palette::ON_PRIMARY_CONTAINER,
-                    palette::PRIMARY_CONTAINER,
+                    palette::on_primary_container(),
+                    palette::primary_container(),
                 );
             }
             if self.behind > 0 {
                 theme::chip(
                     ui,
                     &format!("↓{}", self.behind),
-                    palette::ON_SURFACE_VARIANT,
-                    palette::SURFACE_VARIANT,
+                    palette::on_surface_variant(),
+                    palette::surface_variant(),
                 );
             }
-            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+            ui.with_layout(eframe::egui::Layout::right_to_left(eframe::egui::Align::Center), |ui| {
                 if ui.small_button(crate::icons::glyph::SYNC).clicked() {
                     self.request_refresh();
                 }
@@ -262,7 +262,7 @@ impl GitPane {
         });
         if let Some(err) = &self.last_error {
             ui.style_mut().override_font_id = Some(FontId::proportional(11.0));
-            ui.colored_label(palette::ERROR, format!("git: {err}"));
+            ui.colored_label(palette::error(), format!("git: {err}"));
         }
         ui.add_space(4.0);
 
@@ -273,12 +273,12 @@ impl GitPane {
             if ui
                 .add_enabled(
                     enabled,
-                    egui::Button::new(
-                        egui::RichText::new("Commit")
-                            .color(palette::ON_PRIMARY)
+                    eframe::egui::Button::new(
+                        eframe::egui::RichText::new("Commit")
+                            .color(palette::on_primary())
                             .strong(),
                     )
-                    .fill(palette::PRIMARY),
+                    .fill(palette::primary()),
                 )
                 .clicked()
             {
@@ -305,18 +305,18 @@ impl GitPane {
             }
         });
         ui.add(
-            egui::TextEdit::singleline(&mut self.commit_msg)
+            eframe::egui::TextEdit::singleline(&mut self.commit_msg)
                 .hint_text("Commit message")
                 .desired_width(ui.available_width()),
         );
         ui.add_space(6.0);
 
         // File lists.
-        egui::ScrollArea::vertical().show(ui, |ui| {
+        eframe::egui::ScrollArea::vertical().show(ui, |ui| {
             theme::section_header(ui, &format!("Staged ({})", self.staged.len()));
             if self.staged.is_empty() {
                 ui.style_mut().override_font_id = Some(FontId::proportional(11.5));
-                ui.colored_label(palette::ON_SURFACE_VARIANT, "nothing staged");
+                ui.colored_label(palette::on_surface_variant(), "nothing staged");
             }
             let staged_files: Vec<GitFile> = self.staged.clone();
             for f in &staged_files {
@@ -326,7 +326,7 @@ impl GitPane {
             theme::section_header(ui, &format!("Changes ({})", self.unstaged.len()));
             if self.unstaged.is_empty() {
                 ui.style_mut().override_font_id = Some(FontId::proportional(11.5));
-                ui.colored_label(palette::ON_SURFACE_VARIANT, "working tree clean");
+                ui.colored_label(palette::on_surface_variant(), "working tree clean");
             }
             let unstaged_files: Vec<GitFile> = self.unstaged.clone();
             for f in &unstaged_files {
@@ -335,26 +335,26 @@ impl GitPane {
 
             if !self.diff.is_empty() || !self.diff_title.is_empty() {
                 theme::section_header(ui, &self.diff_title);
-                egui::Frame::default()
-                    .fill(palette::CODE_BG)
-                    .rounding(egui::Rounding::same(6.0))
-                    .inner_margin(egui::Margin::same(8.0))
+                eframe::egui::Frame::default()
+                    .fill(palette::code_bg())
+                    .rounding(eframe::egui::Rounding::same(6.0))
+                    .inner_margin(eframe::egui::Margin::same(8.0))
                     .show(ui, |ui| {
                         ui.set_width(ui.available_width());
                         ui.style_mut().override_font_id = Some(FontId::monospace(11.0));
                         for line in self.diff.lines().take(400) {
                             let color = if line.starts_with('+') {
-                                palette::DIFF_ADD
+                                palette::diff_add()
                             } else if line.starts_with('-') {
-                                palette::DIFF_DEL
+                                palette::diff_del()
                             } else if line.starts_with("@@") {
-                                palette::LINK
+                                palette::link()
                             } else {
-                                palette::ON_SURFACE_VARIANT
+                                palette::on_surface_variant()
                             };
                             ui.add(
-                                egui::Label::new(
-                                    egui::RichText::new(line.to_string()).color(color),
+                                eframe::egui::Label::new(
+                                    eframe::egui::RichText::new(line.to_string()).color(color),
                                 )
                                 .truncate()
                                 .selectable(true),
@@ -368,10 +368,10 @@ impl GitPane {
                 ui.style_mut().override_font_id = Some(FontId::monospace(11.0));
                 let (sha, rest) = line.split_once(' ').unwrap_or((line.as_str(), ""));
                 ui.horizontal(|ui| {
-                    ui.colored_label(palette::PRIMARY, sha.to_string());
+                    ui.colored_label(palette::primary(), sha.to_string());
                     ui.add(
-                        egui::Label::new(
-                            egui::RichText::new(rest).color(palette::ON_SURFACE_VARIANT),
+                        eframe::egui::Label::new(
+                            eframe::egui::RichText::new(rest).color(palette::on_surface_variant()),
                         )
                         .truncate(),
                     );
@@ -382,31 +382,31 @@ impl GitPane {
 
     fn file_row(&mut self, ui: &mut Ui, f: &GitFile, staged: bool) {
         let selected = self.selected.as_deref() == Some(f.path.as_str());
-        let resp = egui::Frame::default()
+        let resp = eframe::egui::Frame::default()
             .fill(if selected {
-                palette::SURFACE_VARIANT
+                palette::surface_variant()
             } else {
-                egui::Color32::TRANSPARENT
+                eframe::egui::Color32::TRANSPARENT
             })
-            .rounding(egui::Rounding::same(6.0))
-            .inner_margin(egui::Margin::symmetric(6.0, 4.0))
+            .rounding(eframe::egui::Rounding::same(6.0))
+            .inner_margin(eframe::egui::Margin::symmetric(6.0, 4.0))
             .show(ui, |ui| {
                 ui.set_width(ui.available_width());
                 ui.horizontal(|ui| {
                     let badge_color = if f.is_untracked() {
-                        palette::ON_SURFACE_VARIANT
+                        palette::on_surface_variant()
                     } else {
-                        palette::WARNING
+                        palette::warning()
                     };
-                    theme::chip(ui, &f.status_label(), badge_color, palette::SURFACE_VARIANT);
+                    theme::chip(ui, &f.status_label(), badge_color, palette::surface_variant());
                     ui.style_mut().override_font_id = Some(FontId::monospace(11.5));
                     ui.add(
-                        egui::Label::new(
-                            egui::RichText::new(f.path.as_str()).color(palette::ON_BACKGROUND),
+                        eframe::egui::Label::new(
+                            eframe::egui::RichText::new(f.path.as_str()).color(palette::on_background()),
                         )
                         .truncate(),
                     );
-                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                    ui.with_layout(eframe::egui::Layout::right_to_left(eframe::egui::Align::Center), |ui| {
                         if ui.small_button("diff").clicked() {
                             self.request_diff(&f.path, staged);
                         }

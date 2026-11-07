@@ -5,7 +5,7 @@ pub mod git;
 pub mod terminal;
 
 use crate::theme::palette;
-use egui::Ui;
+use eframe::egui::Ui;
 
 /// Which dock tab is active.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -63,19 +63,19 @@ pub fn dock_ui(ui: &mut Ui, state: &mut DockState) {
         for tab in DockTab::ALL {
             let selected = state.tab == tab;
             let label = if selected {
-                egui::RichText::new(tab.label())
-                    .color(palette::ON_PRIMARY)
+                eframe::egui::RichText::new(tab.label())
+                    .color(palette::on_primary())
                     .strong()
             } else {
-                egui::RichText::new(tab.label()).color(palette::ON_SURFACE_VARIANT)
+                eframe::egui::RichText::new(tab.label()).color(palette::on_surface_variant())
             };
             if ui
                 .add(
-                    egui::Button::new(label)
+                    eframe::egui::Button::new(label)
                         .fill(if selected {
-                            palette::PRIMARY
+                            palette::primary()
                         } else {
-                            palette::SURFACE_VARIANT
+                            palette::surface_variant()
                         })
                         .small(),
                 )
@@ -87,7 +87,7 @@ pub fn dock_ui(ui: &mut Ui, state: &mut DockState) {
                 }
             }
         }
-        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+        ui.with_layout(eframe::egui::Layout::right_to_left(eframe::egui::Align::Center), |ui| {
             if ui.small_button("✕").clicked() {
                 state.open = false;
             }

@@ -21,7 +21,7 @@ pub mod glyph {
     pub const PLUG: &str = "\u{25CF}"; // ● mcp
     pub const LIST: &str = "\u{2630}"; // ☰ todo
     pub const FILE: &str = "\u{2022}";
-    pub const GIT_BRANCH: &str = "\u{2442}"; // ⑂
+    pub const GIT_BRANCH: &str = "\u{2387}"; // ⎇
     pub const PLUS: &str = "+";
     pub const MINUS: &str = "\u{2212}"; // −
     pub const GEAR: &str = "\u{2699}"; // ⚙
@@ -91,11 +91,7 @@ impl ToolKind {
             ToolKind::Edit
         } else if lower.contains("write") {
             ToolKind::Write
-        } else if lower.contains("bash")
-            || lower.contains("exec")
-            || lower.contains("run")
-            || lower.contains("command")
-        {
+        } else if lower.contains("bash") || lower.contains("exec") || lower.contains("run") || lower.contains("command") {
             ToolKind::Execute
         } else if lower.contains("grep") || lower.contains("search") || lower.contains("find") {
             ToolKind::Search

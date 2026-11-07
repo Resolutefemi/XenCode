@@ -17,6 +17,8 @@
 
 mod cloud;
 mod fonts;
+mod icons;
+mod panes;
 mod theme;
 mod ui;
 
@@ -41,6 +43,16 @@ fn main() -> eframe::Result<()> {
         .map(PathBuf::from)
         .unwrap_or_else(|_| std::env::current_dir().unwrap_or_else(|_| PathBuf::from(".")));
     let tour = std::env::var("XENCODE_UI_TOUR").map(PathBuf::from).ok();
+    // --pane <git|terminal|files>: open the right dock on a tab at launch.
+    let start_pane = std::env::args()
+        .position(|a| a == "--pane")
+        .and_then(|i| std::env::args().nth(i + 1))
+        .and_then(|v| match v.as_str() {
+            "git" => Some(panes::DockTab::Git),
+            "terminal" => Some(panes::DockTab::Terminal),
+            "files" => Some(panes::DockTab::Files),
+            _ => None,
+        });
     let options = eframe::NativeOptions {
         viewport: egui::ViewportBuilder::default()
             .with_title("XenCode")
@@ -56,6 +68,9 @@ fn main() -> eframe::Result<()> {
             let mut app = XenApp::new(workspace);
             app.init_logo(&cc.egui_ctx);
             app.apply_theme(&cc.egui_ctx);
+            if let Some(tab) = start_pane {
+                app.dock.open_tab(tab);
+            }
             app.tour = tour.map(|dir| Tour {
                 dir,
                 step: 0,
@@ -217,6 +232,8 @@ pub(crate) struct XenApp {
     pub(crate) effort_shared: Arc<Mutex<String>>,
     /// XenCloud config draft edited on the Settings page.
     pub(crate) cloud_draft: crate::cloud::CloudConfig,
+    /// Right dock: Git / Terminal / Files side panes.
+    pub(crate) dock: panes::DockState,
     pub(crate) worker: Option<ChatWorker>,
     /// Busy→idle edge detector (session refresh + status line).
     pub(crate) was_busy: bool,
@@ -269,6 +286,7 @@ impl XenApp {
             .collect();
         let active_provider = cfg.active.clone();
         let dark = std::env::var("XENCODE_THEME").map(|v| v != "light").unwrap_or(true);
+        let dock = panes::DockState::new(&workspace.to_string_lossy());
         Self {
             workspace,
             workspaces,
@@ -285,6 +303,7 @@ impl XenApp {
             effort: "High".into(),
             effort_shared: Arc::new(Mutex::new("High".into())),
             cloud_draft: crate::cloud::CloudConfig::load().unwrap_or_default(),
+            dock,
             worker: None,
             was_busy: false,
             persister,
