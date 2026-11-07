@@ -88,11 +88,29 @@ fn empty_task_home(app: &mut XenApp, ui: &mut egui::Ui, p: Palette) {
     );
     composer::card_at(app, ui, card_rect, true);
 
-    // Starter hints row.
+    // Starter hints row. Chip width follows the text (ZCode pills hug the
+    // label: text + 2*14px padding), the row is centered as a whole.
     let hints = ["Explain this workspace", "Write a feature", "Fix a bug"];
-    let mut x = avail.center().x - (hints.len() as f32 * 130.0 + 16.0) / 2.0;
-    for h in hints {
-        let rect = egui::Rect::from_min_size(egui::pos2(x, card_rect.bottom() + 18.0), egui::vec2(130.0, 26.0));
+    let hint_font = egui::FontId::proportional(theme::text::CAPTION);
+    let pad_x = 14.0;
+    let gap = 8.0;
+    let widths: Vec<f32> = hints
+        .iter()
+        .map(|h| {
+            ui.painter()
+                .layout_no_wrap((*h).to_owned(), hint_font.clone(), p.foreground_subtle())
+                .size()
+                .x
+                + pad_x * 2.0
+        })
+        .collect();
+    let row_w = widths.iter().sum::<f32>() + gap * (hints.len() - 1) as f32;
+    let mut x = avail.center().x - row_w / 2.0;
+    for (h, w) in hints.iter().zip(widths) {
+        let rect = egui::Rect::from_min_size(
+            egui::pos2(x, card_rect.bottom() + 18.0),
+            egui::vec2(w, 26.0),
+        );
         let resp = ui.interact(rect, egui::Id::new(format!("hint_{h}")), egui::Sense::click());
         if resp.hovered() {
             ui.painter().rect_filled(rect, 999.0, p.hover());
@@ -103,13 +121,13 @@ fn empty_task_home(app: &mut XenApp, ui: &mut egui::Ui, p: Palette) {
             rect.center(),
             egui::Align2::CENTER_CENTER,
             h,
-            egui::FontId::proportional(theme::text::CAPTION),
+            hint_font.clone(),
             p.foreground_subtle(),
         );
         if resp.clicked() {
             app.chat_input = h.to_string();
         }
-        x += 130.0 + 8.0;
+        x += w + gap;
     }
 
     // Session resume note (row-sync feedback), quietly above the composer.
