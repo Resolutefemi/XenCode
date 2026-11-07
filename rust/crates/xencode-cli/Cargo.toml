@@ -1,0 +1,25 @@
+[package]
+name = "xencode-cli"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+description = "XenCode CLI — the `xencode` command"
+
+[[bin]]
+name = "xencode"
+path = "src/main.rs"
+
+[dependencies]
+xencode-core = { path = "../xencode-core" }
+xencode-automation = { path = "../xencode-automation" }
+clap.workspace = true
+tokio.workspace = true
+serde_json.workspace = true
+anyhow.workspace = true
+rustyline.workspace = true
+futures-util.workspace = true
+
+[dev-dependencies]
+tempfile.workspace = true

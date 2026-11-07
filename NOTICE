@@ -118,3 +118,32 @@ accordance with the respective license terms.
 
    - JUnit 4 (junit:junit) — Eclipse Public License 2.0
    - AndroidX Test (androidx.test.*) — Apache License 2.0
+
+========================================================================
+10. ZCode (port basis for the XenCode desktop UI)
+------------------------------------------------------------------------
+   Project:  https://github.com/zai-org/ZCode
+   Copyright (C) Z.ai and ZCode contributors
+   License:  Apache License 2.0
+
+   The XenCode desktop application (rust/crates/xencode-desktop) is a
+   Rust (egui) port of the ZCode workspace UI (packages/ui of the ZCode
+   repository). Layout, design tokens, typography scale and interaction
+   patterns are derived from ZCode sources, including:
+
+     - packages/ui/src/styles.css (theme tokens, @theme and .dark)
+     - packages/ui/src/app-shell/ (WorkspaceShellLayout, DesktopTopOverlay)
+     - packages/ui/src/WorkspaceSidebar, project-sidebar, chat-input-toolbar,
+       v4 timeline, settings and related component directories
+
+   Changes made by XenCode contributors:
+     - Rewritten from TypeScript/React/Tailwind to Rust/egui
+     - Brand identity replaced (XenCode logo/glyph instead of ZCode's)
+     - Backend API layer and database integrations replaced with the
+       XenCode agent core, shared database and rquickjs automation engine
+     - Color tokens are resolved from the ZCode stylesheets by
+       scripts/port/zcode_theme_tokens.py at build-authoring time
+
+   The Apache-2.0 license and copyright notices of the original work are
+   preserved here in accordance with the license terms. Apache-2.0 code
+   included in this GPL-3.0 project remains available under Apache-2.0.
