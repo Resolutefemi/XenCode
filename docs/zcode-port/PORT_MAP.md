@@ -28,6 +28,7 @@ python3 scripts/port/zcode_theme_tokens.py --zcode ../reference/ZCode \
 | `packages/ui/src/styles.css` (`@theme` + `.dark`, 169/165 tokens) | `src/theme/tokens.rs` (generated) + `src/theme/mod.rs` | DONE |
 | Tailwind `--text-ui-*` type scale (14px base) | `theme::text` | DONE |
 | Tailwind 4px spacing + shadcn radius scale | `theme::geom` | DONE |
+| Bold weight (`font-medium`/semibold runs) | embedded FreeSansBold as the `xen-bold` family (egui ships Light only) | DONE |
 | `components/mobile-ui/ZCodeAppLogo.tsx` | `XenApp::init_logo` (art/xencode-icon-512.png, X glyph) | DONE |
 
 ## Shell
@@ -59,9 +60,13 @@ python3 scripts/port/zcode_theme_tokens.py --zcode ../reference/ZCode \
 | ZCode source | XenCode Rust | Status |
 | --- | --- | --- |
 | `v4/` timeline (user bubble, assistant, stream) | `src/ui/conversation.rs` | PARTIAL |
-| `ai-elements/message.tsx` markdown + code blocks | plain text rendering (egui Label) | TODO (markdown renderer needed) |
-| `ToolCallBlocks/` (per-tool cards, collapsible) | `conversation::tool_block` (generic collapse) | PARTIAL (single generic card, no per-tool variants) |
-| Reasoning/thought preview blocks | TODO | TODO |
+| `ai-elements/message.tsx` markdown + inline styles | `src/ui/markdown.rs` (pulldown-cmark, Streamdown inline styles, brand links) | DONE |
+| `ai-elements/code-block.tsx` (header, wrap + copy, mono body) | `markdown::code_block` (rounded-xl card, mono language label, 2s copied check) | DONE |
+| Syntax highlighting (shiki) | `markdown::highlight` (kw/string/comment/number pass, One Dark + light-github palettes) | PARTIAL (shiki-faithful per-language themes pending) |
+| `markdown-list.tsx` + `markdown-table.tsx` | `markdown::flush_list_item` / `table_render` (header rule) | DONE |
+| Reasoning/thought preview blocks (`ai-elements/reasoning.tsx`) | `conversation::reasoning_block` + `<think>` splitter | DONE |
+| `ToolCallBlocks/` (per-tool cards, collapsible) | `conversation::tool_block` (kind glyphs + kindLabel per renderer.tsx) | DONE |
+| Edit diff counts (`renderDiffCount` +N/-N) | TODO (needs per-tool payload stats) | TODO |
 | `AssistantPreviewCards.tsx` / `AssistantCodeCommentCards.tsx` | TODO | TODO |
 | `MessageChangeSummaryPanel.tsx` | TODO | TODO |
 | Empty-task home (greeting + centered composer) | `conversation::empty_task_home` | PARTIAL (geometry in; greeting copy to verify against app) |
@@ -75,8 +80,8 @@ python3 scripts/port/zcode_theme_tokens.py --zcode ../reference/ZCode \
 | Staged image attachments strip | `composer::card_at` attachment strip | DONE |
 | `chat-input-toolbar/ChatModeSwitchControl.tsx` | mode chip + `MenuKind::Mode` popover | PARTIAL (presets mapped to PermissionMode) |
 | `chat-input-toolbar/ComposerModelMenu.tsx` + `ComposerProviderMenu.tsx` | model seat + `MenuKind::Model` popover | PARTIAL |
-| `chat-input-toolbar/ThoughtLevelCycleControl.tsx` | effort label (static "High") | TODO |
-| `chat-input-toolbar/contextUsage.tsx` (context meter) | TODO | TODO |
+| `chat-input-toolbar/ThoughtLevelCycleControl.tsx` | effort chip (brain glyph, cycles Off/Low/Medium/High) | DONE |
+| `chat-input-toolbar/contextUsage.tsx` (context meter) | context chip (mini progress + %; transcript-size estimate until usage rows land) | DONE |
 | `mentions/` (@ files), `/` commands, `$` skills in input | TODO | TODO |
 | Send button | `composer` send (primary fill, arrow-up, busy square) | DONE |
 | Plan-mode notice | `conversation::plan_notice` | DONE |

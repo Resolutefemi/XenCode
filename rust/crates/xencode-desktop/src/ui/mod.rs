@@ -14,6 +14,7 @@
 pub mod app_shell;
 pub mod composer;
 pub mod conversation;
+pub mod markdown;
 pub mod panels;
 pub mod sidebar;
 
@@ -390,5 +391,252 @@ pub(crate) fn paperclip(painter: &egui::Painter, c: egui::Pos2, color: egui::Col
     painter.line_segment(
         [egui::pos2(c.x - h * 0.4, c.y - h * 0.1), egui::pos2(c.x + h * 0.1, c.y + h * 0.6)],
         egui::Stroke::new(1.7_f32, color),
+    );
+}
+
+// --- ToolCallBlocks kind glyphs (lucide stand-ins at 16px stroke weight) ---
+
+/// Document (read_file): page outline + text lines.
+#[allow(dead_code)]
+pub(crate) fn icon_doc(pr: &egui::Painter, c: egui::Pos2, color: egui::Color32) {
+    let s = egui::Stroke::new(1.3_f32, color);
+    pr.rect_stroke(
+        egui::Rect::from_center_size(c, egui::vec2(10.0, 12.0)),
+        2.0,
+        s,
+    );
+    for dy in [-2.5, 0.5, 3.5] {
+        pr.line_segment(
+            [egui::pos2(c.x - 3.0, c.y + dy), egui::pos2(c.x + 3.0, c.y + dy)],
+            s,
+        );
+    }
+}
+
+/// Pencil (edit_file / write_file).
+#[allow(dead_code)]
+pub(crate) fn icon_pencil(pr: &egui::Painter, c: egui::Pos2, color: egui::Color32) {
+    let s = egui::Stroke::new(1.3_f32, color);
+    let d = 5.0_f32;
+    pr.line_segment(
+        [egui::pos2(c.x - d, c.y + d), egui::pos2(c.x + d * 0.6, c.y - d * 0.6)],
+        s,
+    );
+    pr.line_segment(
+        [egui::pos2(c.x - d, c.y + d), egui::pos2(c.x - d + 1.0, c.y + d - 4.0)],
+        s,
+    );
+    pr.line_segment(
+        [egui::pos2(c.x + d * 0.6, c.y - d * 0.6), egui::pos2(c.x + d, c.y - d)],
+        s,
+    );
+    pr.line_segment(
+        [egui::pos2(c.x - d + 1.0, c.y + d - 4.0), egui::pos2(c.x + d, c.y - d)],
+        s,
+    );
+}
+
+/// Terminal (run_command): prompt chevron + caret.
+#[allow(dead_code)]
+pub(crate) fn icon_terminal(pr: &egui::Painter, c: egui::Pos2, color: egui::Color32) {
+    let s = egui::Stroke::new(1.3_f32, color);
+    pr.rect_stroke(
+        egui::Rect::from_center_size(c, egui::vec2(12.0, 10.0)),
+        2.0,
+        s,
+    );
+    let x0 = c.x - 4.0;
+    let y = c.y - 1.0;
+    pr.line_segment([egui::pos2(x0, y - 2.0), egui::pos2(x0 + 2.5, y)], s);
+    pr.line_segment([egui::pos2(x0 + 2.5, y), egui::pos2(x0, y + 2.0)], s);
+    pr.line_segment(
+        [egui::pos2(x0 + 4.0, y + 2.5), egui::pos2(x0 + 7.0, y + 2.5)],
+        s,
+    );
+}
+
+/// Magnifier (grep).
+#[allow(dead_code)]
+pub(crate) fn icon_magnifier(pr: &egui::Painter, c: egui::Pos2, color: egui::Color32) {
+    let s = egui::Stroke::new(1.3_f32, color);
+    pr.circle_stroke(c + egui::vec2(-1.0, -1.0), 3.5, s);
+    pr.line_segment(
+        [egui::pos2(c.x + 1.6, c.y + 1.6), egui::pos2(c.x + 4.5, c.y + 4.5)],
+        s,
+    );
+}
+
+/// Globe (web_fetch).
+#[allow(dead_code)]
+pub(crate) fn icon_globe(pr: &egui::Painter, c: egui::Pos2, color: egui::Color32) {
+    let s = egui::Stroke::new(1.2_f32, color);
+    pr.circle_stroke(c, 5.0, s);
+    pr.line_segment(
+        [egui::pos2(c.x - 5.0, c.y), egui::pos2(c.x + 5.0, c.y)],
+        s,
+    );
+    pr.line_segment(
+        [egui::pos2(c.x, c.y - 5.0), egui::pos2(c.x, c.y + 5.0)],
+        s,
+    );
+    // Meridian arcs (approximated by two short chords).
+    pr.line_segment(
+        [egui::pos2(c.x - 3.0, c.y - 3.4), egui::pos2(c.x - 3.0, c.y + 3.4)],
+        s,
+    );
+    pr.line_segment(
+        [egui::pos2(c.x + 3.0, c.y - 3.4), egui::pos2(c.x + 3.0, c.y + 3.4)],
+        s,
+    );
+}
+
+/// Check inside a circle (todo tools).
+#[allow(dead_code)]
+pub(crate) fn icon_check_circle(pr: &egui::Painter, c: egui::Pos2, color: egui::Color32) {
+    let s = egui::Stroke::new(1.2_f32, color);
+    pr.circle_stroke(c, 5.0, s);
+    let pts = [
+        egui::pos2(c.x - 2.4, c.y + 0.2),
+        egui::pos2(c.x - 0.6, c.y + 2.0),
+        egui::pos2(c.x + 2.6, c.y - 1.8),
+    ];
+    pr.add(egui::Shape::line(pts.to_vec(), s));
+}
+
+/// Folder (list_files / glob).
+#[allow(dead_code)]
+pub(crate) fn icon_folder(pr: &egui::Painter, c: egui::Pos2, color: egui::Color32) {
+    let s = egui::Stroke::new(1.3_f32, color);
+    let r = egui::Rect::from_center_size(c, egui::vec2(12.0, 9.0));
+    pr.rect_stroke(r, 2.0, s);
+    pr.line_segment(
+        [egui::pos2(r.left(), r.top() + 2.5), egui::pos2(r.left() + 4.0, r.top() + 2.5)],
+        s,
+    );
+}
+
+/// Trash (delete_file).
+#[allow(dead_code)]
+pub(crate) fn icon_trash(pr: &egui::Painter, c: egui::Pos2, color: egui::Color32) {
+    let s = egui::Stroke::new(1.2_f32, color);
+    pr.line_segment(
+        [egui::pos2(c.x - 4.5, c.y - 3.0), egui::pos2(c.x + 4.5, c.y - 3.0)],
+        s,
+    );
+    pr.line_segment(
+        [egui::pos2(c.x - 1.5, c.y - 3.0), egui::pos2(c.x - 1.5, c.y - 5.0)],
+        s,
+    );
+    pr.line_segment(
+        [egui::pos2(c.x + 1.5, c.y - 3.0), egui::pos2(c.x + 1.5, c.y - 5.0)],
+        s,
+    );
+    pr.line_segment(
+        [egui::pos2(c.x - 1.5, c.y - 5.0), egui::pos2(c.x + 1.5, c.y - 5.0)],
+        s,
+    );
+    pr.line_segment(
+        [egui::pos2(c.x - 3.0, c.y - 3.0), egui::pos2(c.x - 2.5, c.y + 5.0)],
+        s,
+    );
+    pr.line_segment(
+        [egui::pos2(c.x + 3.0, c.y - 3.0), egui::pos2(c.x + 2.5, c.y + 5.0)],
+        s,
+    );
+    pr.line_segment(
+        [egui::pos2(c.x - 2.5, c.y + 5.0), egui::pos2(c.x + 2.5, c.y + 5.0)],
+        s,
+    );
+}
+
+/// Four-point spark (load_skill).
+#[allow(dead_code)]
+pub(crate) fn icon_spark(pr: &egui::Painter, c: egui::Pos2, color: egui::Color32) {
+    let pts = [
+        egui::pos2(c.x, c.y - 5.5),
+        egui::pos2(c.x + 1.4, c.y - 1.4),
+        egui::pos2(c.x + 5.5, c.y),
+        egui::pos2(c.x + 1.4, c.y + 1.4),
+        egui::pos2(c.x, c.y + 5.5),
+        egui::pos2(c.x - 1.4, c.y + 1.4),
+        egui::pos2(c.x - 5.5, c.y),
+        egui::pos2(c.x - 1.4, c.y - 1.4),
+    ];
+    pr.add(egui::Shape::convex_polygon(
+        pts.to_vec(),
+        color.gamma_multiply(0.35),
+        egui::Stroke::new(1.2_f32, color),
+    ));
+}
+
+/// Speech bubble (ask tools).
+#[allow(dead_code)]
+pub(crate) fn icon_bubble(pr: &egui::Painter, c: egui::Pos2, color: egui::Color32) {
+    let s = egui::Stroke::new(1.3_f32, color);
+    let r = egui::Rect::from_min_max(egui::pos2(c.x - 5.5, c.y - 4.5), egui::pos2(c.x + 5.5, c.y + 2.5));
+    pr.rect_stroke(r, 3.0, s);
+    pr.line_segment(
+        [egui::pos2(c.x - 2.0, c.y + 2.5), egui::pos2(c.x - 2.0, c.y + 5.5)],
+        s,
+    );
+    pr.line_segment(
+        [egui::pos2(c.x - 2.0, c.y + 5.5), egui::pos2(c.x + 1.0, c.y + 2.5)],
+        s,
+    );
+}
+
+/// Plug (MCP tools).
+#[allow(dead_code)]
+pub(crate) fn icon_plug(pr: &egui::Painter, c: egui::Pos2, color: egui::Color32) {
+    let s = egui::Stroke::new(1.2_f32, color);
+    pr.line_segment(
+        [egui::pos2(c.x - 2.5, c.y - 5.0), egui::pos2(c.x - 2.5, c.y - 1.0)],
+        s,
+    );
+    pr.line_segment(
+        [egui::pos2(c.x + 2.5, c.y - 5.0), egui::pos2(c.x + 2.5, c.y - 1.0)],
+        s,
+    );
+    pr.line_segment(
+        [
+            egui::pos2(c.x - 4.0, c.y - 1.0),
+            egui::pos2(c.x + 4.0, c.y - 1.0),
+        ],
+        s,
+    );
+    pr.line_segment(
+        [egui::pos2(c.x - 4.0, c.y - 1.0), egui::pos2(c.x - 4.0, c.y + 1.0)],
+        s,
+    );
+    pr.line_segment(
+        [egui::pos2(c.x + 4.0, c.y - 1.0), egui::pos2(c.x + 4.0, c.y + 1.0)],
+        s,
+    );
+    pr.line_segment(
+        [egui::pos2(c.x - 3.0, c.y + 1.0), egui::pos2(c.x - 3.0, c.y + 3.0)],
+        s,
+    );
+    pr.line_segment(
+        [egui::pos2(c.x + 3.0, c.y + 1.0), egui::pos2(c.x + 3.0, c.y + 3.0)],
+        s,
+    );
+    pr.line_segment(
+        [egui::pos2(c.x, c.y + 2.5), egui::pos2(c.x, c.y + 5.0)],
+        s,
+    );
+}
+
+/// Wrench (unmapped tools).
+#[allow(dead_code)]
+pub(crate) fn icon_wrench(pr: &egui::Painter, c: egui::Pos2, color: egui::Color32) {
+    let s = egui::Stroke::new(1.3_f32, color);
+    pr.line_segment(
+        [egui::pos2(c.x - 3.5, c.y + 3.5), egui::pos2(c.x + 1.5, c.y - 1.5)],
+        s,
+    );
+    pr.circle_stroke(c + egui::vec2(2.5, -2.5), 2.5, s);
+    pr.line_segment(
+        [egui::pos2(c.x - 5.0, c.y + 2.0), egui::pos2(c.x - 2.0, c.y + 5.0)],
+        s,
     );
 }

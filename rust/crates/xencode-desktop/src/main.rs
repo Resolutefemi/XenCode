@@ -303,6 +303,29 @@ impl XenApp {
 
     pub(crate) fn apply_theme(&self, ctx: &egui::Context) {
         theme::install(ctx, if self.dark { ThemeMode::Dark } else { ThemeMode::Light });
+        // Real bold weight for markdown headings and strong runs
+        // (egui 0.29 bundles only a Light proportional face).
+        ui::markdown::install_bold_font(ctx);
+    }
+
+    /// Rough context-window fill for the composer meter. ZCode reports the
+    /// provider usage counter; the desktop port estimates from transcript
+    /// size (chars/4 tokens over a 200k window) until usage rows land.
+    pub(crate) fn context_estimate(&self) -> f32 {
+        let chars: usize = self.chat_log.iter().map(|e| e.text.len()).sum();
+        (chars as f32 / 4.0 / 200_000.0).clamp(0.0, 1.0)
+    }
+
+    /// Reasoning-effort cycle (chat.toolbar.thoughtLevel values Off, Low,
+    /// Medium, High); ZCode ThoughtLevelCycleControl in cycle mode.
+    pub(crate) fn cycle_effort(&mut self) {
+        const LEVELS: [&str; 4] = ["Off", "Low", "Medium", "High"];
+        let next = LEVELS
+            .iter()
+            .position(|l| *l == self.effort)
+            .map(|i| (i + 1) % LEVELS.len())
+            .unwrap_or(0);
+        self.effort = LEVELS[next].to_string();
     }
 
     fn map_sessions(persister: &Option<Arc<xencode_core::store::chatlog::ChatPersister>>) -> Vec<SidebarSession> {
@@ -612,8 +635,15 @@ impl XenApp {
             "user",
             "Refactor the auth module to use the shared session store, keep the public API stable and add tests.",
         ));
-        self.chat_log.push(ChatEntry::new("tool", "ast.symbols: mapped 14 call sites across auth/*.rs"));
-        self.chat_log.push(ChatEntry::new("tool", "git.worktreeCreate: xencode/plan-auth-refactor"));
+        self.chat_log.push(ChatEntry::new("tool", "read_file: crates/xencode-core/src/store/chatlog.rs"));
+        self.chat_log.push(ChatEntry::new(
+            "tool",
+            "run_command: cargo test -p xencode-core --quiet",
+        ));
+        self.chat_log.push(ChatEntry::new(
+            "tool",
+            "edit_file: crates/xencode-core/src/agent.rs (+42 -7 lines)",
+        ));
         self.chat_log.push(ChatEntry::new(
             "agent",
             "Here is the plan:\n\n1. Introduce SessionStore behind the existing trait, with no public API changes.\n2. Migrate auth::legacy to the store in three call sites (login, refresh, logout).\n3. Wire the shared-DB persister so the same rows sync to the mobile app.\n\nTests: 12 added, all green. cargo test exits 0.",

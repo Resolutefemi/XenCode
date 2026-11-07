@@ -36,6 +36,7 @@ eframe = "0.29"
 image = { version = "0.25", default-features = false, features = ["png", "jpeg"] }
 rfd = "0.15"
 tempfile = "3"
+pulldown-cmark = { version = "0.13", default-features = false, features = ["html"] }
 
 [profile.release]
 opt-level = "z"

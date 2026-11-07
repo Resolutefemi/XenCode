@@ -148,25 +148,99 @@ pub(crate) fn card_at(app: &mut XenApp, ui: &mut egui::Ui, rect: egui::Rect, her
         app.toggle_menu(MenuKind::Mode, chip_rect);
     }
 
-    // Model seat (model + effort + chevron) on the right (ComposerModelMenu).
+    // Thought level control (chat-input-toolbar/ThoughtLevelCycleControl):
+    // brain glyph + effort label, click cycles Off, Low, Medium, High.
+    let tl_x = chip_rect.right() + 8.0;
+    let tl_w = inner.fonts(|f| {
+        f.layout_no_wrap(
+            app.effort.clone(),
+            egui::FontId::proportional(theme::text::CAPTION),
+            p.foreground_subtle(),
+        )
+        .size()
+        .x
+    });
+    let tl_rect =
+        egui::Rect::from_min_size(egui::pos2(tl_x, row_c.y - 14.0), egui::vec2(tl_w + 32.0, 28.0));
+    let tl_resp = inner.interact(tl_rect, egui::Id::new("composer_effort"), egui::Sense::click());
+    if tl_resp.hovered() {
+        inner.painter().rect_filled(tl_rect, 6.0, p.hover());
+    }
+    ui::markdown::glyph_brain(
+        inner.painter(),
+        egui::pos2(tl_rect.left() + 10.0, row_c.y),
+        p.foreground_subtlest(),
+        13.0,
+    );
+    inner.painter().text(
+        egui::pos2(tl_rect.left() + 20.0, row_c.y),
+        egui::Align2::LEFT_CENTER,
+        &app.effort,
+        egui::FontId::proportional(theme::text::CAPTION),
+        p.foreground_subtle(),
+    );
+    ui::chevron_down(
+        inner.painter(),
+        egui::pos2(tl_rect.right() - 10.0, row_c.y),
+        p.foreground_subtlest(),
+        12.0,
+    );
+    if tl_resp.clicked() {
+        app.cycle_effort();
+    }
+
+    // Model seat (model + chevron) on the right (ComposerModelMenu).
     let model_label = app
         .providers
         .iter()
         .find(|(name, _, _)| Some(name) == app.active_provider.as_ref())
         .map(|(_, model, _)| model.clone())
         .unwrap_or_else(|| "No provider".into());
-    let effort_w = inner.fonts(|f| {
-        f.layout_no_wrap(app.effort.clone(), egui::FontId::proportional(theme::text::XS), p.foreground_subtlest())
-            .size()
-            .x
-    });
     let model_w = inner.fonts(|f| {
         f.layout_no_wrap(model_label.clone(), egui::FontId::proportional(theme::text::CAPTION), p.foreground_subtle())
             .size()
             .x
     });
-    let seat_w = model_w + 8.0 + effort_w + 22.0;
+    let seat_w = model_w + 22.0;
     let send_cx = rect.right() - 24.0;
+    // Context meter chip (chat-input-toolbar/contextUsage): mini progress
+    // bar + percentage, warning tone past 80 percent.
+    let used = app.context_estimate();
+    let pct = format!("{}%", (used * 100.0).round() as i32);
+    let pct_w = inner.fonts(|f| {
+        f.layout_no_wrap(pct.clone(), egui::FontId::proportional(theme::text::XS), p.foreground_subtlest())
+            .size()
+            .x
+    });
+    let ctx_rect = egui::Rect::from_min_size(
+        egui::pos2(send_cx - 16.0 - seat_w - 12.0 - (pct_w + 46.0), row_c.y - 14.0),
+        egui::vec2(pct_w + 46.0, 28.0),
+    );
+    let ctx_resp = inner.interact(ctx_rect, egui::Id::new("composer_ctx"), egui::Sense::hover());
+    if ctx_resp.hovered() {
+        inner.painter().rect_filled(ctx_rect, 6.0, p.hover());
+    }
+    let bar_x = ctx_rect.left() + 10.0;
+    let bar_y = row_c.y;
+    let bar_w = 34.0;
+    inner.painter().rect_filled(
+        egui::Rect::from_min_size(egui::pos2(bar_x, bar_y - 2.0), egui::vec2(bar_w, 4.0)),
+        2.0,
+        p.surface_hover(),
+    );
+    let tone = if used > 0.8 { p.warning() } else { p.brand() };
+    inner.painter().rect_filled(
+        egui::Rect::from_min_size(egui::pos2(bar_x, bar_y - 2.0), egui::vec2((bar_w * used).max(2.0), 4.0)),
+        2.0,
+        tone,
+    );
+    inner.painter().text(
+        egui::pos2(bar_x + bar_w + 6.0, row_c.y),
+        egui::Align2::LEFT_CENTER,
+        pct,
+        egui::FontId::proportional(theme::text::XS),
+        p.foreground_subtlest(),
+    );
     let seat_rect = egui::Rect::from_min_size(
         egui::pos2(send_cx - 16.0 - seat_w, row_c.y - 14.0),
         egui::vec2(seat_w, 28.0),
@@ -181,13 +255,6 @@ pub(crate) fn card_at(app: &mut XenApp, ui: &mut egui::Ui, rect: egui::Rect, her
         &model_label,
         egui::FontId::proportional(theme::text::CAPTION),
         p.foreground_subtle(),
-    );
-    inner.painter().text(
-        egui::pos2(seat_rect.left() + model_w + 8.0, row_c.y),
-        egui::Align2::LEFT_CENTER,
-        &app.effort,
-        egui::FontId::proportional(theme::text::XS),
-        p.foreground_subtlest(),
     );
     ui::chevron_down(inner.painter(), egui::pos2(seat_rect.right() - 9.0, row_c.y), p.foreground_subtlest(), 12.0);
     if seat_resp.clicked() {
