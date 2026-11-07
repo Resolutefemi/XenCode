@@ -1,9 +1,0 @@
-#!/bin/sh
-# The `xencode` command: opens the "Environment setup" menu of the container environment script (provision.sh),
-# equivalent to `provision.sh --env`.
-# In production this file lives at ~/.xencode/bin/ (provision.sh one level up); the workspace draft copy
-# (xencode-env/bin/) has the same structure, so locating relative to the script's own directory works for
-# both. All logic lives in provision.sh and its shared library lib/env-common.sh.
-SELF_DIR=$(dirname "$0")
-[ "${SELF_DIR#/}" = "$SELF_DIR" ] && SELF_DIR="$(pwd)/$SELF_DIR"
-exec sh "$SELF_DIR/../provision.sh" --env

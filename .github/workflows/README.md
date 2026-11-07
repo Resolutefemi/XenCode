@@ -1,45 +1,13 @@
-# CI Signing Setup
+# CI Overview
 
-For CI builds and artifacts, see the "CI Automated Builds" and "Known Limitations" sections of the root [README.md](../../README.md). This file covers one thing the main README does not: **how to hand your local release signing credentials to GitHub Actions**.
-
-## Workflow map
+Workflow map for the PC line (the mobile app now lives in [Resolutefemi/XenAI](https://github.com/Resolutefemi/XenAI)).
 
 | Workflow | Trigger | Produces |
 |---|---|---|
-| `ci.yml` | push/PR touching `app/**` | Android debug checks + unit tests |
-| `android-release.yml` | tag `v*` | signed release APK/AAB → GitHub Release |
-| `beta.yml` | manual / preview tags | preview APK |
-| `pc.yml` | push/PR touching `core/**` `cli/**` `desktop/**` | PC tests + CLI dists (linux/windows/macos) + desktop packages (deb+rpm / msi+exe / dmg) |
+| `pc.yml` | push/PR touching `core/**` `cli/**` `desktop/**` `rust/**` | PC tests + CLI dists (linux/windows/macos) + desktop packages (deb+rpm / msi+exe / dmg) + Rust build |
 | `pc-release.yml` | tag `pc-v*` or manual | all PC artifacts attached to one GitHub Release |
-| `docs-deploy.yml`, `sync-*.yml` | push | docs site + mirrors |
-
-## Required GitHub Secrets
-
-In `Settings → Secrets and variables → Actions → New repository secret`, add these 4:
-
-| Secret name | Value |
-|---|---|
-| `AICODE_KEYSTORE_BASE64` | base64 encoding of the `app/xencode.jks` file (see below) |
-| `AICODE_KEYSTORE_PASSWORD` | the keystore's `storePassword` |
-| `AICODE_KEY_ALIAS` | the signing key's `keyAlias` |
-| `AICODE_KEY_PASSWORD` | the key's `keyPassword` (usually the same as the keystore passphrase) |
+| `docs-deploy.yml` | tag push | docs site (Vercel) |
+| `sync-gitcode.yml` | schedule | repo + release mirror to GitCode |
 
 `GITHUB_TOKEN` is injected by Actions automatically; no manual setup needed.
-
-## Generating the keystore base64
-
-From the repo root, copy to the clipboard with PowerShell:
-
-```powershell
-[System.Convert]::ToBase64String([System.IO.File]::ReadAllBytes("app\xencode.jks")) | Set-Clipboard
-```
-
-Paste it into `AICODE_KEYSTORE_BASE64`.
-
-If you do not have a keystore yet, create one with keytool first (pick your own alias/passphrase, then fill the secrets in):
-
-```powershell
-keytool -genkeypair -v -keystore app\xencode.jks -alias xencode -keyalg RSA -keysize 2048 -validity 10000
-```
-
-> Both `xencode.jks` and `keystore.properties` are in `.gitignore`, never committed, and local signing keeps working as before.
+The Android signing secrets (keystore, alias, passwords) moved with the mobile app to the XenAI repository.

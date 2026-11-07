@@ -1,1 +1,0 @@
-ALTER TABLE agent_messages ADD COLUMN isCompacted INTEGER NOT NULL DEFAULT 0;

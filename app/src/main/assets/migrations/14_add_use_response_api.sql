@@ -1,1 +1,0 @@
-ALTER TABLE ai_providers ADD COLUMN useResponseApi INTEGER NOT NULL DEFAULT 0;

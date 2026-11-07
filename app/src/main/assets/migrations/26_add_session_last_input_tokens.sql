@@ -1,1 +1,0 @@
-ALTER TABLE chat_sessions ADD COLUMN lastInputTokens INTEGER NOT NULL DEFAULT 0;

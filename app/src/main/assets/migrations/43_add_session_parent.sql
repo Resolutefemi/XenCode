@@ -1,2 +1,0 @@
-ALTER TABLE chat_sessions ADD COLUMN parentId TEXT DEFAULT NULL;
-ALTER TABLE chat_sessions ADD COLUMN subagentType TEXT DEFAULT NULL;
