@@ -46,10 +46,20 @@ impl ChatItem {
     }
 
     pub fn reasoning(text: impl Into<String>, seconds: u32) -> Self {
-        ChatItem::Reasoning { text: text.into(), seconds, open: false }
+        ChatItem::Reasoning {
+            text: text.into(),
+            seconds,
+            open: false,
+        }
     }
 
-    pub fn tool(kind: ToolKind, name: impl Into<String>, title: impl Into<String>, status: ToolStatus, detail: impl Into<String>) -> Self {
+    pub fn tool(
+        kind: ToolKind,
+        name: impl Into<String>,
+        title: impl Into<String>,
+        status: ToolStatus,
+        detail: impl Into<String>,
+    ) -> Self {
         ChatItem::Tool {
             kind,
             name: name.into(),
@@ -66,7 +76,10 @@ impl ChatItem {
 
     fn approx_tokens(&self) -> usize {
         let text = match self {
-            ChatItem::User { text } | ChatItem::Assistant { text } | ChatItem::System { text } | ChatItem::Error { text } => text,
+            ChatItem::User { text }
+            | ChatItem::Assistant { text }
+            | ChatItem::System { text }
+            | ChatItem::Error { text } => text,
             ChatItem::Reasoning { text, .. } => text,
             ChatItem::Tool { title, .. } => title,
         };
@@ -83,9 +96,8 @@ fn detail_len(item: &ChatItem) -> usize {
 
 /// Rough context usage estimate (chars/4 against a 128k window).
 pub fn context_usage_percent(items: &[ChatItem], streaming: &str) -> u32 {
-    let used: usize = items.iter().map(ChatItem::approx_tokens).sum::<usize>()
-        + streaming.len() / 4
-        + 1_200; // system prompt + tool schemas estimate
+    let used: usize =
+        items.iter().map(ChatItem::approx_tokens).sum::<usize>() + streaming.len() / 4 + 1_200; // system prompt + tool schemas estimate
     let pct = (used as f64 / 128_000.0 * 100.0).ceil() as u32;
     pct.min(100)
 }
@@ -127,7 +139,11 @@ pub fn item_ui(ui: &mut Ui, item: &mut ChatItem, streaming: bool) {
                 markdown::markdown(ui, text);
             }
         }
-        ChatItem::Reasoning { text, seconds, open } => {
+        ChatItem::Reasoning {
+            text,
+            seconds,
+            open,
+        } => {
             let header = format!("{} Thought for {}s", glyph::CLOCK, seconds);
             let header_color = palette::REASONING;
             egui::Frame::default()
@@ -137,7 +153,11 @@ pub fn item_ui(ui: &mut Ui, item: &mut ChatItem, streaming: bool) {
                 .show(ui, |ui| {
                     ui.set_width(ui.available_width());
                     ui.horizontal(|ui| {
-                        let toggle = ui.small_button(if *open { glyph::CHEVRON_DOWN } else { glyph::CHEVRON_RIGHT });
+                        let toggle = ui.small_button(if *open {
+                            glyph::CHEVRON_DOWN
+                        } else {
+                            glyph::CHEVRON_RIGHT
+                        });
                         ui.style_mut().override_font_id = Some(FontId::proportional(12.0));
                         ui.colored_label(header_color, header);
                         if toggle.clicked() {
@@ -149,7 +169,8 @@ pub fn item_ui(ui: &mut Ui, item: &mut ChatItem, streaming: bool) {
                         ui.style_mut().override_font_id = Some(FontId::proportional(12.5));
                         ui.add(
                             egui::Label::new(
-                                egui::RichText::new(text.as_str()).color(palette::ON_SURFACE_VARIANT),
+                                egui::RichText::new(text.as_str())
+                                    .color(palette::ON_SURFACE_VARIANT),
                             )
                             .wrap()
                             .selectable(true),
@@ -157,7 +178,14 @@ pub fn item_ui(ui: &mut Ui, item: &mut ChatItem, streaming: bool) {
                     }
                 });
         }
-        ChatItem::Tool { kind, name, title, status, detail, open } => {
+        ChatItem::Tool {
+            kind,
+            name,
+            title,
+            status,
+            detail,
+            open,
+        } => {
             tool_row(ui, *kind, name, title, *status, detail, open);
         }
         ChatItem::System { text } => {
@@ -216,14 +244,23 @@ fn tool_row(
             ui.set_width(ui.available_width());
             ui.horizontal(|ui| {
                 if ui
-                    .small_button(if *open { glyph::CHEVRON_DOWN } else { glyph::CHEVRON_RIGHT })
+                    .small_button(if *open {
+                        glyph::CHEVRON_DOWN
+                    } else {
+                        glyph::CHEVRON_RIGHT
+                    })
                     .clicked()
                 {
                     *open = !*open;
                 }
                 ui.style_mut().override_font_id = Some(FontId::proportional(13.0));
                 ui.label(kind.glyph());
-                theme::chip(ui, kind.label(), palette::ON_PRIMARY_CONTAINER, palette::PRIMARY_CONTAINER);
+                theme::chip(
+                    ui,
+                    kind.label(),
+                    palette::ON_PRIMARY_CONTAINER,
+                    palette::PRIMARY_CONTAINER,
+                );
                 ui.style_mut().override_font_id = Some(FontId::proportional(13.0));
                 ui.add(
                     egui::Label::new(egui::RichText::new(title).color(palette::ON_BACKGROUND))

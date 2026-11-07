@@ -13,10 +13,10 @@ tokio = { version = "1", features = ["full"] }
 serde.workspace = true
 serde_json.workspace = true
 reqwest.workspace = true
-sqlx = { version = "0.9", default-features = false, features = ["runtime-tokio", "tls-rustls", "postgres", "migrate"] }
+sqlx = { version = "0.9", default-features = false, features = ["runtime-tokio", "tls-rustls", "postgres", "migrate", "macros", "uuid", "chrono"] }
 async-trait = "0.1"
 rand = "0.8"
-uuid = { version = "1", features = ["v4"] }
+uuid = { version = "1", features = ["v4", "serde"] }
 sha2 = "0.10"
 hmac = "0.12"
 hex = "0.4"

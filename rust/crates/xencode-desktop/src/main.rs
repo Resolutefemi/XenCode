@@ -84,10 +84,17 @@ mod tests {
 
     #[test]
     fn flag_parsing() {
-        let args: Vec<String> = ["xencode-desktop", "--demo", "--pane", "git", "--workspace", "/tmp"]
-            .iter()
-            .map(|s| s.to_string())
-            .collect();
+        let args: Vec<String> = [
+            "xencode-desktop",
+            "--demo",
+            "--pane",
+            "git",
+            "--workspace",
+            "/tmp",
+        ]
+        .iter()
+        .map(|s| s.to_string())
+        .collect();
         assert!(args.iter().any(|a| a == "--demo"));
         assert_eq!(flag_value(&args, "--pane"), Some("git"));
         assert_eq!(flag_value(&args, "--workspace"), Some("/tmp"));

@@ -54,7 +54,6 @@ impl DockState {
             self.git.request_refresh();
         }
     }
-
 }
 
 /// Render the dock content for the active tab.
@@ -64,12 +63,22 @@ pub fn dock_ui(ui: &mut Ui, state: &mut DockState) {
         for tab in DockTab::ALL {
             let selected = state.tab == tab;
             let label = if selected {
-                egui::RichText::new(tab.label()).color(palette::ON_PRIMARY).strong()
+                egui::RichText::new(tab.label())
+                    .color(palette::ON_PRIMARY)
+                    .strong()
             } else {
                 egui::RichText::new(tab.label()).color(palette::ON_SURFACE_VARIANT)
             };
             if ui
-                .add(egui::Button::new(label).fill(if selected { palette::PRIMARY } else { palette::SURFACE_VARIANT }).small())
+                .add(
+                    egui::Button::new(label)
+                        .fill(if selected {
+                            palette::PRIMARY
+                        } else {
+                            palette::SURFACE_VARIANT
+                        })
+                        .small(),
+                )
                 .clicked()
             {
                 state.tab = tab;

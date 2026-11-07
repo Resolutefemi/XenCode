@@ -148,7 +148,10 @@ impl TerminalPane {
             match msg {
                 TermMsg::Output(text) => {
                     for line in text.lines() {
-                        self.lines.push(TermLine { text: line.to_string(), color: palette::ON_BACKGROUND });
+                        self.lines.push(TermLine {
+                            text: line.to_string(),
+                            color: palette::ON_BACKGROUND,
+                        });
                     }
                 }
                 TermMsg::Done { code } => {
@@ -161,7 +164,10 @@ impl TerminalPane {
                     self.busy = false;
                 }
                 TermMsg::Failed(err) => {
-                    self.lines.push(TermLine { text: format!("error: {err}"), color: palette::ERROR });
+                    self.lines.push(TermLine {
+                        text: format!("error: {err}"),
+                        color: palette::ERROR,
+                    });
                     self.busy = false;
                 }
             }
@@ -184,7 +190,13 @@ impl TerminalPane {
                         ui.set_width(ui.available_width());
                         ui.style_mut().override_font_id = Some(FontId::monospace(11.5));
                         for line in &self.lines {
-                            ui.add(egui::Label::new(egui::RichText::new(line.text.as_str()).color(line.color)).truncate().selectable(true));
+                            ui.add(
+                                egui::Label::new(
+                                    egui::RichText::new(line.text.as_str()).color(line.color),
+                                )
+                                .truncate()
+                                .selectable(true),
+                            );
                         }
                         if self.busy {
                             ui.colored_label(palette::WARNING, "...running");
@@ -211,12 +223,13 @@ impl TerminalPane {
             }
             // History recall.
             if resp.has_focus() {
-                if ui.input(|i| i.key_pressed(egui::Key::ArrowUp)) {
-                    if !self.history.is_empty() {
-                        let idx = self.history_idx.map(|i| i.saturating_sub(1)).unwrap_or(self.history.len() - 1);
-                        self.history_idx = Some(idx);
-                        self.input = self.history[idx].clone();
-                    }
+                if ui.input(|i| i.key_pressed(egui::Key::ArrowUp)) && !self.history.is_empty() {
+                    let idx = self
+                        .history_idx
+                        .map(|i| i.saturating_sub(1))
+                        .unwrap_or(self.history.len() - 1);
+                    self.history_idx = Some(idx);
+                    self.input = self.history[idx].clone();
                 }
                 if ui.input(|i| i.key_pressed(egui::Key::ArrowDown)) {
                     if let Some(idx) = self.history_idx {

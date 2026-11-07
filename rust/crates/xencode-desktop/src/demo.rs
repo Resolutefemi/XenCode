@@ -6,7 +6,9 @@ use crate::icons::{ToolKind, ToolStatus};
 
 /// Append a demo exchange to a conversation.
 pub fn seed(conversation: &mut crate::Conversation) {
-    conversation.items.push(ChatItem::user("Walk me through the rust workspace layout and how the gateway streams"));
+    conversation.items.push(ChatItem::user(
+        "Walk me through the rust workspace layout and how the gateway streams",
+    ));
 
     conversation.items.push(ChatItem::reasoning(
         "The user wants both a structural overview of rust/ and the streaming path. I should list the crates, \
@@ -43,7 +45,9 @@ A table of crates plus a small code snippet of the SSE shape will land well.",
         "@@ -10,7 +10,7 @@\n-    pub const PRIMARY: Color32 = Color32::from_rgb(0x6E, 0xE7, 0xA0);\n+    pub const PRIMARY: Color32 = Color32::from_rgb(0x6E, 0xE7, 0xA0); // lightning green\n     pub const ON_PRIMARY: Color32 = Color32::from_rgb(0x06, 0x13, 0x0C);",
     ));
 
-    conversation.items.push(ChatItem::user("Nice. Ship it to XenAI too?"));
+    conversation
+        .items
+        .push(ChatItem::user("Nice. Ship it to XenAI too?"));
 
     conversation.items.push(ChatItem::assistant(
         "The mobile app already lives in its own repo: **Resolutefemi/XenAI**. XenCode keeps the desktop app, \

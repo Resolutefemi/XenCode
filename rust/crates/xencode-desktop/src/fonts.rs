@@ -13,7 +13,9 @@ const CN_DIR: &str = "/usr/share/fonts/truetype/chinese";
 const DEJAVU_DIR: &str = "/usr/share/fonts/truetype/dejavu";
 
 fn load(path: &str) -> Option<FontData> {
-    std::fs::read(path).ok().map(|bytes| FontData::from_owned(bytes).tweak(egui::FontTweak::default()))
+    std::fs::read(path)
+        .ok()
+        .map(|bytes| FontData::from_owned(bytes).tweak(egui::FontTweak::default()))
 }
 
 /// Install the XenCode font families into the context.
@@ -53,19 +55,16 @@ pub fn install(ctx: &egui::Context) {
     }
 
     // Bold family: Noto Sans SC Bold with DejaVu Bold fallback.
-    fonts.families.insert(
-        FontFamily::Name("XenBold".into()),
-        {
-            let mut fam = Vec::new();
-            fam.push("XenBold".into());
-            if has_dejavu_bold {
-                fam.push("XenDejaVuBold".into());
-            } else if has_dejavu {
-                fam.push("XenDejaVu".into());
-            }
-            fam
-        },
-    );
+    fonts.families.insert(FontFamily::Name("XenBold".into()), {
+        let mut fam = Vec::new();
+        fam.push("XenBold".into());
+        if has_dejavu_bold {
+            fam.push("XenDejaVuBold".into());
+        } else if has_dejavu {
+            fam.push("XenDejaVu".into());
+        }
+        fam
+    });
 
     // Monospace: Hack, then Sarasa (CJK), then DejaVu Mono.
     let mono = fonts.families.entry(FontFamily::Monospace).or_default();

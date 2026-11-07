@@ -4,14 +4,9 @@ use crate::theme::palette;
 use crate::Conversation;
 use egui::{FontId, Ui};
 
+#[derive(Default)]
 pub struct SidebarState {
     pub search: String,
-}
-
-impl Default for SidebarState {
-    fn default() -> Self {
-        Self { search: String::new() }
-    }
 }
 
 /// Draw the sidebar; returns Some(index) when a conversation is selected,
@@ -43,9 +38,14 @@ pub fn sidebar_ui(
 
     // New chat.
     if ui
-        .add(egui::Button::new(
-            egui::RichText::new(format!("{} New chat", crate::icons::glyph::PLUS)).color(palette::ON_PRIMARY).strong(),
-        ).fill(palette::PRIMARY))
+        .add(
+            egui::Button::new(
+                egui::RichText::new(format!("{} New chat", crate::icons::glyph::PLUS))
+                    .color(palette::ON_PRIMARY)
+                    .strong(),
+            )
+            .fill(palette::PRIMARY),
+        )
         .clicked()
     {
         new_chat = true;
@@ -90,24 +90,35 @@ pub fn sidebar_ui(
                     ui.horizontal(|ui| {
                         ui.style_mut().override_font_id = Some(FontId::proportional(12.5));
                         ui.colored_label(
-                            if is_active { palette::PRIMARY } else { palette::ON_SURFACE_VARIANT },
+                            if is_active {
+                                palette::PRIMARY
+                            } else {
+                                palette::ON_SURFACE_VARIANT
+                            },
                             if is_active { "❯" } else { "·" },
                         );
                         ui.style_mut().override_font_id = Some(FontId::proportional(12.5));
                         ui.add(
                             egui::Label::new(
-                                egui::RichText::new(conv.title.as_str())
-                                    .strong()
-                                    .color(if is_active { palette::ON_BACKGROUND } else { palette::ON_SURFACE_VARIANT }),
+                                egui::RichText::new(conv.title.as_str()).strong().color(
+                                    if is_active {
+                                        palette::ON_BACKGROUND
+                                    } else {
+                                        palette::ON_SURFACE_VARIANT
+                                    },
+                                ),
                             )
                             .truncate(),
                         );
                         if is_active {
-                            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                                if ui.small_button("✕").clicked() {
-                                    to_delete = Some(i);
-                                }
-                            });
+                            ui.with_layout(
+                                egui::Layout::right_to_left(egui::Align::Center),
+                                |ui| {
+                                    if ui.small_button("✕").clicked() {
+                                        to_delete = Some(i);
+                                    }
+                                },
+                            );
                         }
                     });
                 })
@@ -125,18 +136,26 @@ pub fn sidebar_ui(
             ui.colored_label(palette::PRIMARY, crate::icons::glyph::CLOUD);
             ui.style_mut().override_font_id = Some(FontId::proportional(11.0));
             ui.add(
-                egui::Label::new(egui::RichText::new(cloud_label).color(palette::ON_SURFACE_VARIANT)).truncate(),
+                egui::Label::new(
+                    egui::RichText::new(cloud_label).color(palette::ON_SURFACE_VARIANT),
+                )
+                .truncate(),
             );
         });
         ui.horizontal(|ui| {
             ui.colored_label(palette::ON_SURFACE_VARIANT, "⌂");
             ui.style_mut().override_font_id = Some(FontId::monospace(10.5));
             ui.add(
-                egui::Label::new(egui::RichText::new(workspace).color(palette::ON_SURFACE_VARIANT)).truncate(),
+                egui::Label::new(egui::RichText::new(workspace).color(palette::ON_SURFACE_VARIANT))
+                    .truncate(),
             );
         });
     });
 
-    let action = if new_chat { -1 } else { select.map(|i| i as i32).unwrap_or(-2) };
+    let action = if new_chat {
+        -1
+    } else {
+        select.map(|i| i as i32).unwrap_or(-2)
+    };
     (action, to_delete)
 }

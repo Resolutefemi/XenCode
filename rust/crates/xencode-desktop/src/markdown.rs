@@ -54,7 +54,11 @@ fn run_format(run: &Run, base: &FontId, color: Color32) -> TextFormat {
         } else {
             base.clone()
         };
-        let color = if run.italic { Color32::LIGHT_GRAY } else { color };
+        let color = if run.italic {
+            Color32::LIGHT_GRAY
+        } else {
+            color
+        };
         let mut fmt = TextFormat {
             font_id,
             color,
@@ -93,10 +97,19 @@ fn layout_job(ctx: &InlineCtx, base: FontId, color: Color32, max_width: f32) -> 
 enum Block {
     Paragraph(InlineCtx),
     Heading(pulldown_cmark::HeadingLevel, InlineCtx),
-    Code { lang: String, code: String },
-    Item { ctx: InlineCtx, marker: String, indent: f32 },
+    Code {
+        lang: String,
+        code: String,
+    },
+    Item {
+        ctx: InlineCtx,
+        marker: String,
+        indent: f32,
+    },
     Quote(String),
-    Table { rows: Vec<Vec<String>> },
+    Table {
+        rows: Vec<Vec<String>>,
+    },
     Rule,
 }
 
@@ -109,7 +122,12 @@ pub fn markdown(ui: &mut Ui, md: &str) {
         match block {
             Block::Paragraph(ctx) => {
                 if !ctx.is_empty() {
-                    let job = layout_job(&ctx, FontId::proportional(14.0), palette::ON_BACKGROUND, max_width);
+                    let job = layout_job(
+                        &ctx,
+                        FontId::proportional(14.0),
+                        palette::ON_BACKGROUND,
+                        max_width,
+                    );
                     ui.add(Label::new(job).wrap());
                 }
             }
@@ -123,20 +141,33 @@ pub fn markdown(ui: &mut Ui, md: &str) {
                 };
                 ui.add_space(4.0);
                 let ctx = ctx.force_bold();
-                let job = layout_job(&ctx, FontId::proportional(size), palette::ON_BACKGROUND, max_width);
+                let job = layout_job(
+                    &ctx,
+                    FontId::proportional(size),
+                    palette::ON_BACKGROUND,
+                    max_width,
+                );
                 ui.add(Label::new(job).wrap());
                 ui.add_space(2.0);
             }
             Block::Code { lang, code } => {
                 code_block(ui, &lang, code.trim_end_matches('\n'));
             }
-            Block::Item { ctx, marker, indent } => {
+            Block::Item {
+                ctx,
+                marker,
+                indent,
+            } => {
                 ui.horizontal_wrapped(|ui| {
                     ui.add_space(indent);
                     ui.style_mut().override_font_id = Some(FontId::proportional(14.0));
                     ui.colored_label(palette::PRIMARY, marker);
-                    let job =
-                        layout_job(&ctx, FontId::proportional(14.0), palette::ON_BACKGROUND, max_width - indent - 16.0);
+                    let job = layout_job(
+                        &ctx,
+                        FontId::proportional(14.0),
+                        palette::ON_BACKGROUND,
+                        max_width - indent - 16.0,
+                    );
                     ui.add(Label::new(job).wrap());
                 });
             }
@@ -145,7 +176,12 @@ pub fn markdown(ui: &mut Ui, md: &str) {
                     .fill(palette::SURFACE_VARIANT)
                     .stroke(Stroke::new(1.0_f32, palette::OUTLINE_VARIANT))
                     .rounding(egui::Rounding::same(6.0))
-                    .inner_margin(egui::Margin { left: 14.0, right: 10.0, top: 8.0, bottom: 8.0 })
+                    .inner_margin(egui::Margin {
+                        left: 14.0,
+                        right: 10.0,
+                        top: 8.0,
+                        bottom: 8.0,
+                    })
                     .show(ui, |ui| {
                         ui.set_max_width(ui.available_width());
                         markdown(ui, &inner_md);
@@ -173,7 +209,8 @@ pub fn markdown(ui: &mut Ui, md: &str) {
                                             Some(FontId::new(13.0, theme::families::bold()));
                                         ui.colored_label(palette::ON_BACKGROUND, cell);
                                     } else {
-                                        ui.style_mut().override_font_id = Some(FontId::proportional(13.0));
+                                        ui.style_mut().override_font_id =
+                                            Some(FontId::proportional(13.0));
                                         ui.colored_label(palette::ON_SURFACE_VARIANT, cell);
                                     }
                                 }
@@ -200,7 +237,12 @@ struct BlockIter<'a> {
 
 impl<'a> BlockIter<'a> {
     fn new(parser: Parser<'a>) -> Self {
-        Self { parser, list_stack: Vec::new(), buf: Vec::new(), pending: VecDeque::new() }
+        Self {
+            parser,
+            list_stack: Vec::new(),
+            buf: Vec::new(),
+            pending: VecDeque::new(),
+        }
     }
 }
 
@@ -232,7 +274,7 @@ impl<'a> Iterator for BlockIter<'a> {
                         CodeBlockKind::Indented => String::new(),
                     };
                     let mut code = String::new();
-                    while let Some(ev) = self.parser.next() {
+                    for ev in self.parser.by_ref() {
                         match ev {
                             Event::End(TagEnd::CodeBlock) => break,
                             Event::Text(t) => code.push_str(&t),
@@ -251,7 +293,11 @@ impl<'a> Iterator for BlockIter<'a> {
                 Event::Start(Tag::Item) => {
                     let (ctx, marker, indent) =
                         collect_item(&mut self.parser, &mut self.list_stack, &mut self.pending);
-                    return Some(Block::Item { ctx, marker, indent });
+                    return Some(Block::Item {
+                        ctx,
+                        marker,
+                        indent,
+                    });
                 }
                 Event::Start(Tag::BlockQuote(_)) => {
                     let mut inner: Vec<Event> = Vec::new();
@@ -280,7 +326,7 @@ impl<'a> Iterator for BlockIter<'a> {
                     let mut cur_row: Vec<String> = Vec::new();
                     let mut cur_cell = String::new();
                     let mut cell_depth = 0usize;
-                    while let Some(ev) = self.parser.next() {
+                    for ev in self.parser.by_ref() {
                         match ev {
                             Event::Start(Tag::TableCell) => {
                                 cell_depth += 1;
@@ -373,7 +419,7 @@ fn collect_item<'a>(
 fn collect_inline<'a>(parser: &mut Parser<'a>, buf: &mut Vec<Event<'a>>) {
     buf.clear();
     let mut depth = 0usize;
-    while let Some(ev) = parser.next() {
+    for ev in parser.by_ref() {
         match &ev {
             Event::Start(Tag::Emphasis)
             | Event::Start(Tag::Strong)
@@ -497,9 +543,19 @@ pub fn code_block(ui: &mut Ui, lang: &str, code: &str) {
             ui.set_width(ui.available_width());
             ui.horizontal(|ui| {
                 if !lang.is_empty() {
-                    theme::chip(ui, lang, palette::ON_PRIMARY_CONTAINER, palette::PRIMARY_CONTAINER);
+                    theme::chip(
+                        ui,
+                        lang,
+                        palette::ON_PRIMARY_CONTAINER,
+                        palette::PRIMARY_CONTAINER,
+                    );
                 } else {
-                    theme::chip(ui, "text", palette::ON_SURFACE_VARIANT, palette::SURFACE_VARIANT);
+                    theme::chip(
+                        ui,
+                        "text",
+                        palette::ON_SURFACE_VARIANT,
+                        palette::SURFACE_VARIANT,
+                    );
                 }
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                     if ui.small_button("Copy").clicked() {
@@ -508,8 +564,10 @@ pub fn code_block(ui: &mut Ui, lang: &str, code: &str) {
                 });
             });
             ui.add_space(4.0);
-            let mut job = LayoutJob::default();
-            job.text = code.to_owned();
+            let mut job = LayoutJob {
+                text: code.to_owned(),
+                ..Default::default()
+            };
             job.sections.push(egui::text::LayoutSection {
                 leading_space: 0.0,
                 byte_range: 0..code.len(),

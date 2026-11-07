@@ -47,7 +47,10 @@ impl FilesPane {
             ui.colored_label(palette::ON_SURFACE_VARIANT, sel.to_string_lossy().as_ref());
             ui.colored_label(palette::PRIMARY, &self.selected_info);
         } else {
-            ui.colored_label(palette::ON_SURFACE_VARIANT, "select a file to see its details");
+            ui.colored_label(
+                palette::ON_SURFACE_VARIANT,
+                "select a file to see its details",
+            );
         }
     }
 
@@ -73,13 +76,18 @@ impl FilesPane {
         });
 
         for (path, is_dir, size) in items {
-            let name = path.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
+            let name = path
+                .file_name()
+                .map(|n| n.to_string_lossy().into_owned())
+                .unwrap_or_default();
             let indent = depth as f32 * 14.0;
             let is_expanded = self.expanded.contains(&path);
             let selected = self.selected.as_deref() == Some(path.as_path());
 
             let frame = if selected {
-                egui::Frame::default().fill(palette::SURFACE_VARIANT).rounding(egui::Rounding::same(6.0))
+                egui::Frame::default()
+                    .fill(palette::SURFACE_VARIANT)
+                    .rounding(egui::Rounding::same(6.0))
             } else {
                 egui::Frame::default()
             };
@@ -98,7 +106,10 @@ impl FilesPane {
                             ui.colored_label(palette::PRIMARY, arrow);
                             ui.colored_label(palette::ON_BACKGROUND, name);
                         } else {
-                            ui.colored_label(palette::ON_SURFACE_VARIANT, crate::icons::glyph::FILE);
+                            ui.colored_label(
+                                palette::ON_SURFACE_VARIANT,
+                                crate::icons::glyph::FILE,
+                            );
                             ui.colored_label(palette::ON_SURFACE_VARIANT, name);
                         }
                     });
@@ -124,7 +135,13 @@ impl FilesPane {
 }
 
 fn kind_of(path: &Path) -> &'static str {
-    match path.extension().and_then(|e| e.to_str()).unwrap_or("").to_ascii_lowercase().as_str() {
+    match path
+        .extension()
+        .and_then(|e| e.to_str())
+        .unwrap_or("")
+        .to_ascii_lowercase()
+        .as_str()
+    {
         "rs" => "Rust source",
         "kt" | "kts" => "Kotlin source",
         "md" => "Markdown",

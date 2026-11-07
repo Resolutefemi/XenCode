@@ -91,7 +91,11 @@ impl ToolKind {
             ToolKind::Edit
         } else if lower.contains("write") {
             ToolKind::Write
-        } else if lower.contains("bash") || lower.contains("exec") || lower.contains("run") || lower.contains("command") {
+        } else if lower.contains("bash")
+            || lower.contains("exec")
+            || lower.contains("run")
+            || lower.contains("command")
+        {
             ToolKind::Execute
         } else if lower.contains("grep") || lower.contains("search") || lower.contains("find") {
             ToolKind::Search

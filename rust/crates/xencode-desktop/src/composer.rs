@@ -50,7 +50,10 @@ pub struct Composer {
 
 impl Default for Composer {
     fn default() -> Self {
-        Self { input: String::new(), effort: Effort::Medium }
+        Self {
+            input: String::new(),
+            effort: Effort::Medium,
+        }
     }
 }
 
@@ -62,6 +65,8 @@ pub enum ComposerAction {
 }
 
 impl Composer {
+    /// Bundle of per-frame composer context (keeps the argument list sane).
+    #[allow(clippy::too_many_arguments)]
     pub fn ui(
         &mut self,
         ui: &mut Ui,
@@ -91,11 +96,19 @@ impl Composer {
                 });
 
             // Effort cycle chip (brain glyph + level).
-            let effort_label = format!("{} Thinking: {}", crate::icons::glyph::BRAIN, self.effort.label());
+            let effort_label = format!(
+                "{} Thinking: {}",
+                crate::icons::glyph::BRAIN,
+                self.effort.label()
+            );
             if ui
-                .add(egui::Button::new(
-                    egui::RichText::new(effort_label).color(palette::ON_PRIMARY_CONTAINER),
-                ).fill(palette::PRIMARY_CONTAINER).small())
+                .add(
+                    egui::Button::new(
+                        egui::RichText::new(effort_label).color(palette::ON_PRIMARY_CONTAINER),
+                    )
+                    .fill(palette::PRIMARY_CONTAINER)
+                    .small(),
+                )
                 .clicked()
             {
                 self.effort = self.effort.next();
@@ -126,7 +139,9 @@ impl Composer {
             TextEdit::multiline(&mut self.input)
                 .desired_rows(desired_rows)
                 .desired_width(ui.available_width())
-                .hint_text("Message XenCode... Enter to send, Shift+Enter for a new line, / for commands")
+                .hint_text(
+                    "Message XenCode... Enter to send, Shift+Enter for a new line, / for commands",
+                )
                 .lock_focus(true),
         );
         if response.lost_focus()

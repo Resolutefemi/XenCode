@@ -101,7 +101,13 @@ impl GitPane {
         self.refresh_queued = true;
     }
 
-    fn spawn(&self, args: Vec<String>, action: GitAction, reply: Sender<GitMsg>, then: Option<GitAction>) {
+    fn spawn(
+        &self,
+        args: Vec<String>,
+        action: GitAction,
+        reply: Sender<GitMsg>,
+        then: Option<GitAction>,
+    ) {
         let ws = self.workspace.clone();
         thread::spawn(move || {
             let out = Command::new("git")
@@ -119,7 +125,10 @@ impl GitPane {
                     }
                 }
                 Ok(o) => {
-                    let _ = reply.send(GitMsg::Error(action, String::from_utf8_lossy(&o.stderr).trim().to_string()));
+                    let _ = reply.send(GitMsg::Error(
+                        action,
+                        String::from_utf8_lossy(&o.stderr).trim().to_string(),
+                    ));
                 }
                 Err(e) => {
                     let _ = reply.send(GitMsg::Error(action, e.to_string()));
@@ -200,7 +209,10 @@ impl GitPane {
                     .current_dir(&ws)
                     .output()
             } else {
-                Command::new("git").args(["diff", "--", &path]).current_dir(&ws).output()
+                Command::new("git")
+                    .args(["diff", "--", &path])
+                    .current_dir(&ws)
+                    .output()
             };
             let diff = out
                 .map(|o| String::from_utf8_lossy(&o.stdout).into_owned())
@@ -223,13 +235,24 @@ impl GitPane {
         // Header: branch + ahead/behind + refresh.
         ui.horizontal(|ui| {
             ui.colored_label(palette::PRIMARY, crate::icons::glyph::GIT_BRANCH);
-            ui.style_mut().override_font_id = Some(FontId::new(13.0, crate::theme::families::bold()));
+            ui.style_mut().override_font_id =
+                Some(FontId::new(13.0, crate::theme::families::bold()));
             ui.colored_label(palette::ON_BACKGROUND, self.branch.clone());
             if self.ahead > 0 {
-                theme::chip(ui, &format!("↑{}", self.ahead), palette::ON_PRIMARY_CONTAINER, palette::PRIMARY_CONTAINER);
+                theme::chip(
+                    ui,
+                    &format!("↑{}", self.ahead),
+                    palette::ON_PRIMARY_CONTAINER,
+                    palette::PRIMARY_CONTAINER,
+                );
             }
             if self.behind > 0 {
-                theme::chip(ui, &format!("↓{}", self.behind), palette::ON_SURFACE_VARIANT, palette::SURFACE_VARIANT);
+                theme::chip(
+                    ui,
+                    &format!("↓{}", self.behind),
+                    palette::ON_SURFACE_VARIANT,
+                    palette::SURFACE_VARIANT,
+                );
             }
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                 if ui.small_button(crate::icons::glyph::SYNC).clicked() {
@@ -245,12 +268,17 @@ impl GitPane {
 
         // Commit box.
         ui.horizontal(|ui| {
-            let enabled = !self.commit_msg.trim().is_empty() && !self.staged.is_empty() && !self.busy;
+            let enabled =
+                !self.commit_msg.trim().is_empty() && !self.staged.is_empty() && !self.busy;
             if ui
                 .add_enabled(
                     enabled,
-                    egui::Button::new(egui::RichText::new("Commit").color(palette::ON_PRIMARY).strong())
-                        .fill(palette::PRIMARY),
+                    egui::Button::new(
+                        egui::RichText::new("Commit")
+                            .color(palette::ON_PRIMARY)
+                            .strong(),
+                    )
+                    .fill(palette::PRIMARY),
                 )
                 .clicked()
             {
@@ -267,7 +295,12 @@ impl GitPane {
             }
             if ui.small_button("Stage all").clicked() {
                 self.busy = true;
-                self.spawn(vec!["add".into(), "-A".into()], GitAction::Stage, self.tx.clone(), Some(GitAction::Refresh));
+                self.spawn(
+                    vec!["add".into(), "-A".into()],
+                    GitAction::Stage,
+                    self.tx.clone(),
+                    Some(GitAction::Refresh),
+                );
                 self.request_refresh();
             }
         });
@@ -319,7 +352,13 @@ impl GitPane {
                             } else {
                                 palette::ON_SURFACE_VARIANT
                             };
-                            ui.add(egui::Label::new(egui::RichText::new(line.to_string()).color(color)).truncate().selectable(true));
+                            ui.add(
+                                egui::Label::new(
+                                    egui::RichText::new(line.to_string()).color(color),
+                                )
+                                .truncate()
+                                .selectable(true),
+                            );
                         }
                     });
             }
@@ -330,7 +369,12 @@ impl GitPane {
                 let (sha, rest) = line.split_once(' ').unwrap_or((line.as_str(), ""));
                 ui.horizontal(|ui| {
                     ui.colored_label(palette::PRIMARY, sha.to_string());
-                    ui.add(egui::Label::new(egui::RichText::new(rest).color(palette::ON_SURFACE_VARIANT)).truncate());
+                    ui.add(
+                        egui::Label::new(
+                            egui::RichText::new(rest).color(palette::ON_SURFACE_VARIANT),
+                        )
+                        .truncate(),
+                    );
                 });
             }
         });
@@ -339,7 +383,11 @@ impl GitPane {
     fn file_row(&mut self, ui: &mut Ui, f: &GitFile, staged: bool) {
         let selected = self.selected.as_deref() == Some(f.path.as_str());
         let resp = egui::Frame::default()
-            .fill(if selected { palette::SURFACE_VARIANT } else { egui::Color32::TRANSPARENT })
+            .fill(if selected {
+                palette::SURFACE_VARIANT
+            } else {
+                egui::Color32::TRANSPARENT
+            })
             .rounding(egui::Rounding::same(6.0))
             .inner_margin(egui::Margin::symmetric(6.0, 4.0))
             .show(ui, |ui| {
@@ -352,23 +400,41 @@ impl GitPane {
                     };
                     theme::chip(ui, &f.status_label(), badge_color, palette::SURFACE_VARIANT);
                     ui.style_mut().override_font_id = Some(FontId::monospace(11.5));
-                    ui.add(egui::Label::new(egui::RichText::new(f.path.as_str()).color(palette::ON_BACKGROUND)).truncate());
+                    ui.add(
+                        egui::Label::new(
+                            egui::RichText::new(f.path.as_str()).color(palette::ON_BACKGROUND),
+                        )
+                        .truncate(),
+                    );
                     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                         if ui.small_button("diff").clicked() {
                             self.request_diff(&f.path, staged);
                         }
                         if staged {
-                            if ui.small_button(crate::icons::glyph::MINUS).on_hover_text("unstage").clicked() {
+                            if ui
+                                .small_button(crate::icons::glyph::MINUS)
+                                .on_hover_text("unstage")
+                                .clicked()
+                            {
                                 self.busy = true;
                                 self.spawn(
-                                    vec!["restore".into(), "--staged".into(), "--".into(), f.path.clone()],
+                                    vec![
+                                        "restore".into(),
+                                        "--staged".into(),
+                                        "--".into(),
+                                        f.path.clone(),
+                                    ],
                                     GitAction::Unstage,
                                     self.tx.clone(),
                                     Some(GitAction::Refresh),
                                 );
                                 self.request_refresh();
                             }
-                        } else if ui.small_button(crate::icons::glyph::PLUS).on_hover_text("stage").clicked() {
+                        } else if ui
+                            .small_button(crate::icons::glyph::PLUS)
+                            .on_hover_text("stage")
+                            .clicked()
+                        {
                             self.busy = true;
                             self.spawn(
                                 vec!["add".into(), "--".into(), f.path.clone()],
@@ -447,7 +513,12 @@ mod tests {
                 let x = line.as_bytes()[0] as char;
                 let y = line.as_bytes()[1] as char;
                 let path = line[3..].trim().to_string();
-                files.push(GitFile { path, x, y, staged: x != ' ' && x != '?' });
+                files.push(GitFile {
+                    path,
+                    x,
+                    y,
+                    staged: x != ' ' && x != '?',
+                });
             }
         }
         assert_eq!(branch, "main");

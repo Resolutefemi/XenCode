@@ -44,7 +44,11 @@ impl CloudConfig {
         }
         std::fs::File::create(&path)
             .and_then(|mut f| {
-                f.write_all(serde_json::to_string_pretty(self).unwrap_or_default().as_bytes())
+                f.write_all(
+                    serde_json::to_string_pretty(self)
+                        .unwrap_or_default()
+                        .as_bytes(),
+                )
             })
             .is_ok()
     }
@@ -86,7 +90,12 @@ impl CloudClient {
     }
 
     fn base(&self) -> String {
-        let mut url = self.config.server_url.trim().trim_end_matches('/').to_string();
+        let mut url = self
+            .config
+            .server_url
+            .trim()
+            .trim_end_matches('/')
+            .to_string();
         if !url.starts_with("http://") && !url.starts_with("https://") {
             url = format!("http://{url}");
         }
@@ -154,16 +163,27 @@ impl CloudClient {
                 return Err(format!("HTTP {}", resp.status()));
             }
             let json: serde_json::Value = resp.json().await.map_err(|e| e.to_string())?;
-            json["id"].as_str().map(String::from).ok_or_else(|| "missing id".into())
+            json["id"]
+                .as_str()
+                .map(String::from)
+                .ok_or_else(|| "missing id".into())
         })
     }
 
     /// Append one message to a cloud conversation (best effort).
-    pub fn push_message(&self, conversation_id: &str, role: &str, content: &str) -> Result<(), String> {
+    pub fn push_message(
+        &self,
+        conversation_id: &str,
+        role: &str,
+        content: &str,
+    ) -> Result<(), String> {
         RUNTIME.block_on(async {
             let resp = self
                 .http
-                .post(format!("{}/v1/conversations/{conversation_id}/messages", self.base()))
+                .post(format!(
+                    "{}/v1/conversations/{conversation_id}/messages",
+                    self.base()
+                ))
                 .bearer_auth(&self.config.token)
                 .json(&serde_json::json!({ "role": role, "content": content }))
                 .send()
@@ -241,8 +261,14 @@ impl CloudClient {
                                     continue;
                                 };
                                 if let Some(u) = v.get("usage").and_then(|u| u.as_object()) {
-                                    let input = u.get("prompt_tokens").and_then(|x| x.as_u64()).unwrap_or(0);
-                                    let output = u.get("completion_tokens").and_then(|x| x.as_u64()).unwrap_or(0);
+                                    let input = u
+                                        .get("prompt_tokens")
+                                        .and_then(|x| x.as_u64())
+                                        .unwrap_or(0);
+                                    let output = u
+                                        .get("completion_tokens")
+                                        .and_then(|x| x.as_u64())
+                                        .unwrap_or(0);
                                     if input > 0 || output > 0 {
                                         let _ = tx.send(StreamEvent::Usage { input, output });
                                     }
@@ -284,7 +310,8 @@ mod tests {
         };
         let text = serde_json::to_string_pretty(&cfg).unwrap();
         std::fs::write(&path, &text).unwrap();
-        let back: CloudConfig = serde_json::from_str(&std::fs::read_to_string(&path).unwrap()).unwrap();
+        let back: CloudConfig =
+            serde_json::from_str(&std::fs::read_to_string(&path).unwrap()).unwrap();
         assert_eq!(back.server_url, cfg.server_url);
         assert_eq!(back.token, cfg.token);
         assert!(back.configured());

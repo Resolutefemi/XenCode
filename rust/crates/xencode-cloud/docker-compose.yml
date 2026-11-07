@@ -1,0 +1,44 @@
+version: "3.9"
+
+# XenCloud: Postgres + the API. Copy .env.example values or export them
+# before `docker compose up`.
+
+services:
+  db:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_USER: xencloud
+      POSTGRES_PASSWORD: xencloud
+      POSTGRES_DB: xencloud
+    ports:
+      - "5432:5432"
+    volumes:
+      - xencloud-db:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U xencloud"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  api:
+    build:
+      context: ../..
+      dockerfile: crates/xencode-cloud/Dockerfile
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      XENCODE_DB: postgres
+      DATABASE_URL: postgres://xencloud:xencloud@db:5432/xencloud
+      XENCODE_BIND: 0.0.0.0:8080
+      # Master provider keys: set at least one for real completions.
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      OPENROUTER_API_KEY: ${OPENROUTER_API_KEY:-}
+      XENCODE_STRIPE_WEBHOOK_SECRET: ${XENCODE_STRIPE_WEBHOOK_SECRET:-}
+      XENCODE_ADMIN_TOKEN: ${XENCODE_ADMIN_TOKEN:-}
+    ports:
+      - "8080:8080"
+
+volumes:
+  xencloud-db:

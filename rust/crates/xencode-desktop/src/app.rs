@@ -1,13 +1,13 @@
 //! The app shell: sidebar, central conversation, right dock, status bar,
 //! cloud settings dialog and stream wiring.
 
-use crate::cloud::{CloudClient, CloudConfig, ChatMessage, StreamEvent};
+use crate::cloud::{ChatMessage, CloudClient, CloudConfig, StreamEvent};
 use crate::composer::{Composer, ComposerAction};
 use crate::conversation::{self, ChatItem};
 use crate::panes::{self, DockState, DockTab};
 use crate::sidebar::{self, SidebarState};
-use crate::theme::palette;
 use crate::theme;
+use crate::theme::palette;
 use egui::{FontId, Margin, SidePanel, TopBottomPanel, Ui};
 use std::sync::mpsc::{channel, Receiver, TryRecvError};
 
@@ -21,7 +21,11 @@ pub struct Conversation {
 
 impl Conversation {
     pub fn new(title: impl Into<String>) -> Self {
-        Conversation { title: title.into(), items: Vec::new(), cloud_id: None }
+        Conversation {
+            title: title.into(),
+            items: Vec::new(),
+            cloud_id: None,
+        }
     }
 
     pub fn push(&mut self, item: ChatItem) {
@@ -37,9 +41,10 @@ impl Conversation {
 impl ChatItem {
     pub(crate) fn matches_text(&self, needle: &str) -> bool {
         match self {
-            ChatItem::User { text } | ChatItem::Assistant { text } | ChatItem::System { text } | ChatItem::Error { text } => {
-                text.to_lowercase().contains(needle)
-            }
+            ChatItem::User { text }
+            | ChatItem::Assistant { text }
+            | ChatItem::System { text }
+            | ChatItem::Error { text } => text.to_lowercase().contains(needle),
             ChatItem::Reasoning { text, .. } => text.to_lowercase().contains(needle),
             ChatItem::Tool { title, .. } => title.to_lowercase().contains(needle),
         }
@@ -93,7 +98,12 @@ impl XenApp {
             cloud_models: vec!["xencode-auto".into(), "fast".into(), "smart".into()],
             cloud_model: "xencode-auto".into(),
             cloud_status: "Demo mode · XenCloud not configured".into(),
-            cloud_dialog: CloudDialog { open: false, server_url: String::new(), token: String::new(), probe: None },
+            cloud_dialog: CloudDialog {
+                open: false,
+                server_url: String::new(),
+                token: String::new(),
+                probe: None,
+            },
             streaming: None,
             rx,
             demo_counter: 0,
@@ -121,7 +131,11 @@ impl XenApp {
         conv.title = "Workspace tour + gateway streaming".into();
         crate::demo::seed(conv);
         // Open the first tool row so its detail (file content) shows in screenshots.
-        if let Some(ChatItem::Tool { open, .. }) = conv.items.iter_mut().find(|it| matches!(it, ChatItem::Tool { .. })) {
+        if let Some(ChatItem::Tool { open, .. }) = conv
+            .items
+            .iter_mut()
+            .find(|it| matches!(it, ChatItem::Tool { .. }))
+        {
             *open = true;
         }
         // Give the terminal pane some scrollback.
@@ -143,7 +157,11 @@ impl eframe::App for XenApp {
                 ui.add_space(6.0);
                 let streaming = self.streaming.is_some();
                 ui.colored_label(
-                    if streaming { palette::PRIMARY } else { palette::ON_SURFACE_VARIANT },
+                    if streaming {
+                        palette::PRIMARY
+                    } else {
+                        palette::ON_SURFACE_VARIANT
+                    },
                     "●",
                 );
                 ui.style_mut().override_font_id = Some(FontId::proportional(11.0));
@@ -157,7 +175,10 @@ impl eframe::App for XenApp {
                     format!("Mode: default · Model: {}", self.cloud_model),
                 );
                 ui.separator();
-                ui.colored_label(palette::ON_SURFACE_VARIANT, format!("Workspace: {}", self.workspace));
+                ui.colored_label(
+                    palette::ON_SURFACE_VARIANT,
+                    format!("Workspace: {}", self.workspace),
+                );
             });
         });
 
@@ -167,33 +188,35 @@ impl eframe::App for XenApp {
             .default_width(240.0)
             .width_range(200.0..=340.0)
             .show(ctx, |ui| {
-                egui::Frame::default().inner_margin(Margin::same(10.0)).show(ui, |ui| {
-                    let (action, delete) = sidebar::sidebar_ui(
-                        ui,
-                        &mut self.sidebar_state,
-                        &mut self.conversations,
-                        self.active,
-                        &self.workspace,
-                        &self.cloud_status,
-                    );
-                    match action {
-                        -1 => {
-                            self.conversations.push(Conversation::new("New chat"));
-                            self.active = self.conversations.len() - 1;
+                egui::Frame::default()
+                    .inner_margin(Margin::same(10.0))
+                    .show(ui, |ui| {
+                        let (action, delete) = sidebar::sidebar_ui(
+                            ui,
+                            &mut self.sidebar_state,
+                            &mut self.conversations,
+                            self.active,
+                            &self.workspace,
+                            &self.cloud_status,
+                        );
+                        match action {
+                            -1 => {
+                                self.conversations.push(Conversation::new("New chat"));
+                                self.active = self.conversations.len() - 1;
+                            }
+                            i if i >= 0 => self.active = i as usize,
+                            _ => {}
                         }
-                        i if i >= 0 => self.active = i as usize,
-                        _ => {}
-                    }
-                    if let Some(d) = delete {
-                        self.conversations.remove(d);
-                        if self.active >= self.conversations.len() {
-                            self.active = self.conversations.len().saturating_sub(1);
+                        if let Some(d) = delete {
+                            self.conversations.remove(d);
+                            if self.active >= self.conversations.len() {
+                                self.active = self.conversations.len().saturating_sub(1);
+                            }
+                            if self.conversations.is_empty() {
+                                self.conversations.push(Conversation::new("New chat"));
+                            }
                         }
-                        if self.conversations.is_empty() {
-                            self.conversations.push(Conversation::new("New chat"));
-                        }
-                    }
-                });
+                    });
             });
 
         // Dock (right).
@@ -203,9 +226,11 @@ impl eframe::App for XenApp {
                 .default_width(340.0)
                 .width_range(260.0..=560.0)
                 .show(ctx, |ui| {
-                    egui::Frame::default().inner_margin(Margin::same(10.0)).show(ui, |ui| {
-                        panes::dock_ui(ui, &mut self.dock);
-                    });
+                    egui::Frame::default()
+                        .inner_margin(Margin::same(10.0))
+                        .show(ui, |ui| {
+                            panes::dock_ui(ui, &mut self.dock);
+                        });
                 });
         }
 
@@ -233,9 +258,14 @@ impl XenApp {
                 for tab in DockTab::ALL {
                     let active = self.dock.open && self.dock.tab == tab;
                     if ui
-                        .add(egui::Button::new(
-                            egui::RichText::new(tab.glyph()).color(if active { palette::PRIMARY } else { palette::ON_SURFACE_VARIANT }),
-                        ).small())
+                        .add(
+                            egui::Button::new(egui::RichText::new(tab.glyph()).color(if active {
+                                palette::PRIMARY
+                            } else {
+                                palette::ON_SURFACE_VARIANT
+                            }))
+                            .small(),
+                        )
                         .on_hover_text(tab.label())
                         .clicked()
                     {
@@ -246,7 +276,11 @@ impl XenApp {
                         }
                     }
                 }
-                if ui.button(crate::icons::glyph::GEAR).on_hover_text("XenCloud settings").clicked() {
+                if ui
+                    .button(crate::icons::glyph::GEAR)
+                    .on_hover_text("XenCloud settings")
+                    .clicked()
+                {
                     let cfg = self.cloud.as_ref().map(|c| c.config.clone());
                     if let Some(cfg) = cfg {
                         self.cloud_dialog.server_url = cfg.server_url.clone();
@@ -264,7 +298,13 @@ impl XenApp {
         let streaming_text = self
             .streaming
             .as_ref()
-            .map(|s| if s.in_reasoning { s.reason.clone() } else { s.buf.clone() })
+            .map(|s| {
+                if s.in_reasoning {
+                    s.reason.clone()
+                } else {
+                    s.buf.clone()
+                }
+            })
             .unwrap_or_default();
         let context_pct = conversation::context_usage_percent(
             &self.conversations[self.active.min(self.conversations.len() - 1)].items,
@@ -313,7 +353,11 @@ impl XenApp {
 
         // Composer.
         let cloud_label = self.cloud_status.clone();
-        let models = if self.cloud_models.is_empty() { vec!["xencode-auto".into()] } else { self.cloud_models.clone() };
+        let models = if self.cloud_models.is_empty() {
+            vec!["xencode-auto".into()]
+        } else {
+            self.cloud_models.clone()
+        };
         let mut picked_model: Option<String> = None;
         let action = self.composer.ui(
             ui,
@@ -353,8 +397,14 @@ impl XenApp {
                 .items
                 .iter()
                 .filter_map(|it| match it {
-                    ChatItem::User { text } => Some(ChatMessage { role: "user".into(), content: text.clone() }),
-                    ChatItem::Assistant { text } => Some(ChatMessage { role: "assistant".into(), content: text.clone() }),
+                    ChatItem::User { text } => Some(ChatMessage {
+                        role: "user".into(),
+                        content: text.clone(),
+                    }),
+                    ChatItem::Assistant { text } => Some(ChatMessage {
+                        role: "assistant".into(),
+                        content: text.clone(),
+                    }),
                     _ => None,
                 })
                 .collect();
@@ -370,7 +420,9 @@ impl XenApp {
             {
                 let conv = &mut self.conversations[idx];
                 if conv.cloud_id.is_none() {
-                    conv.cloud_id = client.push_conversation(&conv.title, &self.cloud_model).ok();
+                    conv.cloud_id = client
+                        .push_conversation(&conv.title, &self.cloud_model)
+                        .ok();
                 }
                 if let Some(id) = conv.cloud_id.clone() {
                     let _ = client.push_message(&id, "user", &text);
