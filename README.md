@@ -22,6 +22,23 @@ Compose Desktop app · Rust rewrite (egui) · CLI · XenCloud backend
 
 ---
 
+## Preview (Rust desktop)
+
+<p>
+  <img src="art/screenshots/desktop-chat.png" width="49%" alt="Chat with markdown, tool rows and reasoning" />
+  <img src="art/screenshots/desktop-xencloud.png" width="49%" alt="Chat streaming through XenCloud with the terminal pane open" />
+  <br/><b>Streaming chat with markdown, tool rows and collapsible reasoning · XenCloud wired in, terminal pane open</b>
+</p>
+
+<p>
+  <img src="art/screenshots/desktop-git.png" width="32%" alt="Git pane" />
+  <img src="art/screenshots/desktop-terminal.png" width="32%" alt="Terminal pane" />
+  <img src="art/screenshots/desktop-files.png" width="32%" alt="Files pane" />
+  <br/><b>Side panes: Git (stage/unstage/commit/diff/log) · Terminal (persistent cwd) · Files (workspace tree)</b>
+</p>
+
+---
+
 ## What is XenCode?
 
 XenCode is the PC line of the XenCode project: a goal-driven AI coding agent that runs on every desktop and in every terminal, plus the cloud backend that powers it. The Android app now lives in its own repository, [Resolutefemi/XenAI](https://github.com/Resolutefemi/XenAI).

@@ -1,9 +1,10 @@
-name: PC (CLI + Desktop)
+name: PC (CLI + Desktop + Rust)
 
-# PC line: shared JVM core, CLI and Compose Desktop app for Windows/macOS/Linux.
+# PC line: shared JVM core, CLI and Compose Desktop app for Windows/macOS/Linux,
+# plus the Rust workspace (egui desktop rewrite + XenCloud Axum backend).
 # The CLI is distributed for all three operating systems and the desktop app is
 # packaged in the native formats of each (deb+rpm, msi+exe, dmg) — everything
-# built simultaneously from the same commit. Android CI lives in ci.yml.
+# built simultaneously from the same commit. The mobile app lives in XenAI.
 
 on:
   push:
@@ -12,6 +13,7 @@ on:
       - 'core/**'
       - 'cli/**'
       - 'desktop/**'
+      - 'rust/**'
       - '.github/workflows/pc.yml'
       - 'gradle/**'
       - 'gradlew'
@@ -21,6 +23,7 @@ on:
       - 'core/**'
       - 'cli/**'
       - 'desktop/**'
+      - 'rust/**'
       - '.github/workflows/pc.yml'
       - 'gradle/**'
       - 'gradlew'
@@ -45,6 +48,48 @@ jobs:
           cache: gradle
       - name: Run unit tests
         run: ./gradlew :core:test :cli:test :desktop:test --console=plain
+
+  rust:
+    name: Rust (xencode-desktop + xencode-cloud)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: rust
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install system deps (egui build)
+        run: sudo apt-get update && sudo apt-get install -y libxkbcommon-x11-0 libxcb-xkb1
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy, rustfmt
+      - name: Cache cargo
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            rust/target
+          key: rust-${{ runner.os }}-${{ hashFiles('rust/Cargo.lock') }}
+          restore-keys: rust-${{ runner.os }}-
+      - name: Format check
+        run: cargo fmt --check
+      - name: Clippy (zero warnings)
+        run: cargo clippy --workspace --all-targets -- -D warnings
+      - name: Tests (desktop + cloud, memory store + mock provider)
+        run: cargo test --workspace
+      - name: Release build
+        run: cargo build --release --workspace
+      - name: Upload XenCloud binary
+        uses: actions/upload-artifact@v4
+        with:
+          name: xencloud-linux-amd64
+          path: rust/target/release/xencode-cloud
+      - name: Upload egui desktop binary
+        uses: actions/upload-artifact@v4
+        with:
+          name: xencode-desktop-rust-linux-amd64
+          path: rust/target/release/xencode-desktop
 
   cli-dist:
     name: CLI distribution (${{ matrix.os }})
