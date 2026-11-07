@@ -276,11 +276,18 @@ def main() -> int:
     theme = extract_block(styles, "@theme")
     root = extract_block(styles, ":root")
     dark = extract_block(styles, ".dark")
+    zai_light = extract_block(styles, ".theme-zai-light")
+    zai_dark = extract_block(styles, ".theme-zai-dark")
 
+    # Cascade, exactly like the shipped app: @theme base -> :root extras ->
+    # .dark overrides -> .theme-zai-* overrides (the Zai skin the desktop
+    # app launches with: brand black/white, #f8f8f8 canvas, #161616 dark).
     light_decls = dict(theme)
     light_decls.update(root)
+    light_decls.update(zai_light)
     dark_decls = dict(theme)
     dark_decls.update(dark)
+    dark_decls.update(zai_dark)
 
     def solve(decls: dict[str, str]) -> dict[str, str]:
         out: dict[str, str] = {}

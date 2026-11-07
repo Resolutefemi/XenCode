@@ -5,342 +5,342 @@
 #[allow(dead_code)]
 pub mod light {
     use eframe::egui;
-    pub fn color_animated_gradient_text_soft() -> egui::Color32 { egui::Color32::from_rgba_unmultiplied(10, 10, 10, 56) }
-    pub fn color_animated_gradient_text_strong() -> egui::Color32 { egui::Color32::from_rgb(10, 10, 10) }
-    pub fn color_accent() -> egui::Color32 { egui::Color32::from_rgb(240, 249, 255) }
-    pub fn color_background() -> egui::Color32 { egui::Color32::from_rgb(250, 250, 250) }
-    pub fn color_background_alt() -> egui::Color32 { egui::Color32::from_rgba_unmultiplied(245, 245, 245, 153) }
-    pub fn color_background_win_alt() -> egui::Color32 { egui::Color32::from_rgb(229, 229, 229) }
-    pub fn color_border() -> egui::Color32 { egui::Color32::from_rgba_unmultiplied(10, 10, 10, 26) }
-    pub fn color_border_hover() -> egui::Color32 { egui::Color32::from_rgba_unmultiplied(10, 10, 10, 51) }
-    pub fn color_brand() -> egui::Color32 { egui::Color32::from_rgb(0, 188, 255) }
+    pub fn color_animated_gradient_text_soft() -> egui::Color32 { egui::Color32::from_rgba_unmultiplied(13, 13, 13, 56) }
+    pub fn color_animated_gradient_text_strong() -> egui::Color32 { egui::Color32::from_rgb(13, 13, 13) }
+    pub fn color_accent() -> egui::Color32 { egui::Color32::from_rgb(235, 244, 255) }
+    pub fn color_background() -> egui::Color32 { egui::Color32::from_rgb(248, 248, 248) }
+    pub fn color_background_alt() -> egui::Color32 { egui::Color32::from_rgba_unmultiplied(248, 248, 248, 178) }
+    pub fn color_background_win_alt() -> egui::Color32 { egui::Color32::from_rgb(236, 236, 238) }
+    pub fn color_border() -> egui::Color32 { egui::Color32::from_rgba_unmultiplied(13, 13, 13, 26) }
+    pub fn color_border_hover() -> egui::Color32 { egui::Color32::from_rgba_unmultiplied(13, 13, 13, 38) }
+    pub fn color_brand() -> egui::Color32 { egui::Color32::from_rgb(0, 0, 0) }
     pub fn color_card() -> egui::Color32 { egui::Color32::from_rgb(255, 255, 255) }
-    pub fn color_card_border() -> egui::Color32 { egui::Color32::from_rgba_unmultiplied(10, 10, 10, 26) }
-    pub fn color_card_selected() -> egui::Color32 { egui::Color32::from_rgb(229, 229, 229) }
-    pub fn color_command_node() -> egui::Color32 { egui::Color32::from_rgba_unmultiplied(98, 116, 142, 36) }
-    pub fn color_command_node_foreground() -> egui::Color32 { egui::Color32::from_rgb(69, 85, 108) }
-    pub fn color_command_node_hover() -> egui::Color32 { egui::Color32::from_rgba_unmultiplied(98, 116, 142, 51) }
-    pub fn color_context_breakdown_1() -> egui::Color32 { egui::Color32::from_rgb(0, 132, 209) }
-    pub fn color_context_breakdown_2() -> egui::Color32 { egui::Color32::from_rgb(0, 166, 244) }
-    pub fn color_context_breakdown_3() -> egui::Color32 { egui::Color32::from_rgb(0, 188, 255) }
-    pub fn color_context_breakdown_4() -> egui::Color32 { egui::Color32::from_rgb(116, 212, 255) }
-    pub fn color_context_breakdown_5() -> egui::Color32 { egui::Color32::from_rgb(184, 230, 254) }
-    pub fn color_context_breakdown_6() -> egui::Color32 { egui::Color32::from_rgb(223, 242, 254) }
-    pub fn color_context_breakdown_7() -> egui::Color32 { egui::Color32::from_rgb(232, 246, 255) }
-    pub fn color_destructive() -> egui::Color32 { egui::Color32::from_rgb(231, 0, 11) }
+    pub fn color_card_border() -> egui::Color32 { egui::Color32::from_rgba_unmultiplied(13, 13, 13, 26) }
+    pub fn color_card_selected() -> egui::Color32 { egui::Color32::from_rgb(255, 255, 255) }
+    pub fn color_command_node() -> egui::Color32 { egui::Color32::from_rgba_unmultiplied(86, 98, 112, 26) }
+    pub fn color_command_node_foreground() -> egui::Color32 { egui::Color32::from_rgb(86, 98, 112) }
+    pub fn color_command_node_hover() -> egui::Color32 { egui::Color32::from_rgba_unmultiplied(86, 98, 112, 41) }
+    pub fn color_context_breakdown_1() -> egui::Color32 { egui::Color32::from_rgb(11, 127, 255) }
+    pub fn color_context_breakdown_2() -> egui::Color32 { egui::Color32::from_rgb(51, 143, 255) }
+    pub fn color_context_breakdown_3() -> egui::Color32 { egui::Color32::from_rgb(92, 167, 255) }
+    pub fn color_context_breakdown_4() -> egui::Color32 { egui::Color32::from_rgb(133, 187, 255) }
+    pub fn color_context_breakdown_5() -> egui::Color32 { egui::Color32::from_rgb(172, 208, 255) }
+    pub fn color_context_breakdown_6() -> egui::Color32 { egui::Color32::from_rgb(200, 221, 255) }
+    pub fn color_context_breakdown_7() -> egui::Color32 { egui::Color32::from_rgb(224, 236, 255) }
+    pub fn color_destructive() -> egui::Color32 { egui::Color32::from_rgb(224, 49, 49) }
     pub fn color_destructive_foreground() -> egui::Color32 { egui::Color32::from_rgb(255, 255, 255) }
-    pub fn color_destructive_surface() -> egui::Color32 { egui::Color32::from_rgba_unmultiplied(231, 0, 11, 26) }
-    pub fn color_destructive_surface_foreground() -> egui::Color32 { egui::Color32::from_rgb(159, 7, 18) }
-    pub fn color_diff_added() -> egui::Color32 { egui::Color32::from_rgb(0, 166, 62) }
+    pub fn color_destructive_surface() -> egui::Color32 { egui::Color32::from_rgba_unmultiplied(224, 49, 49, 26) }
+    pub fn color_destructive_surface_foreground() -> egui::Color32 { egui::Color32::from_rgb(180, 32, 32) }
+    pub fn color_diff_added() -> egui::Color32 { egui::Color32::from_rgb(30, 138, 62) }
     pub fn color_diff_added_foreground() -> egui::Color32 { egui::Color32::from_rgb(255, 255, 255) }
-    pub fn color_diff_removed() -> egui::Color32 { egui::Color32::from_rgb(231, 0, 11) }
+    pub fn color_diff_removed() -> egui::Color32 { egui::Color32::from_rgb(224, 49, 49) }
     pub fn color_diff_removed_foreground() -> egui::Color32 { egui::Color32::from_rgb(255, 255, 255) }
     pub fn color_feedback_privacy_hint() -> egui::Color32 { egui::Color32::from_rgb(208, 135, 0) }
-    pub fn color_file_node() -> egui::Color32 { egui::Color32::from_rgba_unmultiplied(0, 132, 209, 36) }
-    pub fn color_file_node_foreground() -> egui::Color32 { egui::Color32::from_rgb(0, 132, 209) }
-    pub fn color_file_node_hover() -> egui::Color32 { egui::Color32::from_rgba_unmultiplied(0, 132, 209, 51) }
-    pub fn color_find_highlight() -> egui::Color32 { egui::Color32::from_rgb(253, 230, 138) }
-    pub fn color_find_highlight_active() -> egui::Color32 { egui::Color32::from_rgb(250, 204, 21) }
-    pub fn color_foreground() -> egui::Color32 { egui::Color32::from_rgb(64, 64, 64) }
+    pub fn color_file_node() -> egui::Color32 { egui::Color32::from_rgba_unmultiplied(26, 112, 184, 26) }
+    pub fn color_file_node_foreground() -> egui::Color32 { egui::Color32::from_rgb(26, 112, 184) }
+    pub fn color_file_node_hover() -> egui::Color32 { egui::Color32::from_rgba_unmultiplied(26, 112, 184, 41) }
+    pub fn color_find_highlight() -> egui::Color32 { egui::Color32::from_rgb(255, 244, 235) }
+    pub fn color_find_highlight_active() -> egui::Color32 { egui::Color32::from_rgb(255, 178, 107) }
+    pub fn color_foreground() -> egui::Color32 { egui::Color32::from_rgb(38, 38, 38) }
     pub fn color_foreground_inverse() -> egui::Color32 { egui::Color32::from_rgb(255, 255, 255) }
-    pub fn color_foreground_subtle() -> egui::Color32 { egui::Color32::from_rgba_unmultiplied(64, 64, 64, 153) }
-    pub fn color_foreground_subtlest() -> egui::Color32 { egui::Color32::from_rgba_unmultiplied(64, 64, 64, 102) }
-    pub fn color_git_added() -> egui::Color32 { egui::Color32::from_rgb(0, 150, 137) }
-    pub fn color_git_deleted() -> egui::Color32 { egui::Color32::from_rgb(231, 0, 11) }
-    pub fn color_git_descendant() -> egui::Color32 { egui::Color32::from_rgb(225, 113, 0) }
-    pub fn color_git_ignored() -> egui::Color32 { egui::Color32::from_rgba_unmultiplied(64, 64, 64, 102) }
-    pub fn color_git_modified() -> egui::Color32 { egui::Color32::from_rgb(225, 113, 0) }
-    pub fn color_git_none() -> egui::Color32 { egui::Color32::from_rgb(64, 64, 64) }
-    pub fn color_git_renamed() -> egui::Color32 { egui::Color32::from_rgb(0, 132, 209) }
-    pub fn color_git_untracked() -> egui::Color32 { egui::Color32::from_rgb(0, 150, 137) }
-    pub fn color_header() -> egui::Color32 { egui::Color32::from_rgb(245, 245, 245) }
-    pub fn color_hover() -> egui::Color32 { egui::Color32::from_rgb(229, 229, 229) }
-    pub fn color_icon_blue() -> egui::Color32 { egui::Color32::from_rgb(0, 166, 244) }
-    pub fn color_icon_purple() -> egui::Color32 { egui::Color32::from_rgb(225, 42, 251) }
-    pub fn color_idle_task() -> egui::Color32 { egui::Color32::from_rgb(127, 34, 254) }
+    pub fn color_foreground_subtle() -> egui::Color32 { egui::Color32::from_rgba_unmultiplied(38, 38, 38, 153) }
+    pub fn color_foreground_subtlest() -> egui::Color32 { egui::Color32::from_rgba_unmultiplied(38, 38, 38, 102) }
+    pub fn color_git_added() -> egui::Color32 { egui::Color32::from_rgb(30, 138, 62) }
+    pub fn color_git_deleted() -> egui::Color32 { egui::Color32::from_rgb(224, 49, 49) }
+    pub fn color_git_descendant() -> egui::Color32 { egui::Color32::from_rgb(224, 123, 0) }
+    pub fn color_git_ignored() -> egui::Color32 { egui::Color32::from_rgba_unmultiplied(38, 38, 38, 102) }
+    pub fn color_git_modified() -> egui::Color32 { egui::Color32::from_rgb(224, 123, 0) }
+    pub fn color_git_none() -> egui::Color32 { egui::Color32::from_rgb(38, 38, 38) }
+    pub fn color_git_renamed() -> egui::Color32 { egui::Color32::from_rgb(11, 127, 255) }
+    pub fn color_git_untracked() -> egui::Color32 { egui::Color32::from_rgb(30, 138, 62) }
+    pub fn color_header() -> egui::Color32 { egui::Color32::from_rgb(255, 255, 255) }
+    pub fn color_hover() -> egui::Color32 { egui::Color32::from_rgba_unmultiplied(13, 13, 13, 13) }
+    pub fn color_icon_blue() -> egui::Color32 { egui::Color32::from_rgb(0, 102, 221) }
+    pub fn color_icon_purple() -> egui::Color32 { egui::Color32::from_rgb(158, 119, 237) }
+    pub fn color_idle_task() -> egui::Color32 { egui::Color32::from_rgb(158, 119, 237) }
     pub fn color_idle_task_surface() -> egui::Color32 { egui::Color32::from_rgb(245, 243, 255) }
     pub fn color_input() -> egui::Color32 { egui::Color32::from_rgb(255, 255, 255) }
-    pub fn color_input_border() -> egui::Color32 { egui::Color32::from_rgba_unmultiplied(10, 10, 10, 26) }
-    pub fn color_input_border_focused() -> egui::Color32 { egui::Color32::from_rgb(0, 188, 255) }
-    pub fn color_input_border_hover() -> egui::Color32 { egui::Color32::from_rgba_unmultiplied(10, 10, 10, 51) }
-    pub fn color_input_focused() -> egui::Color32 { egui::Color32::from_rgb(250, 250, 250) }
-    pub fn color_interaction_ask_fill() -> egui::Color32 { egui::Color32::from_rgba_unmultiplied(0, 201, 80, 51) }
-    pub fn color_interaction_ask_foreground() -> egui::Color32 { egui::Color32::from_rgb(0, 105, 168) }
-    pub fn color_interaction_ask_surface() -> egui::Color32 { egui::Color32::from_rgb(240, 249, 255) }
-    pub fn color_interaction_confirmation_foreground() -> egui::Color32 { egui::Color32::from_rgb(0, 130, 54) }
-    pub fn color_interaction_confirmation_surface() -> egui::Color32 { egui::Color32::from_rgb(240, 253, 244) }
-    pub fn color_markdown_inline_code() -> egui::Color32 { egui::Color32::from_rgb(229, 229, 229) }
+    pub fn color_input_border() -> egui::Color32 { egui::Color32::from_rgba_unmultiplied(13, 13, 13, 26) }
+    pub fn color_input_border_focused() -> egui::Color32 { egui::Color32::from_rgba_unmultiplied(13, 13, 13, 38) }
+    pub fn color_input_border_hover() -> egui::Color32 { egui::Color32::from_rgba_unmultiplied(13, 13, 13, 38) }
+    pub fn color_input_focused() -> egui::Color32 { egui::Color32::from_rgb(255, 255, 255) }
+    pub fn color_interaction_ask_fill() -> egui::Color32 { egui::Color32::from_rgba_unmultiplied(70, 191, 114, 51) }
+    pub fn color_interaction_ask_foreground() -> egui::Color32 { egui::Color32::from_rgb(0, 102, 221) }
+    pub fn color_interaction_ask_surface() -> egui::Color32 { egui::Color32::from_rgb(235, 244, 255) }
+    pub fn color_interaction_confirmation_foreground() -> egui::Color32 { egui::Color32::from_rgb(22, 107, 50) }
+    pub fn color_interaction_confirmation_surface() -> egui::Color32 { egui::Color32::from_rgb(234, 247, 238) }
+    pub fn color_markdown_inline_code() -> egui::Color32 { egui::Color32::from_rgb(230, 230, 230) }
     pub fn color_menu() -> egui::Color32 { egui::Color32::from_rgb(255, 255, 255) }
-    pub fn color_menu_hover() -> egui::Color32 { egui::Color32::from_rgb(245, 245, 245) }
-    pub fn color_panel() -> egui::Color32 { egui::Color32::from_rgb(245, 245, 245) }
-    pub fn color_plugin_node() -> egui::Color32 { egui::Color32::from_rgba_unmultiplied(225, 113, 0, 36) }
-    pub fn color_plugin_node_foreground() -> egui::Color32 { egui::Color32::from_rgb(225, 113, 0) }
-    pub fn color_plugin_node_hover() -> egui::Color32 { egui::Color32::from_rgba_unmultiplied(225, 113, 0, 51) }
+    pub fn color_menu_hover() -> egui::Color32 { egui::Color32::from_rgb(240, 240, 240) }
+    pub fn color_panel() -> egui::Color32 { egui::Color32::from_rgb(255, 255, 255) }
+    pub fn color_plugin_node() -> egui::Color32 { egui::Color32::from_rgba_unmultiplied(184, 122, 26, 26) }
+    pub fn color_plugin_node_foreground() -> egui::Color32 { egui::Color32::from_rgb(184, 122, 26) }
+    pub fn color_plugin_node_hover() -> egui::Color32 { egui::Color32::from_rgba_unmultiplied(184, 122, 26, 41) }
     pub fn color_plugin_paid_plan_badge() -> egui::Color32 { egui::Color32::from_rgb(255, 227, 200) }
     pub fn color_plugin_paid_plan_badge_foreground() -> egui::Color32 { egui::Color32::from_rgb(75, 40, 15) }
     pub fn color_popover() -> egui::Color32 { egui::Color32::from_rgb(255, 255, 255) }
-    pub fn color_popover_border() -> egui::Color32 { egui::Color32::from_rgba_unmultiplied(10, 10, 10, 26) }
-    pub fn color_popover_foreground() -> egui::Color32 { egui::Color32::from_rgb(64, 64, 64) }
-    pub fn color_popover_header() -> egui::Color32 { egui::Color32::from_rgb(245, 245, 245) }
-    pub fn color_primary() -> egui::Color32 { egui::Color32::from_rgb(10, 10, 10) }
-    pub fn color_primary_foreground() -> egui::Color32 { egui::Color32::from_rgb(250, 250, 250) }
+    pub fn color_popover_border() -> egui::Color32 { egui::Color32::from_rgba_unmultiplied(13, 13, 13, 26) }
+    pub fn color_popover_foreground() -> egui::Color32 { egui::Color32::from_rgb(38, 38, 38) }
+    pub fn color_popover_header() -> egui::Color32 { egui::Color32::from_rgb(248, 248, 248) }
+    pub fn color_primary() -> egui::Color32 { egui::Color32::from_rgb(0, 0, 0) }
+    pub fn color_primary_foreground() -> egui::Color32 { egui::Color32::from_rgb(255, 255, 255) }
     pub fn color_progress_surface() -> egui::Color32 { egui::Color32::from_rgb(239, 246, 255) }
     pub fn color_progress_surface_foreground() -> egui::Color32 { egui::Color32::from_rgb(20, 71, 230) }
     pub fn color_remote_continuity_panel() -> egui::Color32 { egui::Color32::from_rgb(32, 33, 36) }
     pub fn color_remote_continuity_panel_foreground() -> egui::Color32 { egui::Color32::from_rgb(248, 248, 248) }
     pub fn color_remote_continuity_panel_subtle() -> egui::Color32 { egui::Color32::from_rgb(167, 167, 173) }
     pub fn color_remote_continuity_panel_surface() -> egui::Color32 { egui::Color32::from_rgb(44, 45, 48) }
-    pub fn color_remote_docker_border() -> egui::Color32 { egui::Color32::from_rgb(221, 214, 255) }
-    pub fn color_remote_docker_foreground() -> egui::Color32 { egui::Color32::from_rgb(112, 8, 231) }
-    pub fn color_remote_docker_surface() -> egui::Color32 { egui::Color32::from_rgb(245, 243, 255) }
+    pub fn color_remote_docker_border() -> egui::Color32 { egui::Color32::from_rgb(212, 202, 255) }
+    pub fn color_remote_docker_foreground() -> egui::Color32 { egui::Color32::from_rgb(96, 71, 180) }
+    pub fn color_remote_docker_surface() -> egui::Color32 { egui::Color32::from_rgb(242, 239, 255) }
     pub fn color_remote_foreground_muted() -> egui::Color32 { egui::Color32::from_rgb(89, 89, 89) }
-    pub fn color_remote_ssh_border() -> egui::Color32 { egui::Color32::from_rgb(184, 230, 254) }
-    pub fn color_remote_ssh_foreground() -> egui::Color32 { egui::Color32::from_rgb(0, 105, 168) }
-    pub fn color_remote_ssh_surface() -> egui::Color32 { egui::Color32::from_rgb(240, 249, 255) }
-    pub fn color_remote_wsl_border() -> egui::Color32 { egui::Color32::from_rgb(185, 248, 207) }
-    pub fn color_remote_wsl_foreground() -> egui::Color32 { egui::Color32::from_rgb(0, 130, 54) }
-    pub fn color_remote_wsl_surface() -> egui::Color32 { egui::Color32::from_rgb(240, 253, 244) }
+    pub fn color_remote_ssh_border() -> egui::Color32 { egui::Color32::from_rgb(186, 217, 255) }
+    pub fn color_remote_ssh_foreground() -> egui::Color32 { egui::Color32::from_rgb(8, 103, 206) }
+    pub fn color_remote_ssh_surface() -> egui::Color32 { egui::Color32::from_rgb(235, 244, 255) }
+    pub fn color_remote_wsl_border() -> egui::Color32 { egui::Color32::from_rgb(183, 224, 194) }
+    pub fn color_remote_wsl_foreground() -> egui::Color32 { egui::Color32::from_rgb(22, 107, 50) }
+    pub fn color_remote_wsl_surface() -> egui::Color32 { egui::Color32::from_rgb(234, 247, 238) }
     pub fn color_resize_handle() -> egui::Color32 { egui::Color32::from_rgb(0, 166, 244) }
-    pub fn color_secondary() -> egui::Color32 { egui::Color32::from_rgb(212, 212, 212) }
-    pub fn color_selected() -> egui::Color32 { egui::Color32::from_rgba_unmultiplied(10, 10, 10, 26) }
-    pub fn color_session_node() -> egui::Color32 { egui::Color32::from_rgba_unmultiplied(0, 150, 137, 36) }
-    pub fn color_session_node_foreground() -> egui::Color32 { egui::Color32::from_rgb(0, 150, 137) }
-    pub fn color_session_node_hover() -> egui::Color32 { egui::Color32::from_rgba_unmultiplied(0, 150, 137, 51) }
-    pub fn color_sidebar() -> egui::Color32 { egui::Color32::from_rgb(245, 245, 245) }
-    pub fn color_skill_node() -> egui::Color32 { egui::Color32::from_rgba_unmultiplied(127, 34, 254, 36) }
-    pub fn color_skill_node_foreground() -> egui::Color32 { egui::Color32::from_rgb(127, 34, 254) }
-    pub fn color_skill_node_hover() -> egui::Color32 { egui::Color32::from_rgba_unmultiplied(127, 34, 254, 51) }
-    pub fn color_subagent_node() -> egui::Color32 { egui::Color32::from_rgba_unmultiplied(111, 122, 47, 36) }
+    pub fn color_secondary() -> egui::Color32 { egui::Color32::from_rgb(230, 230, 230) }
+    pub fn color_selected() -> egui::Color32 { egui::Color32::from_rgba_unmultiplied(13, 13, 13, 13) }
+    pub fn color_session_node() -> egui::Color32 { egui::Color32::from_rgba_unmultiplied(20, 128, 122, 26) }
+    pub fn color_session_node_foreground() -> egui::Color32 { egui::Color32::from_rgb(20, 128, 122) }
+    pub fn color_session_node_hover() -> egui::Color32 { egui::Color32::from_rgba_unmultiplied(20, 128, 122, 41) }
+    pub fn color_sidebar() -> egui::Color32 { egui::Color32::from_rgb(240, 240, 240) }
+    pub fn color_skill_node() -> egui::Color32 { egui::Color32::from_rgba_unmultiplied(116, 83, 176, 26) }
+    pub fn color_skill_node_foreground() -> egui::Color32 { egui::Color32::from_rgb(116, 83, 176) }
+    pub fn color_skill_node_hover() -> egui::Color32 { egui::Color32::from_rgba_unmultiplied(116, 83, 176, 41) }
+    pub fn color_subagent_node() -> egui::Color32 { egui::Color32::from_rgba_unmultiplied(111, 122, 47, 26) }
     pub fn color_subagent_node_foreground() -> egui::Color32 { egui::Color32::from_rgb(111, 122, 47) }
-    pub fn color_subagent_node_hover() -> egui::Color32 { egui::Color32::from_rgba_unmultiplied(111, 122, 47, 51) }
-    pub fn color_success() -> egui::Color32 { egui::Color32::from_rgb(0, 166, 62) }
+    pub fn color_subagent_node_hover() -> egui::Color32 { egui::Color32::from_rgba_unmultiplied(111, 122, 47, 41) }
+    pub fn color_success() -> egui::Color32 { egui::Color32::from_rgb(30, 138, 62) }
     pub fn color_success_foreground() -> egui::Color32 { egui::Color32::from_rgb(255, 255, 255) }
-    pub fn color_success_surface() -> egui::Color32 { egui::Color32::from_rgb(240, 253, 244) }
-    pub fn color_success_surface_foreground() -> egui::Color32 { egui::Color32::from_rgb(0, 130, 54) }
-    pub fn color_surface() -> egui::Color32 { egui::Color32::from_rgba_unmultiplied(10, 10, 10, 8) }
-    pub fn color_surface_hover() -> egui::Color32 { egui::Color32::from_rgba_unmultiplied(10, 10, 10, 13) }
-    pub fn color_tab() -> egui::Color32 { egui::Color32::from_rgb(245, 245, 245) }
+    pub fn color_success_surface() -> egui::Color32 { egui::Color32::from_rgb(234, 247, 238) }
+    pub fn color_success_surface_foreground() -> egui::Color32 { egui::Color32::from_rgb(22, 107, 50) }
+    pub fn color_surface() -> egui::Color32 { egui::Color32::from_rgba_unmultiplied(13, 13, 13, 8) }
+    pub fn color_surface_hover() -> egui::Color32 { egui::Color32::from_rgba_unmultiplied(13, 13, 13, 13) }
+    pub fn color_tab() -> egui::Color32 { egui::Color32::from_rgb(240, 240, 240) }
     pub fn color_tab_active() -> egui::Color32 { egui::Color32::from_rgb(255, 255, 255) }
-    pub fn color_tab_border() -> egui::Color32 { egui::Color32::from_rgba_unmultiplied(10, 10, 10, 26) }
-    pub fn color_tag() -> egui::Color32 { egui::Color32::from_rgb(229, 229, 229) }
-    pub fn color_terminal_bg() -> egui::Color32 { egui::Color32::from_rgb(250, 250, 250) }
-    pub fn color_terminal_black() -> egui::Color32 { egui::Color32::from_rgb(64, 64, 64) }
-    pub fn color_terminal_blue() -> egui::Color32 { egui::Color32::from_rgb(0, 166, 244) }
-    pub fn color_terminal_bright_black() -> egui::Color32 { egui::Color32::from_rgb(115, 115, 115) }
-    pub fn color_terminal_bright_blue() -> egui::Color32 { egui::Color32::from_rgb(0, 166, 244) }
-    pub fn color_terminal_bright_cyan() -> egui::Color32 { egui::Color32::from_rgb(0, 184, 219) }
-    pub fn color_terminal_bright_green() -> egui::Color32 { egui::Color32::from_rgb(0, 201, 80) }
-    pub fn color_terminal_bright_magenta() -> egui::Color32 { egui::Color32::from_rgb(225, 42, 251) }
-    pub fn color_terminal_bright_red() -> egui::Color32 { egui::Color32::from_rgb(251, 44, 54) }
-    pub fn color_terminal_bright_white() -> egui::Color32 { egui::Color32::from_rgb(10, 10, 10) }
-    pub fn color_terminal_bright_yellow() -> egui::Color32 { egui::Color32::from_rgb(240, 177, 0) }
-    pub fn color_terminal_cursor() -> egui::Color32 { egui::Color32::from_rgb(10, 10, 10) }
-    pub fn color_terminal_cursor_accent() -> egui::Color32 { egui::Color32::from_rgb(250, 250, 250) }
-    pub fn color_terminal_cyan() -> egui::Color32 { egui::Color32::from_rgb(0, 184, 219) }
-    pub fn color_terminal_fg() -> egui::Color32 { egui::Color32::from_rgb(10, 10, 10) }
-    pub fn color_terminal_green() -> egui::Color32 { egui::Color32::from_rgb(0, 201, 80) }
-    pub fn color_terminal_magenta() -> egui::Color32 { egui::Color32::from_rgb(225, 42, 251) }
-    pub fn color_terminal_red() -> egui::Color32 { egui::Color32::from_rgb(251, 44, 54) }
-    pub fn color_terminal_selection() -> egui::Color32 { egui::Color32::from_rgba_unmultiplied(0, 166, 244, 82) }
-    pub fn color_terminal_selection_inactive() -> egui::Color32 { egui::Color32::from_rgba_unmultiplied(0, 166, 244, 56) }
-    pub fn color_terminal_white() -> egui::Color32 { egui::Color32::from_rgb(115, 115, 115) }
-    pub fn color_terminal_yellow() -> egui::Color32 { egui::Color32::from_rgb(240, 177, 0) }
+    pub fn color_tab_border() -> egui::Color32 { egui::Color32::from_rgba_unmultiplied(13, 13, 13, 26) }
+    pub fn color_tag() -> egui::Color32 { egui::Color32::from_rgb(230, 230, 230) }
+    pub fn color_terminal_bg() -> egui::Color32 { egui::Color32::from_rgb(248, 248, 248) }
+    pub fn color_terminal_black() -> egui::Color32 { egui::Color32::from_rgb(92, 92, 92) }
+    pub fn color_terminal_blue() -> egui::Color32 { egui::Color32::from_rgb(11, 127, 255) }
+    pub fn color_terminal_bright_black() -> egui::Color32 { egui::Color32::from_rgb(136, 136, 136) }
+    pub fn color_terminal_bright_blue() -> egui::Color32 { egui::Color32::from_rgb(0, 102, 221) }
+    pub fn color_terminal_bright_cyan() -> egui::Color32 { egui::Color32::from_rgb(10, 167, 167) }
+    pub fn color_terminal_bright_green() -> egui::Color32 { egui::Color32::from_rgb(30, 138, 62) }
+    pub fn color_terminal_bright_magenta() -> egui::Color32 { egui::Color32::from_rgb(158, 119, 237) }
+    pub fn color_terminal_bright_red() -> egui::Color32 { egui::Color32::from_rgb(224, 49, 49) }
+    pub fn color_terminal_bright_white() -> egui::Color32 { egui::Color32::from_rgb(13, 13, 13) }
+    pub fn color_terminal_bright_yellow() -> egui::Color32 { egui::Color32::from_rgb(224, 123, 0) }
+    pub fn color_terminal_cursor() -> egui::Color32 { egui::Color32::from_rgb(13, 13, 13) }
+    pub fn color_terminal_cursor_accent() -> egui::Color32 { egui::Color32::from_rgb(248, 248, 248) }
+    pub fn color_terminal_cyan() -> egui::Color32 { egui::Color32::from_rgb(10, 167, 167) }
+    pub fn color_terminal_fg() -> egui::Color32 { egui::Color32::from_rgb(38, 38, 38) }
+    pub fn color_terminal_green() -> egui::Color32 { egui::Color32::from_rgb(30, 138, 62) }
+    pub fn color_terminal_magenta() -> egui::Color32 { egui::Color32::from_rgb(158, 119, 237) }
+    pub fn color_terminal_red() -> egui::Color32 { egui::Color32::from_rgb(224, 49, 49) }
+    pub fn color_terminal_selection() -> egui::Color32 { egui::Color32::from_rgba_unmultiplied(11, 127, 255, 56) }
+    pub fn color_terminal_selection_inactive() -> egui::Color32 { egui::Color32::from_rgba_unmultiplied(13, 13, 13, 26) }
+    pub fn color_terminal_white() -> egui::Color32 { egui::Color32::from_rgb(173, 173, 173) }
+    pub fn color_terminal_yellow() -> egui::Color32 { egui::Color32::from_rgb(224, 123, 0) }
     pub fn color_toast() -> egui::Color32 { egui::Color32::from_rgb(255, 255, 255) }
-    pub fn color_tooltip() -> egui::Color32 { egui::Color32::from_rgb(245, 245, 245) }
-    pub fn color_tooltip_foreground() -> egui::Color32 { egui::Color32::from_rgb(10, 10, 10) }
-    pub fn color_tooltip_tag() -> egui::Color32 { egui::Color32::from_rgb(229, 229, 229) }
-    pub fn color_tooltip_tag_foreground() -> egui::Color32 { egui::Color32::from_rgba_unmultiplied(10, 10, 10, 153) }
+    pub fn color_tooltip() -> egui::Color32 { egui::Color32::from_rgb(240, 240, 240) }
+    pub fn color_tooltip_foreground() -> egui::Color32 { egui::Color32::from_rgb(13, 13, 13) }
+    pub fn color_tooltip_tag() -> egui::Color32 { egui::Color32::from_rgb(230, 230, 230) }
+    pub fn color_tooltip_tag_foreground() -> egui::Color32 { egui::Color32::from_rgb(92, 92, 92) }
     pub fn color_trajectory_assistant() -> egui::Color32 { egui::Color32::from_rgb(15, 118, 110) }
     pub fn color_trajectory_reasoning() -> egui::Color32 { egui::Color32::from_rgb(124, 58, 237) }
     pub fn color_trajectory_tool_call() -> egui::Color32 { egui::Color32::from_rgb(217, 119, 6) }
     pub fn color_trajectory_tool_result() -> egui::Color32 { egui::Color32::from_rgb(2, 132, 199) }
     pub fn color_trajectory_user() -> egui::Color32 { egui::Color32::from_rgb(37, 99, 235) }
-    pub fn color_usage_chart_1() -> egui::Color32 { egui::Color32::from_rgb(0, 132, 209) }
-    pub fn color_usage_chart_2() -> egui::Color32 { egui::Color32::from_rgb(0, 150, 137) }
-    pub fn color_usage_chart_3() -> egui::Color32 { egui::Color32::from_rgb(127, 34, 254) }
-    pub fn color_usage_chart_4() -> egui::Color32 { egui::Color32::from_rgb(255, 32, 86) }
-    pub fn color_usage_chart_5() -> egui::Color32 { egui::Color32::from_rgb(97, 95, 255) }
-    pub fn color_usage_chart_6() -> egui::Color32 { egui::Color32::from_rgb(0, 146, 184) }
-    pub fn color_usage_heatmap_0() -> egui::Color32 { egui::Color32::from_rgba_unmultiplied(10, 10, 10, 8) }
-    pub fn color_usage_heatmap_1() -> egui::Color32 { egui::Color32::from_rgba_unmultiplied(18, 145, 212, 52) }
-    pub fn color_usage_heatmap_2() -> egui::Color32 { egui::Color32::from_rgba_unmultiplied(9, 157, 230, 97) }
-    pub fn color_usage_heatmap_3() -> egui::Color32 { egui::Color32::from_rgba_unmultiplied(3, 129, 204, 151) }
-    pub fn color_usage_heatmap_4() -> egui::Color32 { egui::Color32::from_rgba_unmultiplied(1, 104, 167, 210) }
-    pub fn color_user_message_bubble() -> egui::Color32 { egui::Color32::from_rgba_unmultiplied(10, 10, 10, 13) }
-    pub fn color_warning() -> egui::Color32 { egui::Color32::from_rgb(208, 135, 0) }
+    pub fn color_usage_chart_1() -> egui::Color32 { egui::Color32::from_rgb(11, 127, 255) }
+    pub fn color_usage_chart_2() -> egui::Color32 { egui::Color32::from_rgb(30, 138, 62) }
+    pub fn color_usage_chart_3() -> egui::Color32 { egui::Color32::from_rgb(158, 119, 237) }
+    pub fn color_usage_chart_4() -> egui::Color32 { egui::Color32::from_rgb(224, 49, 49) }
+    pub fn color_usage_chart_5() -> egui::Color32 { egui::Color32::from_rgb(224, 123, 0) }
+    pub fn color_usage_chart_6() -> egui::Color32 { egui::Color32::from_rgb(10, 167, 167) }
+    pub fn color_usage_heatmap_0() -> egui::Color32 { egui::Color32::from_rgba_unmultiplied(13, 13, 13, 8) }
+    pub fn color_usage_heatmap_1() -> egui::Color32 { egui::Color32::from_rgba_unmultiplied(20, 112, 222, 52) }
+    pub fn color_usage_heatmap_2() -> egui::Color32 { egui::Color32::from_rgba_unmultiplied(15, 121, 241, 97) }
+    pub fn color_usage_heatmap_3() -> egui::Color32 { egui::Color32::from_rgba_unmultiplied(13, 124, 249, 151) }
+    pub fn color_usage_heatmap_4() -> egui::Color32 { egui::Color32::from_rgba_unmultiplied(1, 101, 219, 210) }
+    pub fn color_user_message_bubble() -> egui::Color32 { egui::Color32::from_rgba_unmultiplied(13, 13, 13, 13) }
+    pub fn color_warning() -> egui::Color32 { egui::Color32::from_rgb(224, 123, 0) }
     pub fn color_warning_foreground() -> egui::Color32 { egui::Color32::from_rgb(255, 255, 255) }
-    pub fn color_warning_surface() -> egui::Color32 { egui::Color32::from_rgba_unmultiplied(208, 135, 0, 31) }
-    pub fn color_warning_surface_foreground() -> egui::Color32 { egui::Color32::from_rgb(137, 75, 0) }
-    pub fn color_workflow_rule() -> egui::Color32 { egui::Color32::from_rgba_unmultiplied(10, 10, 10, 14) }
-    pub fn color_workflow_trace() -> egui::Color32 { egui::Color32::from_rgba_unmultiplied(10, 10, 10, 76) }
-    pub fn color_workflow_trace_strong() -> egui::Color32 { egui::Color32::from_rgba_unmultiplied(10, 10, 10, 140) }
+    pub fn color_warning_surface() -> egui::Color32 { egui::Color32::from_rgba_unmultiplied(224, 123, 0, 31) }
+    pub fn color_warning_surface_foreground() -> egui::Color32 { egui::Color32::from_rgb(145, 78, 0) }
+    pub fn color_workflow_rule() -> egui::Color32 { egui::Color32::from_rgba_unmultiplied(13, 13, 13, 14) }
+    pub fn color_workflow_trace() -> egui::Color32 { egui::Color32::from_rgba_unmultiplied(13, 13, 13, 76) }
+    pub fn color_workflow_trace_strong() -> egui::Color32 { egui::Color32::from_rgba_unmultiplied(13, 13, 13, 140) }
 }
 
 #[allow(dead_code)]
 pub mod dark {
     use eframe::egui;
-    pub fn color_animated_gradient_text_soft() -> egui::Color32 { egui::Color32::from_rgba_unmultiplied(255, 255, 255, 51) }
+    pub fn color_animated_gradient_text_soft() -> egui::Color32 { egui::Color32::from_rgba_unmultiplied(255, 255, 255, 56) }
     pub fn color_animated_gradient_text_strong() -> egui::Color32 { egui::Color32::from_rgb(255, 255, 255) }
-    pub fn color_accent() -> egui::Color32 { egui::Color32::from_rgba_unmultiplied(5, 47, 74, 128) }
-    pub fn color_background() -> egui::Color32 { egui::Color32::from_rgb(23, 23, 23) }
-    pub fn color_background_alt() -> egui::Color32 { egui::Color32::from_rgba_unmultiplied(38, 38, 38, 153) }
-    pub fn color_background_win_alt() -> egui::Color32 { egui::Color32::from_rgb(38, 38, 38) }
-    pub fn color_border() -> egui::Color32 { egui::Color32::from_rgba_unmultiplied(250, 250, 250, 26) }
-    pub fn color_border_hover() -> egui::Color32 { egui::Color32::from_rgba_unmultiplied(250, 250, 250, 76) }
-    pub fn color_brand() -> egui::Color32 { egui::Color32::from_rgb(0, 166, 244) }
-    pub fn color_card() -> egui::Color32 { egui::Color32::from_rgb(38, 38, 38) }
-    pub fn color_card_border() -> egui::Color32 { egui::Color32::from_rgba_unmultiplied(250, 250, 250, 26) }
-    pub fn color_card_selected() -> egui::Color32 { egui::Color32::from_rgb(64, 64, 64) }
-    pub fn color_command_node() -> egui::Color32 { egui::Color32::from_rgba_unmultiplied(202, 213, 226, 41) }
-    pub fn color_command_node_foreground() -> egui::Color32 { egui::Color32::from_rgb(202, 213, 226) }
-    pub fn color_command_node_hover() -> egui::Color32 { egui::Color32::from_rgba_unmultiplied(202, 213, 226, 56) }
-    pub fn color_context_breakdown_1() -> egui::Color32 { egui::Color32::from_rgb(0, 188, 255) }
-    pub fn color_context_breakdown_2() -> egui::Color32 { egui::Color32::from_rgb(116, 212, 255) }
-    pub fn color_context_breakdown_3() -> egui::Color32 { egui::Color32::from_rgb(184, 230, 254) }
-    pub fn color_context_breakdown_4() -> egui::Color32 { egui::Color32::from_rgb(196, 234, 255) }
-    pub fn color_context_breakdown_5() -> egui::Color32 { egui::Color32::from_rgb(204, 237, 255) }
-    pub fn color_context_breakdown_6() -> egui::Color32 { egui::Color32::from_rgb(213, 240, 255) }
-    pub fn color_context_breakdown_7() -> egui::Color32 { egui::Color32::from_rgb(221, 243, 255) }
-    pub fn color_destructive() -> egui::Color32 { egui::Color32::from_rgb(251, 44, 54) }
+    pub fn color_accent() -> egui::Color32 { egui::Color32::from_rgb(0, 29, 61) }
+    pub fn color_background() -> egui::Color32 { egui::Color32::from_rgb(22, 22, 22) }
+    pub fn color_background_alt() -> egui::Color32 { egui::Color32::from_rgba_unmultiplied(43, 43, 43, 153) }
+    pub fn color_background_win_alt() -> egui::Color32 { egui::Color32::from_rgb(43, 43, 43) }
+    pub fn color_border() -> egui::Color32 { egui::Color32::from_rgba_unmultiplied(255, 255, 255, 26) }
+    pub fn color_border_hover() -> egui::Color32 { egui::Color32::from_rgba_unmultiplied(255, 255, 255, 38) }
+    pub fn color_brand() -> egui::Color32 { egui::Color32::from_rgb(255, 255, 255) }
+    pub fn color_card() -> egui::Color32 { egui::Color32::from_rgb(43, 43, 43) }
+    pub fn color_card_border() -> egui::Color32 { egui::Color32::from_rgba_unmultiplied(255, 255, 255, 26) }
+    pub fn color_card_selected() -> egui::Color32 { egui::Color32::from_rgb(43, 43, 43) }
+    pub fn color_command_node() -> egui::Color32 { egui::Color32::from_rgba_unmultiplied(154, 166, 180, 36) }
+    pub fn color_command_node_foreground() -> egui::Color32 { egui::Color32::from_rgb(181, 192, 204) }
+    pub fn color_command_node_hover() -> egui::Color32 { egui::Color32::from_rgba_unmultiplied(154, 166, 180, 51) }
+    pub fn color_context_breakdown_1() -> egui::Color32 { egui::Color32::from_rgb(64, 153, 255) }
+    pub fn color_context_breakdown_2() -> egui::Color32 { egui::Color32::from_rgb(102, 173, 255) }
+    pub fn color_context_breakdown_3() -> egui::Color32 { egui::Color32::from_rgb(128, 190, 255) }
+    pub fn color_context_breakdown_4() -> egui::Color32 { egui::Color32::from_rgb(157, 206, 255) }
+    pub fn color_context_breakdown_5() -> egui::Color32 { egui::Color32::from_rgb(185, 221, 255) }
+    pub fn color_context_breakdown_6() -> egui::Color32 { egui::Color32::from_rgb(208, 232, 255) }
+    pub fn color_context_breakdown_7() -> egui::Color32 { egui::Color32::from_rgb(228, 241, 255) }
+    pub fn color_destructive() -> egui::Color32 { egui::Color32::from_rgb(255, 92, 92) }
     pub fn color_destructive_foreground() -> egui::Color32 { egui::Color32::from_rgb(255, 255, 255) }
-    pub fn color_destructive_surface() -> egui::Color32 { egui::Color32::from_rgba_unmultiplied(251, 44, 54, 41) }
-    pub fn color_destructive_surface_foreground() -> egui::Color32 { egui::Color32::from_rgb(255, 162, 162) }
-    pub fn color_diff_added() -> egui::Color32 { egui::Color32::from_rgb(0, 201, 80) }
-    pub fn color_diff_added_foreground() -> egui::Color32 { egui::Color32::from_rgb(255, 255, 255) }
-    pub fn color_diff_removed() -> egui::Color32 { egui::Color32::from_rgb(251, 44, 54) }
-    pub fn color_diff_removed_foreground() -> egui::Color32 { egui::Color32::from_rgb(255, 255, 255) }
+    pub fn color_destructive_surface() -> egui::Color32 { egui::Color32::from_rgba_unmultiplied(255, 92, 92, 41) }
+    pub fn color_destructive_surface_foreground() -> egui::Color32 { egui::Color32::from_rgb(255, 133, 133) }
+    pub fn color_diff_added() -> egui::Color32 { egui::Color32::from_rgb(70, 191, 114) }
+    pub fn color_diff_added_foreground() -> egui::Color32 { egui::Color32::from_rgb(0, 0, 0) }
+    pub fn color_diff_removed() -> egui::Color32 { egui::Color32::from_rgb(255, 92, 92) }
+    pub fn color_diff_removed_foreground() -> egui::Color32 { egui::Color32::from_rgb(0, 0, 0) }
     pub fn color_feedback_privacy_hint() -> egui::Color32 { egui::Color32::from_rgb(255, 223, 32) }
-    pub fn color_file_node() -> egui::Color32 { egui::Color32::from_rgba_unmultiplied(0, 188, 255, 46) }
-    pub fn color_file_node_foreground() -> egui::Color32 { egui::Color32::from_rgb(116, 212, 255) }
-    pub fn color_file_node_hover() -> egui::Color32 { egui::Color32::from_rgba_unmultiplied(0, 188, 255, 61) }
-    pub fn color_find_highlight() -> egui::Color32 { egui::Color32::from_rgb(113, 63, 18) }
-    pub fn color_find_highlight_active() -> egui::Color32 { egui::Color32::from_rgb(161, 98, 7) }
-    pub fn color_foreground() -> egui::Color32 { egui::Color32::from_rgb(229, 229, 229) }
-    pub fn color_foreground_inverse() -> egui::Color32 { egui::Color32::from_rgb(255, 255, 255) }
-    pub fn color_foreground_subtle() -> egui::Color32 { egui::Color32::from_rgba_unmultiplied(229, 229, 229, 153) }
-    pub fn color_foreground_subtlest() -> egui::Color32 { egui::Color32::from_rgba_unmultiplied(229, 229, 229, 76) }
-    pub fn color_git_added() -> egui::Color32 { egui::Color32::from_rgb(0, 213, 190) }
-    pub fn color_git_deleted() -> egui::Color32 { egui::Color32::from_rgb(255, 100, 103) }
-    pub fn color_git_descendant() -> egui::Color32 { egui::Color32::from_rgb(255, 185, 0) }
-    pub fn color_git_ignored() -> egui::Color32 { egui::Color32::from_rgba_unmultiplied(229, 229, 229, 76) }
-    pub fn color_git_modified() -> egui::Color32 { egui::Color32::from_rgb(255, 185, 0) }
-    pub fn color_git_none() -> egui::Color32 { egui::Color32::from_rgb(229, 229, 229) }
-    pub fn color_git_renamed() -> egui::Color32 { egui::Color32::from_rgb(0, 188, 255) }
-    pub fn color_git_untracked() -> egui::Color32 { egui::Color32::from_rgb(0, 213, 190) }
-    pub fn color_header() -> egui::Color32 { egui::Color32::from_rgb(23, 23, 23) }
-    pub fn color_hover() -> egui::Color32 { egui::Color32::from_rgba_unmultiplied(255, 255, 255, 26) }
-    pub fn color_icon_blue() -> egui::Color32 { egui::Color32::from_rgb(0, 132, 209) }
-    pub fn color_icon_purple() -> egui::Color32 { egui::Color32::from_rgb(200, 0, 222) }
-    pub fn color_idle_task() -> egui::Color32 { egui::Color32::from_rgb(166, 132, 255) }
-    pub fn color_idle_task_surface() -> egui::Color32 { egui::Color32::from_rgba_unmultiplied(47, 13, 104, 128) }
-    pub fn color_input() -> egui::Color32 { egui::Color32::from_rgb(38, 38, 38) }
-    pub fn color_input_border() -> egui::Color32 { egui::Color32::from_rgba_unmultiplied(250, 250, 250, 26) }
-    pub fn color_input_border_focused() -> egui::Color32 { egui::Color32::from_rgb(0, 166, 244) }
-    pub fn color_input_border_hover() -> egui::Color32 { egui::Color32::from_rgba_unmultiplied(250, 250, 250, 76) }
-    pub fn color_input_focused() -> egui::Color32 { egui::Color32::from_rgb(10, 10, 10) }
-    pub fn color_interaction_ask_fill() -> egui::Color32 { egui::Color32::from_rgba_unmultiplied(5, 223, 114, 61) }
-    pub fn color_interaction_ask_foreground() -> egui::Color32 { egui::Color32::from_rgb(116, 212, 255) }
-    pub fn color_interaction_ask_surface() -> egui::Color32 { egui::Color32::from_rgba_unmultiplied(5, 47, 74, 128) }
-    pub fn color_interaction_confirmation_foreground() -> egui::Color32 { egui::Color32::from_rgb(123, 241, 168) }
-    pub fn color_interaction_confirmation_surface() -> egui::Color32 { egui::Color32::from_rgba_unmultiplied(3, 46, 21, 115) }
-    pub fn color_markdown_inline_code() -> egui::Color32 { egui::Color32::from_rgb(64, 64, 64) }
-    pub fn color_menu() -> egui::Color32 { egui::Color32::from_rgb(10, 10, 10) }
-    pub fn color_menu_hover() -> egui::Color32 { egui::Color32::from_rgb(23, 23, 23) }
-    pub fn color_panel() -> egui::Color32 { egui::Color32::from_rgb(23, 23, 23) }
-    pub fn color_plugin_node() -> egui::Color32 { egui::Color32::from_rgba_unmultiplied(255, 185, 0, 46) }
-    pub fn color_plugin_node_foreground() -> egui::Color32 { egui::Color32::from_rgb(255, 210, 48) }
-    pub fn color_plugin_node_hover() -> egui::Color32 { egui::Color32::from_rgba_unmultiplied(255, 185, 0, 61) }
+    pub fn color_file_node() -> egui::Color32 { egui::Color32::from_rgba_unmultiplied(112, 174, 224, 41) }
+    pub fn color_file_node_foreground() -> egui::Color32 { egui::Color32::from_rgb(143, 197, 239) }
+    pub fn color_file_node_hover() -> egui::Color32 { egui::Color32::from_rgba_unmultiplied(112, 174, 224, 56) }
+    pub fn color_find_highlight() -> egui::Color32 { egui::Color32::from_rgb(84, 37, 0) }
+    pub fn color_find_highlight_active() -> egui::Color32 { egui::Color32::from_rgb(255, 138, 48) }
+    pub fn color_foreground() -> egui::Color32 { egui::Color32::from_rgb(212, 212, 212) }
+    pub fn color_foreground_inverse() -> egui::Color32 { egui::Color32::from_rgb(0, 0, 0) }
+    pub fn color_foreground_subtle() -> egui::Color32 { egui::Color32::from_rgba_unmultiplied(212, 212, 212, 153) }
+    pub fn color_foreground_subtlest() -> egui::Color32 { egui::Color32::from_rgba_unmultiplied(212, 212, 212, 76) }
+    pub fn color_git_added() -> egui::Color32 { egui::Color32::from_rgb(70, 191, 114) }
+    pub fn color_git_deleted() -> egui::Color32 { egui::Color32::from_rgb(255, 92, 92) }
+    pub fn color_git_descendant() -> egui::Color32 { egui::Color32::from_rgb(255, 138, 48) }
+    pub fn color_git_ignored() -> egui::Color32 { egui::Color32::from_rgba_unmultiplied(212, 212, 212, 76) }
+    pub fn color_git_modified() -> egui::Color32 { egui::Color32::from_rgb(255, 138, 48) }
+    pub fn color_git_none() -> egui::Color32 { egui::Color32::from_rgb(212, 212, 212) }
+    pub fn color_git_renamed() -> egui::Color32 { egui::Color32::from_rgb(64, 153, 255) }
+    pub fn color_git_untracked() -> egui::Color32 { egui::Color32::from_rgb(70, 191, 114) }
+    pub fn color_header() -> egui::Color32 { egui::Color32::from_rgb(32, 32, 32) }
+    pub fn color_hover() -> egui::Color32 { egui::Color32::from_rgba_unmultiplied(255, 255, 255, 13) }
+    pub fn color_icon_blue() -> egui::Color32 { egui::Color32::from_rgb(128, 190, 255) }
+    pub fn color_icon_purple() -> egui::Color32 { egui::Color32::from_rgb(168, 136, 242) }
+    pub fn color_idle_task() -> egui::Color32 { egui::Color32::from_rgb(123, 92, 229) }
+    pub fn color_idle_task_surface() -> egui::Color32 { egui::Color32::from_rgb(22, 13, 56) }
+    pub fn color_input() -> egui::Color32 { egui::Color32::from_rgb(43, 43, 43) }
+    pub fn color_input_border() -> egui::Color32 { egui::Color32::from_rgba_unmultiplied(255, 255, 255, 26) }
+    pub fn color_input_border_focused() -> egui::Color32 { egui::Color32::from_rgba_unmultiplied(255, 255, 255, 38) }
+    pub fn color_input_border_hover() -> egui::Color32 { egui::Color32::from_rgba_unmultiplied(255, 255, 255, 38) }
+    pub fn color_input_focused() -> egui::Color32 { egui::Color32::from_rgb(43, 43, 43) }
+    pub fn color_interaction_ask_fill() -> egui::Color32 { egui::Color32::from_rgba_unmultiplied(70, 191, 114, 61) }
+    pub fn color_interaction_ask_foreground() -> egui::Color32 { egui::Color32::from_rgb(128, 190, 255) }
+    pub fn color_interaction_ask_surface() -> egui::Color32 { egui::Color32::from_rgb(0, 29, 61) }
+    pub fn color_interaction_confirmation_foreground() -> egui::Color32 { egui::Color32::from_rgb(135, 217, 164) }
+    pub fn color_interaction_confirmation_surface() -> egui::Color32 { egui::Color32::from_rgba_unmultiplied(70, 191, 114, 41) }
+    pub fn color_markdown_inline_code() -> egui::Color32 { egui::Color32::from_rgb(54, 54, 54) }
+    pub fn color_menu() -> egui::Color32 { egui::Color32::from_rgb(43, 43, 43) }
+    pub fn color_menu_hover() -> egui::Color32 { egui::Color32::from_rgb(54, 54, 54) }
+    pub fn color_panel() -> egui::Color32 { egui::Color32::from_rgb(32, 32, 32) }
+    pub fn color_plugin_node() -> egui::Color32 { egui::Color32::from_rgba_unmultiplied(224, 174, 112, 41) }
+    pub fn color_plugin_node_foreground() -> egui::Color32 { egui::Color32::from_rgb(239, 197, 143) }
+    pub fn color_plugin_node_hover() -> egui::Color32 { egui::Color32::from_rgba_unmultiplied(224, 174, 112, 56) }
     pub fn color_plugin_paid_plan_badge() -> egui::Color32 { egui::Color32::from_rgb(90, 52, 27) }
     pub fn color_plugin_paid_plan_badge_foreground() -> egui::Color32 { egui::Color32::from_rgb(255, 216, 184) }
-    pub fn color_popover() -> egui::Color32 { egui::Color32::from_rgb(38, 38, 38) }
-    pub fn color_popover_border() -> egui::Color32 { egui::Color32::from_rgba_unmultiplied(250, 250, 250, 26) }
-    pub fn color_popover_foreground() -> egui::Color32 { egui::Color32::from_rgb(229, 229, 229) }
-    pub fn color_popover_header() -> egui::Color32 { egui::Color32::from_rgb(64, 64, 64) }
-    pub fn color_primary() -> egui::Color32 { egui::Color32::from_rgb(250, 250, 250) }
-    pub fn color_primary_foreground() -> egui::Color32 { egui::Color32::from_rgb(10, 10, 10) }
-    pub fn color_progress_surface() -> egui::Color32 { egui::Color32::from_rgb(22, 36, 86) }
+    pub fn color_popover() -> egui::Color32 { egui::Color32::from_rgb(43, 43, 43) }
+    pub fn color_popover_border() -> egui::Color32 { egui::Color32::from_rgba_unmultiplied(255, 255, 255, 26) }
+    pub fn color_popover_foreground() -> egui::Color32 { egui::Color32::from_rgb(212, 212, 212) }
+    pub fn color_popover_header() -> egui::Color32 { egui::Color32::from_rgb(32, 32, 32) }
+    pub fn color_primary() -> egui::Color32 { egui::Color32::from_rgb(255, 255, 255) }
+    pub fn color_primary_foreground() -> egui::Color32 { egui::Color32::from_rgb(0, 0, 0) }
+    pub fn color_progress_surface() -> egui::Color32 { egui::Color32::from_rgba_unmultiplied(70, 130, 240, 41) }
     pub fn color_progress_surface_foreground() -> egui::Color32 { egui::Color32::from_rgb(142, 197, 255) }
-    pub fn color_remote_docker_border() -> egui::Color32 { egui::Color32::from_rgb(112, 8, 231) }
-    pub fn color_remote_docker_foreground() -> egui::Color32 { egui::Color32::from_rgb(196, 180, 255) }
-    pub fn color_remote_docker_surface() -> egui::Color32 { egui::Color32::from_rgba_unmultiplied(142, 81, 255, 46) }
+    pub fn color_remote_docker_border() -> egui::Color32 { egui::Color32::from_rgba_unmultiplied(159, 132, 255, 107) }
+    pub fn color_remote_docker_foreground() -> egui::Color32 { egui::Color32::from_rgb(191, 170, 255) }
+    pub fn color_remote_docker_surface() -> egui::Color32 { egui::Color32::from_rgba_unmultiplied(159, 132, 255, 41) }
     pub fn color_remote_foreground_muted() -> egui::Color32 { egui::Color32::from_rgb(179, 179, 179) }
-    pub fn color_remote_ssh_border() -> egui::Color32 { egui::Color32::from_rgb(0, 105, 168) }
-    pub fn color_remote_ssh_foreground() -> egui::Color32 { egui::Color32::from_rgb(116, 212, 255) }
-    pub fn color_remote_ssh_surface() -> egui::Color32 { egui::Color32::from_rgba_unmultiplied(0, 166, 244, 46) }
-    pub fn color_remote_wsl_border() -> egui::Color32 { egui::Color32::from_rgb(0, 130, 54) }
-    pub fn color_remote_wsl_foreground() -> egui::Color32 { egui::Color32::from_rgb(123, 241, 168) }
-    pub fn color_remote_wsl_surface() -> egui::Color32 { egui::Color32::from_rgba_unmultiplied(0, 201, 80, 46) }
+    pub fn color_remote_ssh_border() -> egui::Color32 { egui::Color32::from_rgba_unmultiplied(64, 153, 255, 107) }
+    pub fn color_remote_ssh_foreground() -> egui::Color32 { egui::Color32::from_rgb(143, 192, 255) }
+    pub fn color_remote_ssh_surface() -> egui::Color32 { egui::Color32::from_rgba_unmultiplied(64, 153, 255, 41) }
+    pub fn color_remote_wsl_border() -> egui::Color32 { egui::Color32::from_rgba_unmultiplied(70, 191, 114, 107) }
+    pub fn color_remote_wsl_foreground() -> egui::Color32 { egui::Color32::from_rgb(135, 217, 164) }
+    pub fn color_remote_wsl_surface() -> egui::Color32 { egui::Color32::from_rgba_unmultiplied(70, 191, 114, 41) }
     pub fn color_resize_handle() -> egui::Color32 { egui::Color32::from_rgb(0, 188, 255) }
-    pub fn color_secondary() -> egui::Color32 { egui::Color32::from_rgb(64, 64, 64) }
+    pub fn color_secondary() -> egui::Color32 { egui::Color32::from_rgb(54, 54, 54) }
     pub fn color_selected() -> egui::Color32 { egui::Color32::from_rgba_unmultiplied(255, 255, 255, 26) }
-    pub fn color_session_node() -> egui::Color32 { egui::Color32::from_rgba_unmultiplied(0, 213, 190, 46) }
-    pub fn color_session_node_foreground() -> egui::Color32 { egui::Color32::from_rgb(70, 236, 213) }
-    pub fn color_session_node_hover() -> egui::Color32 { egui::Color32::from_rgba_unmultiplied(0, 213, 190, 61) }
-    pub fn color_sidebar() -> egui::Color32 { egui::Color32::from_rgb(10, 10, 10) }
-    pub fn color_skill_node() -> egui::Color32 { egui::Color32::from_rgba_unmultiplied(166, 132, 255, 46) }
-    pub fn color_skill_node_foreground() -> egui::Color32 { egui::Color32::from_rgb(196, 180, 255) }
-    pub fn color_skill_node_hover() -> egui::Color32 { egui::Color32::from_rgba_unmultiplied(166, 132, 255, 61) }
-    pub fn color_subagent_node() -> egui::Color32 { egui::Color32::from_rgba_unmultiplied(183, 189, 117, 46) }
-    pub fn color_subagent_node_foreground() -> egui::Color32 { egui::Color32::from_rgb(183, 189, 117) }
-    pub fn color_subagent_node_hover() -> egui::Color32 { egui::Color32::from_rgba_unmultiplied(183, 189, 117, 61) }
-    pub fn color_success() -> egui::Color32 { egui::Color32::from_rgb(0, 201, 80) }
-    pub fn color_success_foreground() -> egui::Color32 { egui::Color32::from_rgb(255, 255, 255) }
-    pub fn color_success_surface() -> egui::Color32 { egui::Color32::from_rgba_unmultiplied(3, 46, 21, 115) }
-    pub fn color_success_surface_foreground() -> egui::Color32 { egui::Color32::from_rgb(123, 241, 168) }
+    pub fn color_session_node() -> egui::Color32 { egui::Color32::from_rgba_unmultiplied(104, 196, 188, 41) }
+    pub fn color_session_node_foreground() -> egui::Color32 { egui::Color32::from_rgb(147, 216, 210) }
+    pub fn color_session_node_hover() -> egui::Color32 { egui::Color32::from_rgba_unmultiplied(104, 196, 188, 56) }
+    pub fn color_sidebar() -> egui::Color32 { egui::Color32::from_rgb(22, 22, 22) }
+    pub fn color_skill_node() -> egui::Color32 { egui::Color32::from_rgba_unmultiplied(166, 137, 218, 41) }
+    pub fn color_skill_node_foreground() -> egui::Color32 { egui::Color32::from_rgb(189, 165, 230) }
+    pub fn color_skill_node_hover() -> egui::Color32 { egui::Color32::from_rgba_unmultiplied(166, 137, 218, 56) }
+    pub fn color_subagent_node() -> egui::Color32 { egui::Color32::from_rgba_unmultiplied(183, 189, 117, 41) }
+    pub fn color_subagent_node_foreground() -> egui::Color32 { egui::Color32::from_rgb(200, 205, 144) }
+    pub fn color_subagent_node_hover() -> egui::Color32 { egui::Color32::from_rgba_unmultiplied(183, 189, 117, 56) }
+    pub fn color_success() -> egui::Color32 { egui::Color32::from_rgb(70, 191, 114) }
+    pub fn color_success_foreground() -> egui::Color32 { egui::Color32::from_rgb(0, 0, 0) }
+    pub fn color_success_surface() -> egui::Color32 { egui::Color32::from_rgba_unmultiplied(70, 191, 114, 41) }
+    pub fn color_success_surface_foreground() -> egui::Color32 { egui::Color32::from_rgb(135, 217, 164) }
     pub fn color_surface() -> egui::Color32 { egui::Color32::from_rgba_unmultiplied(255, 255, 255, 13) }
     pub fn color_surface_hover() -> egui::Color32 { egui::Color32::from_rgba_unmultiplied(255, 255, 255, 26) }
-    pub fn color_tab() -> egui::Color32 { egui::Color32::from_rgb(38, 38, 38) }
-    pub fn color_tab_active() -> egui::Color32 { egui::Color32::from_rgb(10, 10, 10) }
-    pub fn color_tab_border() -> egui::Color32 { egui::Color32::from_rgba_unmultiplied(250, 250, 250, 26) }
-    pub fn color_tag() -> egui::Color32 { egui::Color32::from_rgb(64, 64, 64) }
-    pub fn color_terminal_bg() -> egui::Color32 { egui::Color32::from_rgb(10, 10, 10) }
-    pub fn color_terminal_black() -> egui::Color32 { egui::Color32::from_rgb(38, 38, 38) }
-    pub fn color_terminal_blue() -> egui::Color32 { egui::Color32::from_rgb(0, 132, 209) }
-    pub fn color_terminal_bright_black() -> egui::Color32 { egui::Color32::from_rgb(115, 115, 115) }
-    pub fn color_terminal_bright_blue() -> egui::Color32 { egui::Color32::from_rgb(0, 132, 209) }
-    pub fn color_terminal_bright_cyan() -> egui::Color32 { egui::Color32::from_rgb(0, 146, 184) }
-    pub fn color_terminal_bright_green() -> egui::Color32 { egui::Color32::from_rgb(0, 166, 62) }
-    pub fn color_terminal_bright_magenta() -> egui::Color32 { egui::Color32::from_rgb(200, 0, 222) }
-    pub fn color_terminal_bright_red() -> egui::Color32 { egui::Color32::from_rgb(231, 0, 11) }
-    pub fn color_terminal_bright_white() -> egui::Color32 { egui::Color32::from_rgb(250, 250, 250) }
-    pub fn color_terminal_bright_yellow() -> egui::Color32 { egui::Color32::from_rgb(208, 135, 0) }
-    pub fn color_terminal_cursor() -> egui::Color32 { egui::Color32::from_rgb(250, 250, 250) }
-    pub fn color_terminal_cursor_accent() -> egui::Color32 { egui::Color32::from_rgb(10, 10, 10) }
-    pub fn color_terminal_cyan() -> egui::Color32 { egui::Color32::from_rgb(0, 146, 184) }
-    pub fn color_terminal_fg() -> egui::Color32 { egui::Color32::from_rgb(250, 250, 250) }
-    pub fn color_terminal_green() -> egui::Color32 { egui::Color32::from_rgb(0, 166, 62) }
-    pub fn color_terminal_magenta() -> egui::Color32 { egui::Color32::from_rgb(200, 0, 222) }
-    pub fn color_terminal_red() -> egui::Color32 { egui::Color32::from_rgb(231, 0, 11) }
-    pub fn color_terminal_selection() -> egui::Color32 { egui::Color32::from_rgba_unmultiplied(0, 166, 244, 66) }
-    pub fn color_terminal_selection_inactive() -> egui::Color32 { egui::Color32::from_rgba_unmultiplied(250, 250, 250, 41) }
-    pub fn color_terminal_white() -> egui::Color32 { egui::Color32::from_rgb(229, 229, 229) }
-    pub fn color_terminal_yellow() -> egui::Color32 { egui::Color32::from_rgb(208, 135, 0) }
-    pub fn color_toast() -> egui::Color32 { egui::Color32::from_rgb(23, 23, 23) }
-    pub fn color_tooltip() -> egui::Color32 { egui::Color32::from_rgb(23, 23, 23) }
-    pub fn color_tooltip_foreground() -> egui::Color32 { egui::Color32::from_rgb(250, 250, 250) }
-    pub fn color_tooltip_tag() -> egui::Color32 { egui::Color32::from_rgb(38, 38, 38) }
-    pub fn color_tooltip_tag_foreground() -> egui::Color32 { egui::Color32::from_rgba_unmultiplied(250, 250, 250, 153) }
+    pub fn color_tab() -> egui::Color32 { egui::Color32::from_rgb(32, 32, 32) }
+    pub fn color_tab_active() -> egui::Color32 { egui::Color32::from_rgb(22, 22, 22) }
+    pub fn color_tab_border() -> egui::Color32 { egui::Color32::from_rgba_unmultiplied(255, 255, 255, 26) }
+    pub fn color_tag() -> egui::Color32 { egui::Color32::from_rgb(54, 54, 54) }
+    pub fn color_terminal_bg() -> egui::Color32 { egui::Color32::from_rgb(22, 22, 22) }
+    pub fn color_terminal_black() -> egui::Color32 { egui::Color32::from_rgb(54, 54, 54) }
+    pub fn color_terminal_blue() -> egui::Color32 { egui::Color32::from_rgb(64, 153, 255) }
+    pub fn color_terminal_bright_black() -> egui::Color32 { egui::Color32::from_rgb(116, 116, 116) }
+    pub fn color_terminal_bright_blue() -> egui::Color32 { egui::Color32::from_rgb(128, 190, 255) }
+    pub fn color_terminal_bright_cyan() -> egui::Color32 { egui::Color32::from_rgb(142, 229, 229) }
+    pub fn color_terminal_bright_green() -> egui::Color32 { egui::Color32::from_rgb(135, 217, 164) }
+    pub fn color_terminal_bright_magenta() -> egui::Color32 { egui::Color32::from_rgb(168, 136, 242) }
+    pub fn color_terminal_bright_red() -> egui::Color32 { egui::Color32::from_rgb(255, 153, 153) }
+    pub fn color_terminal_bright_white() -> egui::Color32 { egui::Color32::from_rgb(248, 248, 248) }
+    pub fn color_terminal_bright_yellow() -> egui::Color32 { egui::Color32::from_rgb(255, 178, 107) }
+    pub fn color_terminal_cursor() -> egui::Color32 { egui::Color32::from_rgb(248, 248, 248) }
+    pub fn color_terminal_cursor_accent() -> egui::Color32 { egui::Color32::from_rgb(22, 22, 22) }
+    pub fn color_terminal_cyan() -> egui::Color32 { egui::Color32::from_rgb(66, 200, 200) }
+    pub fn color_terminal_fg() -> egui::Color32 { egui::Color32::from_rgb(212, 212, 212) }
+    pub fn color_terminal_green() -> egui::Color32 { egui::Color32::from_rgb(70, 191, 114) }
+    pub fn color_terminal_magenta() -> egui::Color32 { egui::Color32::from_rgb(123, 92, 229) }
+    pub fn color_terminal_red() -> egui::Color32 { egui::Color32::from_rgb(255, 92, 92) }
+    pub fn color_terminal_selection() -> egui::Color32 { egui::Color32::from_rgba_unmultiplied(64, 153, 255, 71) }
+    pub fn color_terminal_selection_inactive() -> egui::Color32 { egui::Color32::from_rgba_unmultiplied(255, 255, 255, 26) }
+    pub fn color_terminal_white() -> egui::Color32 { egui::Color32::from_rgb(173, 173, 173) }
+    pub fn color_terminal_yellow() -> egui::Color32 { egui::Color32::from_rgb(255, 138, 48) }
+    pub fn color_toast() -> egui::Color32 { egui::Color32::from_rgb(43, 43, 43) }
+    pub fn color_tooltip() -> egui::Color32 { egui::Color32::from_rgb(43, 43, 43) }
+    pub fn color_tooltip_foreground() -> egui::Color32 { egui::Color32::from_rgb(248, 248, 248) }
+    pub fn color_tooltip_tag() -> egui::Color32 { egui::Color32::from_rgb(54, 54, 54) }
+    pub fn color_tooltip_tag_foreground() -> egui::Color32 { egui::Color32::from_rgb(173, 173, 173) }
     pub fn color_trajectory_assistant() -> egui::Color32 { egui::Color32::from_rgb(45, 212, 191) }
     pub fn color_trajectory_reasoning() -> egui::Color32 { egui::Color32::from_rgb(167, 139, 250) }
     pub fn color_trajectory_tool_call() -> egui::Color32 { egui::Color32::from_rgb(245, 158, 11) }
     pub fn color_trajectory_tool_result() -> egui::Color32 { egui::Color32::from_rgb(56, 189, 248) }
     pub fn color_trajectory_user() -> egui::Color32 { egui::Color32::from_rgb(96, 165, 250) }
-    pub fn color_usage_chart_1() -> egui::Color32 { egui::Color32::from_rgb(0, 166, 244) }
-    pub fn color_usage_chart_2() -> egui::Color32 { egui::Color32::from_rgb(0, 213, 190) }
-    pub fn color_usage_chart_3() -> egui::Color32 { egui::Color32::from_rgb(166, 132, 255) }
-    pub fn color_usage_chart_4() -> egui::Color32 { egui::Color32::from_rgb(255, 99, 126) }
-    pub fn color_usage_chart_5() -> egui::Color32 { egui::Color32::from_rgb(124, 134, 255) }
-    pub fn color_usage_chart_6() -> egui::Color32 { egui::Color32::from_rgb(0, 211, 242) }
+    pub fn color_usage_chart_1() -> egui::Color32 { egui::Color32::from_rgb(64, 153, 255) }
+    pub fn color_usage_chart_2() -> egui::Color32 { egui::Color32::from_rgb(70, 191, 114) }
+    pub fn color_usage_chart_3() -> egui::Color32 { egui::Color32::from_rgb(123, 92, 229) }
+    pub fn color_usage_chart_4() -> egui::Color32 { egui::Color32::from_rgb(255, 92, 92) }
+    pub fn color_usage_chart_5() -> egui::Color32 { egui::Color32::from_rgb(255, 138, 48) }
+    pub fn color_usage_chart_6() -> egui::Color32 { egui::Color32::from_rgb(66, 200, 200) }
     pub fn color_usage_heatmap_0() -> egui::Color32 { egui::Color32::from_rgba_unmultiplied(255, 255, 255, 13) }
-    pub fn color_usage_heatmap_1() -> egui::Color32 { egui::Color32::from_rgba_unmultiplied(78, 198, 255, 71) }
-    pub fn color_usage_heatmap_2() -> egui::Color32 { egui::Color32::from_rgba_unmultiplied(51, 193, 255, 114) }
-    pub fn color_usage_heatmap_3() -> egui::Color32 { egui::Color32::from_rgba_unmultiplied(33, 190, 255, 163) }
-    pub fn color_usage_heatmap_4() -> egui::Color32 { egui::Color32::from_rgba_unmultiplied(118, 213, 255, 202) }
+    pub fn color_usage_heatmap_1() -> egui::Color32 { egui::Color32::from_rgba_unmultiplied(94, 168, 255, 71) }
+    pub fn color_usage_heatmap_2() -> egui::Color32 { egui::Color32::from_rgba_unmultiplied(79, 160, 255, 114) }
+    pub fn color_usage_heatmap_3() -> egui::Color32 { egui::Color32::from_rgba_unmultiplied(71, 156, 255, 163) }
+    pub fn color_usage_heatmap_4() -> egui::Color32 { egui::Color32::from_rgba_unmultiplied(130, 191, 255, 202) }
     pub fn color_user_message_bubble() -> egui::Color32 { egui::Color32::from_rgba_unmultiplied(255, 255, 255, 20) }
-    pub fn color_warning() -> egui::Color32 { egui::Color32::from_rgb(240, 177, 0) }
-    pub fn color_warning_foreground() -> egui::Color32 { egui::Color32::from_rgb(255, 255, 255) }
-    pub fn color_warning_surface() -> egui::Color32 { egui::Color32::from_rgba_unmultiplied(240, 177, 0, 41) }
-    pub fn color_warning_surface_foreground() -> egui::Color32 { egui::Color32::from_rgb(253, 199, 0) }
+    pub fn color_warning() -> egui::Color32 { egui::Color32::from_rgb(255, 138, 48) }
+    pub fn color_warning_foreground() -> egui::Color32 { egui::Color32::from_rgb(0, 0, 0) }
+    pub fn color_warning_surface() -> egui::Color32 { egui::Color32::from_rgba_unmultiplied(255, 138, 48, 41) }
+    pub fn color_warning_surface_foreground() -> egui::Color32 { egui::Color32::from_rgb(255, 161, 89) }
     pub fn color_workflow_rule() -> egui::Color32 { egui::Color32::from_rgba_unmultiplied(255, 255, 255, 17) }
     pub fn color_workflow_trace() -> egui::Color32 { egui::Color32::from_rgba_unmultiplied(255, 255, 255, 89) }
     pub fn color_workflow_trace_strong() -> egui::Color32 { egui::Color32::from_rgba_unmultiplied(255, 255, 255, 153) }

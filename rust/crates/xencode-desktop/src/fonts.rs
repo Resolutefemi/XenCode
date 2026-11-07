@@ -7,7 +7,7 @@
 //! - DejaVu Sans / Mono appended to every family as the symbol fallback
 //!   (chevrons, ticks, branches, ... all render tofu-free).
 
-use egui::{FontData, FontDefinitions, FontFamily};
+use eframe::egui::{FontData, FontDefinitions, FontFamily};
 
 const CN_DIR: &str = "/usr/share/fonts/truetype/chinese";
 const DEJAVU_DIR: &str = "/usr/share/fonts/truetype/dejavu";
@@ -15,11 +15,11 @@ const DEJAVU_DIR: &str = "/usr/share/fonts/truetype/dejavu";
 fn load(path: &str) -> Option<FontData> {
     std::fs::read(path)
         .ok()
-        .map(|bytes| FontData::from_owned(bytes).tweak(egui::FontTweak::default()))
+        .map(|bytes| FontData::from_owned(bytes).tweak(eframe::egui::FontTweak::default()))
 }
 
 /// Install the XenCode font families into the context.
-pub fn install(ctx: &egui::Context) {
+pub fn install(ctx: &eframe::egui::Context) {
     let mut fonts = FontDefinitions::default();
 
     let noto_sc = load(&format!("{CN_DIR}/NotoSansSC-Regular.ttf"));
@@ -45,8 +45,11 @@ pub fn install(ctx: &egui::Context) {
     let has_dejavu_bold = insert("XenDejaVuBold", dejavu_bold);
     let has_dejavu_mono = insert("XenDejaVuMono", dejavu_mono);
 
-    // Proportional: Ubuntu, then CJK, then DejaVu symbols.
+    // Proportional: Noto Sans SC first (the Linux entry of the ZCode
+    // --font-sans stack, replaces egui's bundled Ubuntu-Light), DejaVu
+    // appended as the symbol fallback.
     let prop = fonts.families.entry(FontFamily::Proportional).or_default();
+    prop.clear();
     if has_sc {
         prop.push("XenSansSC".into());
     }
@@ -66,14 +69,19 @@ pub fn install(ctx: &egui::Context) {
         fam
     });
 
-    // Monospace: Hack, then Sarasa (CJK), then DejaVu Mono.
+    // Monospace: Sarasa Mono SC (CJK-capable, --font-mono stack), then
+    // DejaVu Mono for symbols.
     let mono = fonts.families.entry(FontFamily::Monospace).or_default();
+    mono.clear();
     if has_sarasa {
         mono.push("XenMonoSC".into());
     }
     if has_dejavu_mono {
         mono.push("XenDejaVuMono".into());
     }
+
+    // Real bold face for markdown headings/strong runs, on the same set.
+    crate::ui::markdown::install_bold_font(&mut fonts);
 
     ctx.set_fonts(fonts);
 }

@@ -248,7 +248,7 @@ fn user_bubble(app: &mut XenApp, ui: &mut egui::Ui, p: Palette, entry: &crate::C
             egui::Layout::top_down(egui::Align::LEFT),
             |ui| {
                 egui::Frame::default()
-                    .fill(p.user_message_bubble())
+                    .fill(p.user_message_bubble_solid())
                     .rounding(egui::Rounding::same(theme::geom::RADIUS))
                     .inner_margin(egui::Margin::symmetric(pad_x, pad_y))
                     .show(ui, |ui| {

@@ -4,10 +4,12 @@
 //! into `tokens.rs`; this module wires them into egui and exposes the
 //! semantic palette, typography scale and geometry used by the shell.
 //!
-//! Token semantics (see docs/zcode-port/theme-tokens.json):
-//!   background #fafafa / #171717, sidebar #f5f5f5 / #0a0a0a,
-//!   card #ffffff / #262626, primary #0a0a0a / #fafafa (inverted button),
-//!   brand sky-400 #00bcff / sky-500 #00a6f4, hairline borders at 10%.
+//! Token semantics (the shipped Zai skin, see .theme-zai-light/.theme-zai-dark
+//! in packages/ui/src/styles.css):
+//!   background #f8f8f8 / #161616, sidebar #f0f0f0 / #161616,
+//!   header+panel #ffffff / #202020, card #ffffff / #2b2b2b,
+//!   primary #000000 / #ffffff (inverted button), brand #000000 / #ffffff,
+//!   foreground neutral-800 #262626 / neutral-300 #d4d4d4, hairline borders at 10%.
 
 pub mod tokens;
 
@@ -34,8 +36,10 @@ pub mod geom {
     pub fn sp(n: f32) -> f32 {
         n * SP
     }
-    /// Buttons / inputs / composer card (`rounded-lg`, shadcn --radius 10px).
+    /// Buttons / inputs (`rounded-lg`, shadcn --radius 10px).
     pub const RADIUS: f32 = 10.0;
+    /// Composer card (`rounded-2xl` = 16px, ChatPromptEditor).
+    pub const COMPOSER_RADIUS: f32 = 16.0;
     /// Larger surfaces, dialogs (`rounded-xl`).
     pub const RADIUS_LG: f32 = 12.0;
     /// Sidebar width (ZCode workspace sidebar, resizable).
@@ -118,6 +122,9 @@ impl Palette {
     pub fn primary_foreground(self) -> egui::Color32 {
         if self.dark() { tokens::dark::color_primary_foreground() } else { tokens::light::color_primary_foreground() }
     }
+    pub fn foreground_inverse(self) -> egui::Color32 {
+        if self.dark() { tokens::dark::color_foreground_inverse() } else { tokens::light::color_foreground_inverse() }
+    }
     pub fn secondary(self) -> egui::Color32 {
         if self.dark() { tokens::dark::color_secondary() } else { tokens::light::color_secondary() }
     }
@@ -145,6 +152,20 @@ impl Palette {
         } else {
             tokens::light::color_user_message_bubble()
         }
+    }
+    /// The user-bubble token pre-composited over the chat background, i.e.
+    /// the exact pixel a browser paints for `--color-user-message-bubble`.
+    /// Opaque, so translucent fills cannot stack on top of each other.
+    pub fn user_message_bubble_solid(self) -> egui::Color32 {
+        fn over(src: egui::Color32, dst: egui::Color32) -> egui::Color32 {
+            let a = src.a() as f32 / 255.0;
+            let mix = |s: u8, d: u8| (s as f32 * a + d as f32 * (1.0 - a)).round() as u8;
+            egui::Color32::from_rgb(mix(src.r(), dst.r()), mix(src.g(), dst.g()), mix(src.b(), dst.b()))
+        }
+        over(self.user_message_bubble(), self.background())
+    }
+    pub fn header(self) -> egui::Color32 {
+        if self.dark() { tokens::dark::color_header() } else { tokens::light::color_header() }
     }
     pub fn tooltip(self) -> egui::Color32 {
         if self.dark() { tokens::dark::color_tooltip() } else { tokens::light::color_tooltip() }

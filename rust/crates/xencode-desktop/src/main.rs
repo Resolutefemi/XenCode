@@ -16,6 +16,7 @@
 //! (scripts/capture_ui_pages.py for docs/screenshots/pc/).
 
 mod cloud;
+mod fonts;
 mod theme;
 mod ui;
 
@@ -304,9 +305,10 @@ impl XenApp {
 
     pub(crate) fn apply_theme(&self, ctx: &egui::Context) {
         theme::install(ctx, if self.dark { ThemeMode::Dark } else { ThemeMode::Light });
-        // Real bold weight for markdown headings and strong runs
-        // (egui 0.29 bundles only a Light proportional face).
-        ui::markdown::install_bold_font(ctx);
+        // System font stack match: Noto Sans SC proportional (the Linux entry
+        // of the ZCode --font-sans / --font-mono stacks) + DejaVu symbols +
+        // the real bold face for markdown. One FontDefinitions set.
+        fonts::install(ctx);
     }
 
     /// Rough context-window fill for the composer meter. ZCode reports the

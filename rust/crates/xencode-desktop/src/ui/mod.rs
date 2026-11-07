@@ -40,6 +40,12 @@ pub(crate) fn hairline(p: Palette) -> egui::Stroke {
     egui::Stroke::new(1.0_f32, p.border())
 }
 
+/// 1px hairline stroke in an explicit color (composer input-border etc).
+#[allow(dead_code)]
+pub(crate) fn hairline_color(c: egui::Color32) -> egui::Stroke {
+    egui::Stroke::new(1.0_f32, c)
+}
+
 /// Card surface: bg-card, 1px border, rounded-lg (ZCode `card` class).
 #[allow(dead_code)]
 pub(crate) fn card(p: Palette, ui: &mut egui::Ui, add: impl FnOnce(&mut egui::Ui)) {

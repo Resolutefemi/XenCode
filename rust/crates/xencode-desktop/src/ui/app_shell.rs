@@ -28,12 +28,13 @@ pub(crate) fn show(app: &mut XenApp, ctx: &egui::Context) {
 }
 
 /// Desktop top overlay: sidebar toggle + brand, window controls right.
-/// ZCode: 40px strip over bg-background with hairline bottom border.
+/// ZCode: 40px strip on --color-header (#ffffff zai-light / #202020 dark)
+/// with a hairline bottom border.
 fn top_overlay(app: &mut XenApp, ctx: &egui::Context) {
     let p = app.palette();
     egui::TopBottomPanel::top("top_overlay")
         .exact_height(theme::geom::TOP_OVERLAY_H)
-        .frame(egui::Frame::none().fill(p.background()))
+        .frame(egui::Frame::none().fill(p.header()))
         .show_separator_line(false)
         .show(ctx, |ui| {
             let rect = ui.max_rect();

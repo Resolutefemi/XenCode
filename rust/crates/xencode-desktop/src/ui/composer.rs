@@ -31,8 +31,14 @@ pub(crate) fn card(app: &mut XenApp, ui: &mut egui::Ui, hero: bool) {
 pub(crate) fn card_at(app: &mut XenApp, ui: &mut egui::Ui, rect: egui::Rect, hero: bool) {
     let p = app.palette();
     let busy = app.worker.as_ref().map(|w| w.busy.load(Ordering::SeqCst)).unwrap_or(false);
-    ui.painter().rect_filled(rect, egui::Rounding::same(theme::geom::RADIUS), p.card());
-    ui.painter().rect_stroke(rect, egui::Rounding::same(theme::geom::RADIUS), ui::hairline(p));
+    // ZCode ChatPromptEditor surface: `rounded-2xl border-[0.5px]
+    // border-input-border bg-input p-3 shadow-(--shadow-composer-soft)`.
+    // Focus/hover move the hairline to border-hover (input-border-hover).
+    let focused = app.chat_input.is_empty() == false;
+    let _ = focused;
+    let border = if app.chat_input.trim().is_empty() { p.border() } else { p.border_hover() };
+    ui.painter().rect_filled(rect, egui::Rounding::same(theme::geom::COMPOSER_RADIUS), p.input());
+    ui.painter().rect_stroke(rect, egui::Rounding::same(theme::geom::COMPOSER_RADIUS), ui::hairline_color(border));
 
     let mut inner = egui::Ui::new(
         ui.ctx().clone(),
@@ -261,26 +267,26 @@ pub(crate) fn card_at(app: &mut XenApp, ui: &mut egui::Ui, rect: egui::Rect, her
         app.toggle_menu(MenuKind::Model, seat_rect);
     }
 
-    // Send button: 28px rounded-md, bg-primary with the arrow-up glyph
-    // (ZCode send); muted over an empty draft or while busy.
+    // Send button: 28px circle, `rounded-full bg-brand` with the arrow-up
+    // glyph (ChatPromptEditor send action); brand/80 hover.
     let send_rect = egui::Rect::from_center_size(egui::pos2(send_cx, row_c.y), egui::vec2(28.0, 28.0));
     let send_resp = inner.interact(send_rect, egui::Id::new("composer_send"), egui::Sense::click());
     let enabled = !busy && (!app.chat_input.trim().is_empty() || !app.pending_images.is_empty());
-    let fill = if enabled { p.primary() } else { p.secondary() };
+    let fill = if enabled { p.brand() } else { p.secondary() };
     if send_resp.hovered() && enabled {
         inner
             .painter()
-            .rect_filled(send_rect, egui::Rounding::same(8.0), blend(p.primary(), if p.mode == crate::theme::Mode::Dark { egui::Color32::WHITE } else { egui::Color32::BLACK }, 0.15));
+            .circle_filled(send_rect.center(), 14.0, blend(p.brand(), if p.mode == crate::theme::Mode::Dark { egui::Color32::BLACK } else { egui::Color32::WHITE }, 0.20));
     } else {
-        inner.painter().rect_filled(send_rect, egui::Rounding::same(8.0), fill);
+        inner.painter().circle_filled(send_rect.center(), 14.0, fill);
     }
     if busy {
         let c = send_rect.center();
         inner
             .painter()
-            .rect_filled(egui::Rect::from_center_size(c, egui::vec2(10.0, 10.0)), 2.0, p.primary_foreground());
+            .rect_filled(egui::Rect::from_center_size(c, egui::vec2(10.0, 10.0)), 2.0, p.foreground_inverse());
     } else {
-        ui::arrow_up(inner.painter(), send_rect.center(), p.primary_foreground(), 14.0);
+        ui::arrow_up(inner.painter(), send_rect.center(), p.foreground_inverse(), 14.0);
     }
     if enabled && send_resp.clicked() {
         app.send_current();

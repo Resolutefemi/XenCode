@@ -25,10 +25,9 @@ const BOLD_TTF: &[u8] = include_bytes!("../../assets/FreeSansBold.ttf");
 
 pub(crate) const BOLD_FAMILY: &str = "xen-bold";
 
-/// Register the bold family on top of the egui defaults (call after
-/// `theme::install`).
-pub(crate) fn install_bold_font(ctx: &egui::Context) {
-    let mut fonts = egui::FontDefinitions::default();
+/// Register the real-bold family on top of the given font definitions
+/// (called from fonts::install so both share one FontDefinitions set).
+pub(crate) fn install_bold_font(fonts: &mut egui::FontDefinitions) {
     fonts
         .font_data
         .insert(BOLD_FAMILY.to_owned(), egui::FontData::from_static(BOLD_TTF));
@@ -36,12 +35,12 @@ pub(crate) fn install_bold_font(ctx: &egui::Context) {
         egui::FontFamily::Name(BOLD_FAMILY.into()),
         vec![
             BOLD_FAMILY.to_owned(),
-            "Ubuntu-Light".to_owned(),
+            "XenSansSC".to_owned(),
+            "XenDejaVu".to_owned(),
             "NotoEmoji-Regular".to_owned(),
             "emoji-icon-font".to_owned(),
         ],
     );
-    ctx.set_fonts(fonts);
 }
 
 fn bold(size: f32) -> egui::FontId {
