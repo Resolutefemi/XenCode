@@ -327,6 +327,62 @@ fn page_settings(app: &mut XenApp, ui: &mut egui::Ui, p: Palette) {
     });
     ui.add_space(10.0);
     card(p, ui, |ui| {
+        ui.label(egui::RichText::new("XenCloud").size(theme::text::BASE).color(p.foreground()).strong());
+        ui.label(
+            egui::RichText::new(
+                "Stream through the XenCloud gateway: auth, metering and model routing run server-side.",
+            )
+            .size(theme::text::CAPTION)
+            .color(p.foreground_subtle()),
+        );
+        ui.add_space(6.0);
+        egui::Grid::new("xencloud_cfg").num_columns(2).spacing([8.0, 6.0]).show(ui, |ui| {
+            ui.label(egui::RichText::new("server").size(theme::text::CAPTION).color(p.foreground_subtle()));
+            ui.add_sized(
+                [ui.available_width() - 8.0, 24.0],
+                egui::TextEdit::singleline(&mut app.cloud_draft.server_url)
+                    .hint_text("http://127.0.0.1:8787")
+                    .font(egui::TextStyle::Monospace),
+            );
+            ui.end_row();
+            ui.label(egui::RichText::new("token").size(theme::text::CAPTION).color(p.foreground_subtle()));
+            ui.add_sized(
+                [ui.available_width() - 8.0, 24.0],
+                egui::TextEdit::singleline(&mut app.cloud_draft.token)
+                    .hint_text("session token from `xencode-cloud login`")
+                    .password(true)
+                    .font(egui::TextStyle::Monospace),
+            );
+            ui.end_row();
+            ui.label(egui::RichText::new("model").size(theme::text::CAPTION).color(p.foreground_subtle()));
+            ui.add_sized(
+                [ui.available_width() - 8.0, 24.0],
+                egui::TextEdit::singleline(&mut app.cloud_draft.model)
+                    .hint_text("glm-4.6")
+                    .font(egui::TextStyle::Monospace),
+            );
+            ui.end_row();
+        });
+        ui.add_space(4.0);
+        ui.horizontal(|ui| {
+            if ghost(p, ui, "save").clicked() {
+                if app.cloud_draft.save() {
+                    app.settings_note = "xencloud config saved".into();
+                } else {
+                    app.settings_note = "! could not write ~/.xencode/cloud.json".into();
+                }
+            }
+            if ghost(p, ui, "check connection").clicked() {
+                let probe = crate::cloud::CloudClient::new(app.cloud_draft.clone()).whoami();
+                app.settings_note = match probe {
+                    Ok((email, credits)) => format!("xencloud: {email} · {credits} credits"),
+                    Err(e) => format!("! xencloud: {e}"),
+                };
+            }
+        });
+    });
+    ui.add_space(10.0);
+    card(p, ui, |ui| {
         ui.label(egui::RichText::new("Workspace tools").size(theme::text::BASE).color(p.foreground()).strong());
         ui.add_space(6.0);
         ui.horizontal(|ui| {

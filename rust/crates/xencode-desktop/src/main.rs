@@ -213,6 +213,10 @@ pub(crate) struct XenApp {
     pub(crate) mode_shared: Arc<Mutex<PermissionMode>>,
     /// Reasoning effort label shown in the model seat.
     pub(crate) effort: String,
+    /// Effort mirrored to the worker for XenCloud `reasoning_effort`.
+    pub(crate) effort_shared: Arc<Mutex<String>>,
+    /// XenCloud config draft edited on the Settings page.
+    pub(crate) cloud_draft: crate::cloud::CloudConfig,
     pub(crate) worker: Option<ChatWorker>,
     /// Busy→idle edge detector (session refresh + status line).
     pub(crate) was_busy: bool,
@@ -279,6 +283,8 @@ impl XenApp {
             mode: PermissionMode::Confirm,
             mode_shared: Arc::new(Mutex::new(PermissionMode::Confirm)),
             effort: "High".into(),
+            effort_shared: Arc::new(Mutex::new("High".into())),
+            cloud_draft: crate::cloud::CloudConfig::load().unwrap_or_default(),
             worker: None,
             was_busy: false,
             persister,
@@ -329,6 +335,7 @@ impl XenApp {
             .map(|i| (i + 1) % LEVELS.len())
             .unwrap_or(0);
         self.effort = LEVELS[next].to_string();
+        *self.effort_shared.lock().expect("effort shared") = self.effort.clone();
     }
 
     fn map_sessions(persister: &Option<Arc<xencode_core::store::chatlog::ChatPersister>>) -> Vec<SidebarSession> {
@@ -453,6 +460,7 @@ impl XenApp {
         let failure2 = failure.clone();
         let persister = self.persister.clone();
         let mode_shared = self.mode_shared.clone();
+        let effort2 = self.effort_shared.clone();
         std::thread::spawn(move || {
             let rt = tokio::runtime::Builder::new_multi_thread().enable_all().build().expect("tokio runtime");
             let cfg = xencode_core::config::load_config().unwrap_or_default();
@@ -497,6 +505,65 @@ impl XenApp {
                         busy2.store(true, Ordering::SeqCst);
                         stream2.lock().unwrap().clear();
                         *failure2.lock().unwrap() = None;
+                        let _ = &images;
+                        // XenCloud gateway: when ~/.xencode/cloud.json holds a
+                        // server + session token, turns stream through the
+                        // Axum backend (auth, metering, routing) instead of
+                        // the local provider stack.
+                        let cloud_cfg =
+                            crate::cloud::CloudConfig::load().filter(|c| c.configured());
+                        if let Some(cfg) = cloud_cfg {
+                            let mut history: Vec<crate::cloud::ChatMessage> =
+                                Vec::new();
+                            history.push(crate::cloud::ChatMessage {
+                                role: "user".into(),
+                                content: text.clone(),
+                            });
+                            let (etx, erx) = mpsc::channel::<crate::cloud::StreamEvent>();
+                            let client = crate::cloud::CloudClient::new(cfg.clone());
+                            let model = if cfg.model.trim().is_empty() {
+                                "glm-4.6".to_string()
+                            } else {
+                                cfg.model.trim().to_string()
+                            };
+                            let effort = effort2.lock().expect("effort shared").to_lowercase();
+                            let effort_arg: Option<String> =
+                                (effort != "off").then_some(effort);
+                            let handle = client.stream_chat(
+                                history.clone(),
+                                &model,
+                                effort_arg.as_deref(),
+                                etx,
+                            );
+                            for ev in erx {
+                                match ev {
+                                    crate::cloud::StreamEvent::Delta(d) => {
+                                        stream2.lock().unwrap().push_str(&d);
+                                    }
+                                    crate::cloud::StreamEvent::Error(e) => {
+                                        *failure2.lock().unwrap() = Some(e);
+                                        break;
+                                    }
+                                    crate::cloud::StreamEvent::Done | crate::cloud::StreamEvent::Usage { .. } => {}
+                                }
+                            }
+                            let _ = handle.join();
+                            let reply = stream2.lock().unwrap().clone();
+                            if failure2.lock().unwrap().is_none() && !reply.trim().is_empty() {
+                                if let Some(p) = &persister {
+                                    p.assistant_turn(
+                                        &ws_str,
+                                        "xencloud",
+                                        &model,
+                                        &reply,
+                                        xencode_core::agent::TurnUsage::default(),
+                                        0,
+                                    );
+                                }
+                            }
+                            busy2.store(false, Ordering::SeqCst);
+                            continue;
+                        }
                         let mode = *mode_shared.lock().expect("mode shared");
                         session.permission.mode = mode;
                         let parts: Vec<xencode_core::chat::ImagePart> = images
