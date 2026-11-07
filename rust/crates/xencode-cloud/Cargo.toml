@@ -1,0 +1,30 @@
+[package]
+name = "xencode-cloud"
+description = "XenCloud backend (Axum): auth, LLM gateway with key protection, SSE streaming proxy, token metering and billing, conversation sync, prompt and model routing"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+
+[dependencies]
+axum = "0.8"
+tokio = { version = "1", features = ["full"] }
+serde.workspace = true
+serde_json.workspace = true
+reqwest.workspace = true
+sqlx = { version = "0.9", default-features = false, features = ["runtime-tokio", "tls-rustls", "postgres", "migrate"] }
+async-trait = "0.1"
+rand = "0.8"
+uuid = { version = "1", features = ["v4"] }
+sha2 = "0.10"
+hmac = "0.12"
+hex = "0.4"
+chrono = { version = "0.4", features = ["serde"] }
+tracing.workspace = true
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+futures = "0.3"
+once_cell.workspace = true
+
+[dev-dependencies]
+tempfile = "3"
