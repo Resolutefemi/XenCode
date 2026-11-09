@@ -1,0 +1,18 @@
+[package]
+name = "xencode-app"
+description = "XenCode desktop - 100% Rust native GUI (ZCode-faithful)"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+
+[[bin]]
+name = "xencode"
+path = "src/main.rs"
+
+[dependencies]
+eframe = { workspace = true, features = ["default"] }
+egui = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
