@@ -83,7 +83,7 @@ pub fn draw(c: &mut Canvas, area: Rect) {
     y += cbh + 16.0;
 
     // ---- tool summary row ----------------------------------------------
-    let label = "Ran terminal command";
+    let label = "Ran";
     let cmd = "cargo build --release";
     let tr_h = 40.0;
     let row = Rect::new(col_x, y, col_w, tr_h);

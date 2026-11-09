@@ -40,6 +40,7 @@ impl T {
     pub fn WARNING() -> Color { Color::from_rgba8(0xff, 0x8a, 0x30, 255) }
     pub fn ICON_BLUE() -> Color { Color::from_rgba8(0x40, 0x99, 0xff, 255) }
     pub fn ACCENT() -> Color { Color::from_rgba8(0x00, 0x1d, 0x3d, 255) }
+    pub fn SKY() -> Color { Color::from_rgba8(0x38, 0xbd, 0xf8, 255) } // sky-400 (task dot, dark)
 
     // Git status colors
     pub fn GIT_MODIFIED() -> Color { Color::from_rgba8(0xff, 0x8a, 0x30, 255) }

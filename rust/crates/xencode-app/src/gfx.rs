@@ -174,6 +174,14 @@ impl Canvas {
         self.px.stroke_path(&path, &p, &stroke(width), Transform::identity(), None);
     }
 
+    fn fill_d_shader(&mut self, d: &str, tr: Transform, shader: Shader) {
+        let Some(path) = svgpath::build(d, tr) else { return };
+        let mut p = Paint::default();
+        p.shader = shader;
+        p.anti_alias = true;
+        self.px.fill_path(&path, &p, FillRule::Winding, Transform::identity(), None);
+    }
+
     /// Lucide icon: 24x24 stroke-2 grid fitted to (x, y, size), round caps/joins.
     pub fn icon(&mut self, name: &str, x: f32, y: f32, size: f32, color: Color) {
         let Some(d) = icons::icon_path(name) else {
@@ -228,6 +236,25 @@ impl Canvas {
             (r.x + 83.6 * kx) * dev,
             (r.y + 45.6 * ky) * dev,
         );
+        // glow underlay: filled path with the same gradient, group opacity 0.15
+        // (SVG <g opacity="0.15">) — alphas pre-scaled by 0.15.
+        let gx0 = (r.x + 217.97 * kx) * dev;
+        let gy0 = (r.y + 20.5 * ky) * dev;
+        let gy1 = (r.y + 340.5 * ky) * dev;
+        let fill_stops = vec![
+            GradientStop::new(0.0, Color::from_rgba8(0x44, 0x44, 0x44, 23)),
+            GradientStop::new(0.5, Color::from_rgba8(0x2a, 0x2a, 0x2a, 12)),
+            GradientStop::new(1.0, Color::from_rgba8(0x1a, 0x1a, 0x1a, 4)),
+        ];
+        if let Some(shader) = LinearGradient::new(
+            Point { x: gx0, y: gy0 },
+            Point { x: gx0, y: gy1 },
+            fill_stops,
+            SpreadMode::Pad,
+            Transform::identity(),
+        ) {
+            self.fill_d_shader(icons::X_LOGO_PATH, tr, shader);
+        }
         // faint halo (fake blur)
         self.stroke_d_shader(
             icons::X_LOGO_PATH,
@@ -235,14 +262,19 @@ impl Canvas {
             6.0,
             Shader::SolidColor(Color::from_rgba8(0x44, 0x44, 0x44, 8)),
         );
-        let stops = vec![
+        // crisp gradient stroke (outside the 0.15 group in the SVG)
+        let stroke_stops = vec![
             GradientStop::new(0.0, Color::from_rgba8(0x44, 0x44, 0x44, 153)),
             GradientStop::new(0.5, Color::from_rgba8(0x2a, 0x2a, 0x2a, 77)),
             GradientStop::new(1.0, Color::from_rgba8(0x1a, 0x1a, 0x1a, 26)),
         ];
-        let start = Point { x: (r.x + 217.97 * kx) * dev, y: (r.y + 20.5 * ky) * dev };
-        let end = Point { x: (r.x + 217.97 * kx) * dev, y: (r.y + 340.5 * ky) * dev };
-        if let Some(shader) = LinearGradient::new(start, end, stops, SpreadMode::Pad, Transform::identity()) {
+        if let Some(shader) = LinearGradient::new(
+            Point { x: gx0, y: gy0 },
+            Point { x: gx0, y: gy1 },
+            stroke_stops,
+            SpreadMode::Pad,
+            Transform::identity(),
+        ) {
             self.stroke_d_shader(icons::X_LOGO_PATH, tr, 1.0, shader);
         }
     }

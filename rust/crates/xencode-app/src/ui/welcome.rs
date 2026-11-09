@@ -45,11 +45,11 @@ pub fn draw(c: &mut Canvas, area: Rect, hour: u32) {
     // greeting (auto-fit 20..30px; fits at 30px for this column)
     let greeting = greeting_for_hour(hour);
     let mut px = 30.0f32;
-    while fonts::measure(greeting, px, Weight::Bold, false) > col_w - 32.0 && px > 20.0 {
+    while fonts::measure(greeting, px, Weight::Medium, false) > col_w - 32.0 && px > 20.0 {
         px -= 1.0;
     }
-    let gw = fonts::measure(greeting, px, Weight::Bold, false);
-    fonts::draw_mid(c, cx - gw / 2.0, greeting_cy, greeting, px, T::FG(), Weight::Bold, false);
+    let gw = fonts::measure(greeting, px, Weight::Medium, false);
+    fonts::draw_mid(c, cx - gw / 2.0, greeting_cy, greeting, px, T::FG(), Weight::Medium, false);
 
     // composer
     let comp_y = top + 36.0 + 32.0;
@@ -75,18 +75,18 @@ pub fn draw(c: &mut Canvas, area: Rect, hour: u32) {
     let mut chips: Vec<f32> = Vec::new(); // widths
     let mut total = 0.0;
     for (_, label) in CHIPS {
-        let w = 12.0 + 14.0 + 6.0 + fonts::measure(label, 13.0, Weight::Normal, false) + 12.0;
+        let w = 12.0 + 16.0 + 6.0 + fonts::measure(label, 13.0, Weight::Normal, false) + 12.0;
         chips.push(w);
         total += w;
     }
-    total += 8.0 * (CHIPS.len() - 1) as f32;
+    total += 16.0 * (CHIPS.len() - 1) as f32;
     let mut x = cx - total / 2.0;
     let chip_y = comp_y + composer_h + 16.0;
     for ((icon, label), w) in CHIPS.iter().zip(chips.iter()) {
         let r = Rect::new(x, chip_y, *w, chip_h);
         c.card(r, 8.0, T::BG(), T::BORDER(), 1.0);
-        c.icon(icon, x + 12.0, chip_y + 9.0, 14.0, T::FG_SUBTLE());
-        fonts::draw_mid(c, x + 32.0, chip_y + chip_h / 2.0, label, 13.0, T::FG_SUBTLE(), Weight::Normal, false);
-        x += *w + 8.0;
+        c.icon(icon, x + 12.0, chip_y + 8.0, 16.0, T::FG_SUBTLE());
+        fonts::draw_mid(c, x + 34.0, chip_y + chip_h / 2.0, label, 13.0, T::FG_SUBTLE(), Weight::Normal, false);
+        x += *w + 16.0;
     }
 }

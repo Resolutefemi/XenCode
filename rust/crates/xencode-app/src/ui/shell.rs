@@ -53,13 +53,13 @@ pub fn draw_header(c: &mut Canvas, panel: Rect, title: &HeaderTitle, terminal_op
     let mut x = panel.x + 10.0;
     match title {
         HeaderTitle::Draft { project, branch } => {
-            x += fonts::draw_mid(c, x, cy, project, 14.0, T::FG(), Weight::Bold, false) + 10.0;
+            x += fonts::draw_mid(c, x, cy, project, 14.0, T::FG(), Weight::SemiBold, false) + 10.0;
             c.icon("git-branch", x, cy - 7.0, 14.0, T::FG_SUBTLEST());
             x += 18.0;
             fonts::draw_mid(c, x, cy, branch, 12.0, T::FG_SUBTLEST(), Weight::Normal, false);
         }
         HeaderTitle::Task { project, title, summary } => {
-            x += fonts::draw_mid(c, x, cy, project, 14.0, T::FG(), Weight::Bold, false) + 8.0;
+            x += fonts::draw_mid(c, x, cy, project, 14.0, T::FG(), Weight::SemiBold, false) + 8.0;
             fonts::draw_mid(c, x, cy, title, 14.0, T::FG_SUBTLE(), Weight::Normal, false);
             if let Some(sum) = summary {
                 let sw = fonts::measure(sum, 12.0, Weight::Normal, false);

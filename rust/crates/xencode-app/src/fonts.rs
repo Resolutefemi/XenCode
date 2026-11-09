@@ -1,6 +1,8 @@
 //! Text shaping/rasterizing on top of ab_glyph.
-//! UI font: Noto Sans SC (covers Latin + CJK). Mono: DejaVu Sans Mono
-//! (≈ the "Liberation Mono"/Consolas slot of the ZCode --font-mono stack).
+//! UI font: Inter 400/500/600/700 (vendored, closest free match to the
+//! `ui-sans-serif, system-ui` stack ZCode renders with on macOS/Windows).
+//! Mono: DejaVu Sans Mono (≈ the Consolas slot of the ZCode --font-mono stack),
+//! with a runtime CJK fallback (Noto Sans SC) for non-Latin glyphs.
 
 use crate::gfx::Canvas;
 use ab_glyph::{Font, FontVec, Glyph, PxScale};
@@ -9,21 +11,33 @@ use tiny_skia::Color;
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum Weight {
-    Normal,
-    Bold,
+    Normal,   // 400
+    Medium,   // 500 (Tailwind font-medium)
+    SemiBold, // 600 (Tailwind font-semibold)
+    Bold,     // 700
 }
 
 struct Fonts {
-    ui: [FontVec; 2], // [normal, bold]
-    mono: [FontVec; 2],
+    ui: [FontVec; 4],       // [400, 500, 600, 700]
+    mono: [FontVec; 2],     // [400, 700]
+    ui_cjk: Option<FontVec>, // runtime fallback for CJK glyphs
 }
 
 static FONTS: OnceLock<Fonts> = OnceLock::new();
 
+const UI_400: &[u8] = include_bytes!("../assets/fonts/Inter-Regular.ttf");
+const UI_500: &[u8] = include_bytes!("../assets/fonts/Inter-Medium.ttf");
+const UI_600: &[u8] = include_bytes!("../assets/fonts/Inter-SemiBold.ttf");
+const UI_700: &[u8] = include_bytes!("../assets/fonts/Inter-Bold.ttf");
+
+fn load_bytes(bytes: &[u8]) -> Option<FontVec> {
+    FontVec::try_from_vec(bytes.to_vec()).ok()
+}
+
 fn load(paths: &[&str]) -> Option<FontVec> {
     for p in paths {
         if let Ok(bytes) = std::fs::read(p) {
-            if let Ok(f) = FontVec::try_from_vec(bytes) {
+            if let Some(f) = load_bytes(&bytes) {
                 return Some(f);
             }
         }
@@ -31,45 +45,65 @@ fn load(paths: &[&str]) -> Option<FontVec> {
     None
 }
 
-fn clone_font(f: &FontVec) -> FontVec {
-    FontVec::try_from_vec(f.as_slice().to_vec()).expect("font clone")
-}
-
 fn build_fonts() -> Fonts {
-    let ui_n = load(&[
+    let ui = [
+        load_bytes(UI_400).expect("Inter-Regular missing"),
+        load_bytes(UI_500).expect("Inter-Medium missing"),
+        load_bytes(UI_600).expect("Inter-SemiBold missing"),
+        load_bytes(UI_700).expect("Inter-Bold missing"),
+    ];
+    let mono = [
+        load(&[
+            "/usr/share/fonts/truetype/dejavu/DejaVuSansMono.ttf",
+            "/usr/share/fonts/truetype/chinese/SarasaMonoSC-Regular.ttf",
+        ])
+        .or_else(|| load_bytes(UI_400))
+        .expect("mono font not found"),
+        load(&[
+            "/usr/share/fonts/truetype/dejavu/DejaVuSansMono-Bold.ttf",
+            "/usr/share/fonts/truetype/chinese/SarasaMonoSC-Bold.ttf",
+        ])
+        .or_else(|| load_bytes(UI_700))
+        .expect("mono bold font not found"),
+    ];
+    let ui_cjk = load(&[
         "/usr/share/fonts/truetype/chinese/NotoSansSC-Regular.ttf",
-        "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
-    ])
-    .expect("UI font (NotoSansSC-Regular) not found");
-    let ui_b = load(&[
-        "/usr/share/fonts/truetype/chinese/NotoSansSC-Bold.ttf",
-        "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf",
-    ])
-    .unwrap_or_else(|| clone_font(&ui_n));
-    let mono_n = load(&[
-        "/usr/share/fonts/truetype/dejavu/DejaVuSansMono.ttf",
-        "/usr/share/fonts/truetype/chinese/SarasaMonoSC-Regular.ttf",
-    ])
-    .expect("Mono font (DejaVuSansMono) not found");
-    let mono_b = load(&[
-        "/usr/share/fonts/truetype/dejavu/DejaVuSansMono-Bold.ttf",
-        "/usr/share/fonts/truetype/chinese/SarasaMonoSC-Bold.ttf",
-    ])
-    .unwrap_or_else(|| clone_font(&mono_n));
-    Fonts { ui: [ui_n, ui_b], mono: [mono_n, mono_b] }
+        "/usr/share/fonts/truetype/noto-serif-sc/NotoSerifSC-Regular.ttf",
+    ]);
+    Fonts { ui, mono, ui_cjk }
 }
 
 fn fonts() -> &'static Fonts {
     FONTS.get_or_init(build_fonts)
 }
 
-fn pick(mono: bool, bold: bool) -> &'static FontVec {
-    match (mono, bold) {
-        (false, false) => &fonts().ui[0],
-        (false, true) => &fonts().ui[1],
-        (true, false) => &fonts().mono[0],
-        (true, true) => &fonts().mono[1],
+fn ui_index(weight: Weight) -> usize {
+    match weight {
+        Weight::Normal => 0,
+        Weight::Medium => 1,
+        Weight::SemiBold => 2,
+        Weight::Bold => 3,
     }
+}
+
+/// Resolve the font + glyph id for a char, with CJK fallback for the UI face.
+fn resolve(mono: bool, weight: Weight, ch: char) -> (&'static FontVec, ab_glyph::GlyphId) {
+    let f = fonts();
+    let font: &FontVec = if mono {
+        &f.mono[if weight == Weight::Bold { 1 } else { 0 }]
+    } else {
+        &f.ui[ui_index(weight)]
+    };
+    let id = font.glyph_id(ch);
+    if id.0 == 0 && !mono && !ch.is_control() && ch != ' ' {
+        if let Some(cjk) = &f.ui_cjk {
+            let cid = cjk.glyph_id(ch);
+            if cid.0 != 0 {
+                return (cjk, cid);
+            }
+        }
+    }
+    (font, id)
 }
 
 struct Metrics {
@@ -88,11 +122,11 @@ fn metrics(font: &FontVec, px_dev: f32) -> Metrics {
 }
 
 pub fn measure(text: &str, px: f32, weight: Weight, mono: bool) -> f32 {
-    let font = pick(mono, weight == Weight::Bold);
-    let k = px / font.height_unscaled();
+    let px_dev = px;
     let mut w = 0.0f32;
     for ch in text.chars() {
-        let id = font.glyph_id(ch);
+        let (font, id) = resolve(mono, weight, ch);
+        let k = px_dev / font.height_unscaled();
         w += font.h_advance_unscaled(id) * k;
     }
     w
@@ -118,20 +152,29 @@ pub fn draw(
     weight: Weight,
     mono: bool,
 ) -> f32 {
-    let font = pick(mono, weight == Weight::Bold);
-    let s = c.s;
-    let px_dev = px * s;
-    let m = metrics(font, px_dev);
-    let baseline = y * s + m.ascent;
-
-    let mut w_dev = 0.0f32;
-    for ch in text.chars() {
-        let id = font.glyph_id(ch);
-        w_dev += font.h_advance_unscaled(id) * m.k;
-    }
-    if w_dev <= 0.0 || text.is_empty() {
+    if text.is_empty() {
         return 0.0;
     }
+    let s = c.s;
+    let px_dev = px * s;
+
+    // pre-resolve glyphs (per-char font may switch for CJK)
+    let mut runs: Vec<(&'static FontVec, ab_glyph::GlyphId, f32)> = Vec::with_capacity(text.len());
+    let mut w_dev = 0.0f32;
+    for ch in text.chars() {
+        let (font, id) = resolve(mono, weight, ch);
+        let k = px_dev / font.height_unscaled();
+        let adv = font.h_advance_unscaled(id) * k;
+        runs.push((font, id, adv));
+        w_dev += adv;
+    }
+    if w_dev <= 0.0 {
+        return 0.0;
+    }
+
+    let first = runs[0].0;
+    let m = metrics(first, px_dev);
+    let baseline = y * s + m.ascent;
 
     let bw = (w_dev.ceil() as i32 + 8).max(1) as usize;
     let bh = ((m.ascent - m.descent).ceil() as i32 + 8).max(1) as usize;
@@ -140,10 +183,9 @@ pub fn draw(
 
     let mut cov = vec![0.0f32; bw * bh];
     let mut pen = x * s;
-    let scale = PxScale::from(px_dev);
-    for ch in text.chars() {
-        let id = font.glyph_id(ch);
-        let glyph = Glyph { id, scale, position: ab_glyph::Point { x: pen, y: baseline } };
+    for (font, id, adv) in &runs {
+        let scale = PxScale::from(px_dev);
+        let glyph = Glyph { id: *id, scale, position: ab_glyph::Point { x: pen, y: baseline } };
         if let Some(outlined) = font.outline_glyph(glyph) {
             let pb = outlined.px_bounds();
             outlined.draw(|gx, gy, gcov| {
@@ -158,11 +200,10 @@ pub fn draw(
                 }
             });
         }
-        pen += font.h_advance_unscaled(id) * m.k;
+        pen += *adv;
     }
 
     // composite the coverage buffer once (prevents double-blending overlaps)
-    // tiny_skia::Color accessors already return f32 in 0..1
     let (cr, cg, cb, ca) = (color.red(), color.green(), color.blue(), color.alpha());
     let ox = bx0.max(0) as u32;
     let oy = by0.max(0) as u32;

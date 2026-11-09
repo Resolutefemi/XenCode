@@ -61,7 +61,7 @@ pub fn draw(c: &mut Canvas) {
     y += 12.0;
 
     // List header: "Task list" + search / filter icon buttons
-    fonts::draw_mid(c, ROW_X + 2.0, y + 12.0, "Task list", 14.0, T::FG_SUBTLE(), Weight::Bold, false);
+    fonts::draw_mid(c, ROW_X + 2.0, y + 12.0, "Task list", 14.0, T::FG_SUBTLE(), Weight::Medium, false);
     let bx = crate::ui::shell::SIDEBAR_W - 8.0 - 24.0;
     draw_icon_24(c, bx, y, "list-filter");
     draw_icon_24(c, bx - 26.0, y, "search");
@@ -72,21 +72,21 @@ pub fn draw(c: &mut Canvas) {
         // project node
         draw_row(c, ROW_X, y, row_w, 32.0, false);
         c.icon("folder", ROW_X + 10.0, y + 8.0, 16.0, T::FG_SUBTLE());
-        fonts::draw_mid(c, ROW_X + 34.0, y + 16.0, project.name, 14.0, T::FG(), Weight::Bold, false);
+        fonts::draw_mid(c, ROW_X + 34.0, y + 16.0, project.name, 14.0, T::FG_SUBTLE(), Weight::Normal, false);
         y += 32.0;
 
         for task in project.tasks {
             draw_row(c, ROW_X, y, row_w, 30.0, task.active);
             let dot_x = ROW_X + 16.0;
             if task.active {
-                c.fill_circle(dot_x, y + 15.0, 3.0, T::ICON_BLUE());
+                c.fill_circle(dot_x, y + 15.0, 3.0, T::SKY());
             } else {
                 c.fill_circle(dot_x, y + 15.0, 3.0, T::FG_SUBTLEST());
             }
             let title_color = if task.active { T::FG() } else { T::FG_SUBTLE() };
-            fonts::draw_mid(c, dot_x + 12.0, y + 15.0, task.title, 13.0, title_color, Weight::Normal, false);
-            let tw = fonts::measure(task.time, 11.0, Weight::Normal, false);
-            fonts::draw_mid(c, ROW_X + row_w - 10.0 - tw, y + 15.0, task.time, 11.0, T::FG_SUBTLEST(), Weight::Normal, false);
+            fonts::draw_mid(c, dot_x + 12.0, y + 15.0, task.title, 14.0, title_color, Weight::Normal, false);
+            let tw = fonts::measure(task.time, 12.0, Weight::Normal, false);
+            fonts::draw_mid(c, ROW_X + row_w - 10.0 - tw, y + 15.0, task.time, 12.0, T::FG_SUBTLE(), Weight::Normal, false);
             y += 30.0;
         }
         if pi + 1 < PROJECTS.len() {

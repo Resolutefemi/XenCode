@@ -66,7 +66,7 @@ pub fn draw(c: &mut Canvas, x: f32, y: f32, w: f32, o: &ComposerOpts) {
     // mode selector
     c.icon(o.mode_icon, lx, ty - 8.0, 16.0, o.mode_color);
     lx += 22.0;
-    lx += fonts::draw_mid(c, lx, ty, o.mode, 13.0, o.mode_color, Weight::Normal, false) + 4.0;
+    lx += fonts::draw_mid(c, lx, ty, o.mode, 14.0, o.mode_color, Weight::Normal, false) + 4.0;
     c.icon("chevron-down", lx, ty - 6.0, 12.0, o.mode_color);
 
     // trailing: context ring, model, send

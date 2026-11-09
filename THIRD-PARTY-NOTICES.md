@@ -50412,3 +50412,11 @@ their own copyright notices and license terms:
 
 
 ````
+
+--------------------------------------------------------------------------------
+Inter (UI font, vendored in rust/crates/xencode-app/assets/fonts)
+Copyright 2016 The Inter Project Authors (https://github.com/rsms/inter)
+
+This Font Software is licensed under the SIL Open Font License, Version 1.1.
+This license is copied below, and is also available with a FAQ at:
+https://openfontlicense.org
