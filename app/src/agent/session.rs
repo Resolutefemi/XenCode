@@ -51,4 +51,56 @@ impl Session {
         ids.sort();
         Ok(ids)
     }
+
+    /// Branch a session into a fresh copy under a new id — history up to this
+    /// point is preserved; the fork continues independently.
+    pub fn fork(&self) -> Session {
+        let mut s = self.clone();
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap_or_default();
+        s.id = now.as_nanos().to_string();
+        s.created_unix = now.as_secs();
+        s
+    }
+
+    /// Most recent session id in the store (for `--continue`).
+    pub fn latest(dir: &Path) -> Result<Option<String>> {
+        Ok(Self::list(dir)?.pop())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn tmp(tag: &str) -> PathBuf {
+        let dir = std::env::temp_dir().join(format!("xencode-sess-{}-{}", tag, std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        dir
+    }
+
+    #[test]
+    fn save_load_list_fork_roundtrip() {
+        let dir = tmp("rt");
+        let s = Session::from_messages(&[Message::user("hello"), Message::tool_result("t1", "x")]);
+        let path = s.save(&dir).unwrap();
+        assert!(path.exists());
+
+        let ids = Session::list(&dir).unwrap();
+        assert_eq!(ids, vec![s.id.clone()]);
+        assert_eq!(Session::latest(&dir).unwrap().as_deref(), Some(s.id.as_str()));
+
+        let loaded = Session::load(&dir, &s.id).unwrap();
+        assert_eq!(loaded.messages.len(), 2);
+
+        let mut forked = loaded.fork();
+        assert_ne!(forked.id, s.id, "fork gets a fresh id");
+        assert_eq!(forked.messages.len(), 2, "fork keeps history");
+        forked.messages.push(Message::user("continue here"));
+        forked.save(&dir).unwrap();
+        assert_eq!(Session::list(&dir).unwrap().len(), 2);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
 }
