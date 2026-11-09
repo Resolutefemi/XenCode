@@ -32,15 +32,22 @@ Execution order: 0 → 1 → 2 → 6.1–6.2 → 3 → 4 → 8 → 7 → 5. Phas
 - Apply the two queued fidelity fixes (home watermark glow underlay, string audit on settings/chat/git/terminal pages).
 - Re-render all 6 pages (`--screenshot --out`) → side-by-side acceptance vs ZCode → push.
 - Status: **DONE** — all six pages rendered, QA'd and committed under `screenshots/` (also embedded in the README).
+  Re-verified pixel-identical (max channel diff 0) after the Phase-1 completion work.
 
 ## Phase 1 — Agent core backend (M)
 
 - Agent loop on GLM with streaming; tool executors (read/write/edit, glob/grep, process, todo).
 - Session store: resume, fork, compaction.
 - Permission prompts wired to the native GUI.
-- Status: **core landed** — `app/src/agent/` (GLM SSE streaming client, 7 tools, the loop,
-  JSON sessions, permission gates) + `xencode --agent "prompt"` CLI; tests green.
-  GUI wiring (composer → loop, permission prompts in panes) is the next milestone.
+- Status: **DONE**.
+  - Loop + streaming: GLM SSE client forwards deltas as `AgentEvent::Text` (real streaming to stdout and the GUI).
+  - Sessions: JSON store with save/load/list plus **resume** (`--continue`, `--resume <id>`), **fork** (`--fork <id>`) and
+    **compaction** (transcript over budget → older turns folded into a model-written summary, tool pairing preserved).
+  - Permissions: `Decision::Allow/Ask/Deny` gates — `AskGate` prompts on mutations (stdin y/n/a in the CLI,
+    `--yes` for CI, `--read-only` for hard read-only); consent cards rendered in the chat pane.
+  - GUI wiring: `--agent-ui "prompt"` runs the agent and renders the live conversation (user bubble, streamed
+    answer, tool rows, consent cards, composer) through the native renderer — `screenshots/07-agent-ui.png`;
+    `--render-session <id>` renders a saved transcript. The windowed GUI consumes the same `ChatPage` state.
 
 ## Phase 2 — QuickJS automation core (M)
 
