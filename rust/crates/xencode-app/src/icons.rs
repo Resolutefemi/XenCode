@@ -845,3 +845,119 @@ pub fn icon_button(
     }
     resp
 }
+
+// ---------- chat view icons (lucide-accurate strokes) ----------
+
+/// lucide wrench
+pub fn wrench(p: &Painter, c: Rect, color: Color32) {
+    let s = Stroke::new(STROKE, color);
+    let w = c.width();
+    let h = c.height();
+    // head: arc around (0.32w, 0.32h)
+    let hc = Pos2::new(c.left() + w * 0.32, c.top() + h * 0.32);
+    let hr = w * 0.17;
+    p.circle_stroke(hc, hr, s);
+    // handle: diagonal to bottom-right
+    let a = Pos2::new(hc.x + hr * 0.5, hc.y + hr * 0.5);
+    let b = Pos2::new(c.left() + w * 0.82, c.top() + h * 0.82);
+    p.line_segment([a, b], Stroke::new(STROKE + 0.7, color));
+    // jaw notch on the head
+    p.line_segment(
+        [
+            Pos2::new(hc.x + hr * 0.9, hc.y - hr * 0.35),
+            Pos2::new(hc.x + hr * 0.35, hc.y + hr * 0.9),
+        ],
+        Stroke::new(STROKE + 0.7, color),
+    );
+}
+
+/// lucide circle-check
+pub fn check_circle(p: &Painter, c: Rect, color: Color32) {
+    p.circle_stroke(c.center(), c.size().min_elem() * 0.42, Stroke::new(STROKE, color));
+    check(p, c.shrink(c.size().min_elem() * 0.16), color);
+}
+
+/// lucide circle-x
+pub fn x_circle(p: &Painter, c: Rect, color: Color32) {
+    p.circle_stroke(c.center(), c.size().min_elem() * 0.42, Stroke::new(STROKE, color));
+    x(p, c.shrink(c.size().min_elem() * 0.3), color);
+}
+
+/// lucide circle (outline)
+pub fn circle(p: &Painter, c: Rect, color: Color32) {
+    p.circle_stroke(c.center(), c.size().min_elem() * 0.4, Stroke::new(STROKE, color));
+}
+
+/// lucide git-branch
+pub fn git_branch(p: &Painter, c: Rect, color: Color32) {
+    let s = Stroke::new(STROKE, color);
+    let w = c.width();
+    let h = c.height();
+    let r = w * 0.09;
+    // top-left dot, bottom dot, right dot
+    let tl = Pos2::new(c.left() + w * 0.22, c.top() + h * 0.18);
+    let bl = Pos2::new(c.left() + w * 0.22, c.top() + h * 0.84);
+    let rt = Pos2::new(c.left() + w * 0.8, c.top() + h * 0.18);
+    p.circle_filled(tl, r, color);
+    p.circle_filled(bl, r, color);
+    p.circle_filled(rt, r, color);
+    // vertical line from tl down
+    p.line_segment(
+        [Pos2::new(tl.x, tl.y + r + 1.0), Pos2::new(bl.x, bl.y - r - 1.0)],
+        s,
+    );
+    // curve from tl to rt (two segments approximating the arc)
+    p.line_segment(
+        [
+            Pos2::new(tl.x + r, tl.y),
+            Pos2::new(c.left() + w * 0.5, tl.y),
+        ],
+        s,
+    );
+    p.line_segment(
+        [
+            Pos2::new(c.left() + w * 0.5, tl.y),
+            Pos2::new(
+                c.left() + w * 0.5,
+                c.top() + h * 0.52,
+            ),
+        ],
+        s,
+    );
+    p.line_segment(
+        [
+            Pos2::new(c.left() + w * 0.5, c.top() + h * 0.52),
+            Pos2::new(c.left() + w * 0.72, c.top() + h * 0.62),
+        ],
+        s,
+    );
+}
+
+/// lucide file-text
+pub fn file_text(p: &Painter, c: Rect, color: Color32) {
+    let s = Stroke::new(STROKE, color);
+    let x0 = c.left() + c.width() * 0.24;
+    let x1 = c.right() - c.width() * 0.24;
+    let y0 = c.top() + c.height() * 0.14;
+    let yb = c.bottom() - c.height() * 0.14;
+    // page with folded corner
+    p.add(egui::Shape::line(
+        vec![
+            Pos2::new(x0 + c.width() * 0.18, y0),
+            Pos2::new(x1 - c.width() * 0.18, y0),
+            Pos2::new(x1, y0 + c.height() * 0.18),
+            Pos2::new(x1, yb),
+            Pos2::new(x0, yb),
+            Pos2::new(x0, y0 + c.width() * 0.18),
+            Pos2::new(x0 + c.width() * 0.18, y0),
+        ],
+        s,
+    ));
+    // text lines
+    for (i, frac) in [0.45, 0.6, 0.75].into_iter().enumerate() {
+        let y = c.top() + c.height() * frac;
+        let end = if i == 2 { x1 - c.width() * 0.14 } else { x1 - c.width() * 0.08 };
+        p.line_segment([Pos2::new(x0 + c.width() * 0.1, y), Pos2::new(end, y)], s);
+    }
+}
+

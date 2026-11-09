@@ -63,6 +63,30 @@ pub const WARNING: Color32 = Color32::from_rgb(0xea, 0xb3, 0x08);
 pub const IDLE_TASK: Color32 = Color32::from_rgb(0xa7, 0x8b, 0xfa);
 /// trajectory accent (reasoning) violet
 pub const TRAJECTORY_REASONING: Color32 = Color32::from_rgb(0xa7, 0x8b, 0xfa);
+/// --color-trajectory-tool-call: amber-500
+pub const TRAJECTORY_TOOL_CALL: Color32 = Color32::from_rgb(0xf5, 0x9e, 0x0b);
+/// --color-trajectory-user: blue-400
+pub const TRAJECTORY_USER: Color32 = Color32::from_rgb(0x60, 0xa5, 0xfa);
+/// --color-trajectory-assistant: teal-400
+pub const TRAJECTORY_ASSISTANT: Color32 = Color32::from_rgb(0x2d, 0xd4, 0xbf);
+/// green-600 (completed tool check)
+pub const GREEN_600: Color32 = Color32::from_rgb(0x16, 0xa3, 0x4a);
+
+/// Tailwind v4 text scale used by ZCode: text-ui-base = 14px, ui-sm = 13,
+/// ui-caption = 12, ui-lg = 16.
+pub const TEXT_BASE: f32 = 14.0;
+pub const TEXT_SM: f32 = 13.0;
+pub const TEXT_CAPTION: f32 = 12.0;
+pub const TEXT_LG: f32 = 16.0;
+
+/// ZCode conversation column: max-w-4xl in session mode, max-w-2xl in draft.
+pub const CONTENT_WIDTH: f32 = 896.0;
+pub const DRAFT_WIDTH: f32 = 672.0;
+/// User bubble cap (max-w-xl) once the viewport is at least 624px wide.
+pub const USER_BUBBLE_MAX: f32 = 576.0;
+/// Turn row vertical rhythm (gap-5) and work-item groups (gap-4).
+pub const TURN_GAP: f32 = 20.0;
+pub const WORK_GAP: f32 = 16.0;
 
 pub const RADIUS_CARD: f32 = 16.0;
 pub const RADIUS_ROW: f32 = 8.0;
@@ -70,3 +94,9 @@ pub const RADIUS_CHIP: f32 = 10.0;
 pub const SIDEBAR_WIDTH: f32 = 272.0;
 pub const TOPBAR_HEIGHT: f32 = 44.0;
 pub const TERMINAL_DOCK_HEIGHT: f32 = 190.0;
+
+/// Linear blend of two colors (`t` = weight of `a`).
+pub fn blend(a: Color32, b: Color32, t: f32) -> Color32 {
+    let mix = |x: u8, y: u8| (x as f32 * t + y as f32 * (1.0 - t)).round() as u8;
+    Color32::from_rgb(mix(a.r(), b.r()), mix(a.g(), b.g()), mix(a.b(), b.b()))
+}

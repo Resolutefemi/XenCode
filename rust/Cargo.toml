@@ -21,6 +21,7 @@ egui = "0.29"
 egui_extras = "0.29"
 portable-pty = "0.8"
 vte = "0.13"
+chrono = { version = "0.4", default-features = false, features = ["clock"] }
 
 [profile.release]
 opt-level = "z"

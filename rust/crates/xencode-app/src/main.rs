@@ -1,16 +1,30 @@
 //! XenCode — 100% Rust native desktop GUI (eframe/egui).
-//! Milestone 2: main workspace screen + live PTY terminal dock + settings view,
-//! faithful to the ZCode design tokens.
+//! Milestone 3: conversation view (chat timeline + composer + working orbit)
+//! alongside the draft screen, settings and the live PTY terminal dock,
+//! faithful to the ZCode design tokens and layout.
 
+mod fonts;
 mod icons;
+mod markdown;
 mod pty;
+mod session;
 mod term;
 mod theme;
 mod ui;
 
-use egui::{Color32, Vec2};
+use egui::{Rect, Vec2};
 
+pub use session::{Msg, Task, ToolState};
 pub use ui::settings::Section as SettingsSection;
+
+#[derive(Clone, Copy, PartialEq, Eq, Default)]
+pub enum View {
+    /// Draft screen: greeting + centered composer + suggested prompts.
+    #[default]
+    Draft,
+    /// Conversation view for `open_task`.
+    Conversation,
+}
 
 #[derive(Clone, Copy, PartialEq, Eq, Default)]
 pub enum ThemeMode {
@@ -20,20 +34,23 @@ pub enum ThemeMode {
     Light,
 }
 
-pub struct SidebarState {
-    pub selected_task: Option<usize>,
-}
-
 pub struct AppState {
     pub project: String,
     pub project_path: String,
+    pub git_branch: Option<String>,
+    pub view: View,
+    pub tasks: Vec<Task>,
+    pub open_task: Option<usize>,
     pub draft: String,
+    pub last_submitted: String,
     pub full_access: bool,
     pub model: String,
-    pub tasks: Vec<(String, Color32)>,
-    pub sidebar: SidebarState,
     pub settings: ui::settings::SettingsState,
     pub theme: ThemeMode,
+    // composer shared state
+    pub composer_focused: bool,
+    pub model_picker_open: bool,
+    pub model_chip_rect: Option<Rect>,
     // terminal dock
     pub term: Option<pty::TermSession>,
     pub term_focus: bool,
@@ -41,30 +58,45 @@ pub struct AppState {
     pub dock_collapsed: bool,
     pub dock_height: f32,
     pub term_error: Option<String>,
-    // model picker
-    pub model_picker_open: bool,
     hour: u8,
 }
 
 impl AppState {
-    pub fn greeting(&self) -> String {
-        let part = match self.hour {
-            0..=11 => "Morning",
-            12..=17 => "Afternoon",
-            _ => "Evening",
-        };
-        format!("{part}, nice work today")
+    /// ZCode draft greeting (`ConversationDraftEmptyState`): hour boundaries
+    /// [5, 9, 12, 14, 18, 23] with the exact en-US strings.
+    pub fn greeting(&self) -> &'static str {
+        match self.hour {
+            5..=8 => "Morning, ready when you are",
+            9..=11 => "Morning, how can I help?",
+            12..=13 => "Noon break?",
+            14..=17 => "Good afternoon! Leave the rest to me.",
+            18..=22 => "Evening, nice work today",
+            _ => "It's late—remember to take care of yourself.",
+        }
     }
 
-    pub fn push_task_from_draft(&mut self) {
-        let first = self.draft.lines().next().unwrap_or("").to_string();
-        let title = if first.chars().count() > 40 {
-            format!("{}…", first.chars().take(40).collect::<String>())
-        } else {
-            first
-        };
-        self.tasks.insert(0, (title, theme::BRAND_BRIGHT));
+    pub fn open_task(&mut self, idx: usize) {
+        self.open_task = Some(idx);
+        self.view = View::Conversation;
+    }
+
+    pub fn new_task(&mut self) {
+        self.view = View::Draft;
+        self.open_task = None;
         self.draft.clear();
+    }
+
+    /// Submit from the draft composer: create the task, seed the first turn.
+    pub fn submit_draft(&mut self) {
+        let text = self.last_submitted.clone();
+        if text.trim().is_empty() {
+            return;
+        }
+        let mut task = Task::new(&text);
+        task.push_user_and_begin(&text, session::now_secs());
+        self.tasks.insert(0, task);
+        self.open_task = Some(0);
+        self.view = View::Conversation;
     }
 }
 
@@ -78,42 +110,50 @@ impl Default for AppState {
             .file_name()
             .map(|n| n.to_string_lossy().to_string())
             .unwrap_or_else(|| "workspace".to_string());
+        let git_branch = git_branch_of(&cwd);
         Self {
             project,
             project_path: cwd,
+            git_branch,
+            view: View::default(),
+            tasks: Vec::new(),
+            open_task: None,
             draft: String::new(),
+            last_submitted: String::new(),
             full_access: true,
             model: "GLM-5.3".to_string(),
-            tasks: vec![
-                ("hello".to_string(), theme::SUCCESS),
-                ("hello".to_string(), theme::FG_SUBTLEST),
-                ("hello".to_string(), theme::FG_SUBTLEST),
-            ],
-            sidebar: SidebarState {
-                selected_task: None,
-            },
             settings: ui::settings::SettingsState::default(),
             theme: ThemeMode::default(),
+            composer_focused: false,
+            model_picker_open: false,
+            model_chip_rect: None,
             term: None,
             term_focus: false,
             term_scroll: 0,
             dock_collapsed: false,
             dock_height: theme::TERMINAL_DOCK_HEIGHT,
             term_error: None,
-            model_picker_open: false,
             hour,
         }
     }
 }
 
+fn git_branch_of(cwd: &str) -> Option<String> {
+    let out = std::process::Command::new("git")
+        .args(["-C", cwd, "rev-parse", "--abbrev-ref", "HEAD"])
+        .output()
+        .ok()?;
+    let s = String::from_utf8_lossy(&out.stdout).trim().to_string();
+    if out.status.success() && !s.is_empty() {
+        Some(s)
+    } else {
+        None
+    }
+}
+
 fn chrono_hour() -> u8 {
-    // Local wall-clock hour without pulling chrono: UTC hour is close enough
-    // for the greeting; refined when the settings port lands (timezone setting).
-    let secs = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map(|d| d.as_secs())
-        .unwrap_or(0);
-    ((secs / 3600) % 24) as u8
+    // Local wall-clock hour via chrono (Local timezone), falling back to UTC.
+    chrono::Timelike::hour(&chrono::Local::now()) as u8
 }
 
 impl eframe::App for AppState {
@@ -122,8 +162,12 @@ impl eframe::App for AppState {
         if self.settings.open {
             ui::settings::render(ctx, self);
         } else {
-            ui::welcome::render(ctx, self);
+            match self.view {
+                View::Draft => ui::welcome::render(ctx, self),
+                View::Conversation => ui::chat::render(ctx, self),
+            }
         }
+        ui::composer::model_picker_popover(ctx, self);
     }
 }
 
@@ -140,6 +184,7 @@ fn main() -> eframe::Result<()> {
         "XenCode",
         options,
         Box::new(|cc| {
+            fonts::install(&cc.egui_ctx);
             // Dark-only, ZCode token overrides
             let mut visuals = egui::Visuals::dark();
             visuals.panel_fill = theme::BG;
@@ -160,6 +205,32 @@ fn main() -> eframe::Result<()> {
             // headless test hook: XENCODE_OPEN_SETTINGS=1 boots into the settings view
             if std::env::var("XENCODE_OPEN_SETTINGS").as_deref() == Ok("1") {
                 app.settings.open = true;
+            }
+            // headless test hook: XENCODE_SEED_TASK=1 seeds one task so the
+            // conversation view can be exercised in e2e screenshots
+            if std::env::var("XENCODE_SEED_TASK").as_deref() == Ok("1") {
+                let mut task = Task::new("Add a dark mode toggle to the settings page");
+                task.messages.push(Msg::User {
+                    text: "Add a dark mode toggle to the settings page".to_string(),
+                });
+                task.messages.push(Msg::Tool {
+                    name: "Read".to_string(),
+                    detail: "src/ui/settings.rs".to_string(),
+                    state: ToolState::Completed,
+                });
+                task.messages.push(Msg::Tool {
+                    name: "Edit".to_string(),
+                    detail: "src/ui/settings.rs".to_string(),
+                    state: ToolState::Running,
+                });
+                task.messages.push(Msg::Assistant {
+                    text: "I found the theme handling in `settings.rs`.\n\n## Plan\n\n- Add a `ThemeMode` enum\n- Wire the **toggle** to `AppState.theme`\n\n```rust\nlet mode = ThemeMode::Dark;\n```\n\nThe toggle will persist on restart.".to_string(),
+                });
+                task.working = true;
+                task.working_since = Some(session::now_secs() - 14.0);
+                app.tasks.push(task);
+                app.open_task = Some(0);
+                app.view = View::Conversation;
             }
             Ok(Box::new(app))
         }),

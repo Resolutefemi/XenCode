@@ -19,3 +19,4 @@ serde_json = { workspace = true }
 portable-pty = { workspace = true }
 vte = { workspace = true }
 anyhow = { workspace = true }
+chrono = { workspace = true }

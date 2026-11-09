@@ -35,6 +35,7 @@ fn text(p: &egui::Painter, pos: Pos2, anchor: egui::Align2, size: f32, color: Co
 }
 
 pub fn render(ctx: &egui::Context, state: &mut crate::AppState) {
+    let mut clicked_task: Option<usize> = None;
     egui::SidePanel::left("sidebar")
         .resizable(false)
         .exact_width(theme::SIDEBAR_WIDTH)
@@ -85,7 +86,7 @@ pub fn render(ctx: &egui::Context, state: &mut crate::AppState) {
             })
             .clicked()
             {
-                state.draft.clear();
+                state.new_task();
             }
 
             // ---- Automations ----
@@ -209,27 +210,32 @@ pub fn render(ctx: &egui::Context, state: &mut crate::AppState) {
             );
             ui.add_space(20.0);
 
-            for (i, (name, color)) in state
-                .tasks
-                .iter()
-                .enumerate()
-                .map(|(i, t)| (i, (t.0.as_str(), t.1)))
-            {
-                let selected = state.sidebar.selected_task == Some(i);
+            for (i, task) in state.tasks.iter().enumerate() {
+                let selected = state.open_task == Some(i);
+                // truncate to the row width (272 - 2*10 padding - 34 indent - 12 slack)
+                let max_chars = ((theme::SIDEBAR_WIDTH - 66.0) / 6.5) as usize;
+                let title: String = if task.title.chars().count() > max_chars {
+                    format!("{}…", task.title.chars().take(max_chars - 1).collect::<String>())
+                } else {
+                    task.title.clone()
+                };
                 let resp = row(ui, 30.0, selected, |p, r, _| {
-                    p.circle_filled(Pos2::new(r.left() + 18.0, r.center().y), 3.0, color);
+                    p.circle_filled(Pos2::new(r.left() + 18.0, r.center().y), 3.0, task.color);
                     text(
                         p,
                         Pos2::new(r.left() + 34.0, r.center().y),
                         egui::Align2::LEFT_CENTER,
                         13.0,
                         theme::FG,
-                        name,
+                        &title,
                     );
                 });
                 if resp.clicked() {
-                    state.sidebar.selected_task = Some(i);
+                    clicked_task = Some(i);
                 }
+            }
+            if let Some(i) = clicked_task {
+                state.open_task(i);
             }
 
             ui.add_space(6.0);
