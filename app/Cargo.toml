@@ -1,17 +1,17 @@
-[workspace]
-resolver = "2"
-members = [
-    "crates/xencode-app",
-]
-
-[workspace.package]
+[package]
+name = "xencode-app"
+description = "XenCode desktop - 100% Rust native GUI, ZCode v3.17.2 pixel-faithful"
 version = "3.17.2"
 edition = "2021"
 license = "Apache-2.0"
 authors = ["Resolute Femi <ariyooluwafemi487@gmail.com>"]
 repository = "https://github.com/Resolutefemi/XenCode"
 
-[workspace.dependencies]
+[[bin]]
+name = "xencode"
+path = "src/main.rs"
+
+[dependencies]
 tiny-skia = { version = "0.11", features = ["png"] }
 ab_glyph = "0.2"
 serde = { version = "1", features = ["derive"] }
