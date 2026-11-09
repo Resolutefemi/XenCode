@@ -1,298 +1,107 @@
-//! Left sidebar — faithful to ZCode main screen: New task, Automations,
-//! Plugin Marketplace, Projects, Tasks, user footer.
+//! Project sidebar (ProjectSidebar, 264px): New task / Automations /
+//! Plugin Marketplace, "Task list" header with search+filter, project/task
+//! rows, footer. Fidelity: project-sidebar/index.tsx + ProjectSidebarNavigation.
 
-use egui::{Color32, FontId, Pos2, Rect, Rounding, Sense, Vec2};
+use crate::fonts::{self, Weight};
+use crate::gfx::{Canvas, Rect};
+use crate::theme::T;
 
-use crate::icons;
-use crate::theme;
+const PAD: f32 = 8.0; // px-2
+const ROW_X: f32 = PAD;
 
-fn row(
-    ui: &mut egui::Ui,
-    height: f32,
-    selected: bool,
-    paint_row: impl FnOnce(&egui::Painter, Rect, bool),
-) -> egui::Response {
-    let avail = ui.available_width();
-    let (rect, resp) = ui.allocate_exact_size(Vec2::new(avail, height), Sense::click());
-    if ui.is_rect_visible(rect) {
-        let p = ui.painter();
-        if selected {
-            p.rect_filled(rect, Rounding::same(theme::RADIUS_ROW), theme::SURFACE);
-        } else if resp.hovered() {
-            p.rect_filled(
-                rect,
-                Rounding::same(theme::RADIUS_ROW),
-                theme::SURFACE_HOVER,
-            );
-        }
-        paint_row(p, rect, resp.hovered() || selected);
+struct TaskRow {
+    title: &'static str,
+    time: &'static str,
+    active: bool,
+}
+
+struct Project {
+    name: &'static str,
+    tasks: &'static [TaskRow],
+}
+
+const PROJECTS: &[Project] = &[
+    Project {
+        name: "xencode",
+        tasks: &[
+            TaskRow { title: "Rewrite the GUI in pure Rust", time: "2m", active: true },
+            TaskRow { title: "Rebrand the desktop installer icons", time: "1h", active: false },
+            TaskRow { title: "Set up the Rust workspace", time: "3h", active: false },
+        ],
+    },
+    Project {
+        name: "docs-site",
+        tasks: &[TaskRow { title: "Write the quickstart guide", time: "5h", active: false }],
+    },
+];
+
+pub fn draw(c: &mut Canvas) {
+    let content_top = 56.0; // below the top overlay
+    let footer_top = crate::ui::shell::WIN_H - crate::ui::shell::INSET - 52.0;
+    let mut y = content_top + 12.0; // py-3
+    let row_w = crate::ui::shell::SIDEBAR_W - ROW_X * 2.0;
+
+    // New task button (full-width h-8 row)
+    draw_row(c, ROW_X, y, row_w, 32.0, false);
+    c.icon("message-circle-plus", ROW_X + 10.0, y + 8.0, 16.0, T::FG_SUBTLE());
+    fonts::draw_mid(c, ROW_X + 34.0, y + 16.0, "New task", 14.0, T::FG(), Weight::Normal, false);
+    y += 32.0 + 4.0;
+
+    // Automations / Plugin Marketplace (ghost lg, h-9)
+    for (icon, label) in [("calendar-clock", "Automations"), ("blocks", "Plugin Marketplace")] {
+        draw_row(c, ROW_X, y, row_w, 36.0, false);
+        c.icon(icon, ROW_X + 10.0, y + 10.0, 16.0, T::FG_SUBTLE());
+        fonts::draw_mid(c, ROW_X + 34.0, y + 18.0, label, 14.0, T::FG(), Weight::Normal, false);
+        y += 36.0 + 4.0;
     }
-    resp
+
+    y += 8.0;
+    // divider + pt-3
+    c.line(0.0, y, crate::ui::shell::SIDEBAR_W, y, 1.0, T::DIVIDER());
+    y += 12.0;
+
+    // List header: "Task list" + search / filter icon buttons
+    fonts::draw_mid(c, ROW_X + 2.0, y + 12.0, "Task list", 14.0, T::FG_SUBTLE(), Weight::Bold, false);
+    let bx = crate::ui::shell::SIDEBAR_W - 8.0 - 24.0;
+    draw_icon_24(c, bx, y, "list-filter");
+    draw_icon_24(c, bx - 26.0, y, "search");
+    y += 32.0;
+
+    // project sections
+    for (pi, project) in PROJECTS.iter().enumerate() {
+        // project node
+        draw_row(c, ROW_X, y, row_w, 32.0, false);
+        c.icon("folder", ROW_X + 10.0, y + 8.0, 16.0, T::FG_SUBTLE());
+        fonts::draw_mid(c, ROW_X + 34.0, y + 16.0, project.name, 14.0, T::FG(), Weight::Bold, false);
+        y += 32.0;
+
+        for task in project.tasks {
+            draw_row(c, ROW_X, y, row_w, 30.0, task.active);
+            let dot_x = ROW_X + 16.0;
+            if task.active {
+                c.fill_circle(dot_x, y + 15.0, 3.0, T::ICON_BLUE());
+            } else {
+                c.fill_circle(dot_x, y + 15.0, 3.0, T::FG_SUBTLEST());
+            }
+            let title_color = if task.active { T::FG() } else { T::FG_SUBTLE() };
+            fonts::draw_mid(c, dot_x + 12.0, y + 15.0, task.title, 13.0, title_color, Weight::Normal, false);
+            let tw = fonts::measure(task.time, 11.0, Weight::Normal, false);
+            fonts::draw_mid(c, ROW_X + row_w - 10.0 - tw, y + 15.0, task.time, 11.0, T::FG_SUBTLEST(), Weight::Normal, false);
+            y += 30.0;
+        }
+        if pi + 1 < PROJECTS.len() {
+            y += 12.0; // gap-3 between sections
+        }
+    }
+    let _ = footer_top;
 }
 
-fn text(p: &egui::Painter, pos: Pos2, anchor: egui::Align2, size: f32, color: Color32, s: &str) {
-    p.text(pos, anchor, s, FontId::proportional(size), color);
+fn draw_row(c: &mut Canvas, x: f32, y: f32, w: f32, h: f32, active: bool) {
+    if active {
+        c.fill_rrect(Rect::new(x, y, w, h), 8.0, T::SELECTED());
+    }
 }
 
-pub fn render(ctx: &egui::Context, state: &mut crate::AppState) {
-    let mut clicked_task: Option<usize> = None;
-    egui::SidePanel::left("sidebar")
-        .resizable(false)
-        .exact_width(theme::SIDEBAR_WIDTH)
-        .frame(
-            egui::Frame::none()
-                .fill(theme::SIDEBAR)
-                .inner_margin(egui::Margin::symmetric(10.0, 8.0)),
-        )
-        .show(ctx, |ui| {
-            // ---- header: logo + name + collapse ----
-            ui.horizontal(|ui| {
-                let (lrect, _) = ui.allocate_exact_size(Vec2::splat(26.0), Sense::hover());
-                icons::x_logo(ui.painter(), lrect, theme::WHITE);
-                text(
-                    ui.painter(),
-                    Pos2::new(lrect.right() + 8.0, lrect.center().y),
-                    egui::Align2::LEFT_CENTER,
-                    13.5,
-                    theme::FG,
-                    "XenCode",
-                );
-                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                    let (r, _) = ui.allocate_exact_size(Vec2::splat(24.0), Sense::click());
-                    icons::chevron_left(ui.painter(), r, theme::FG_SUBTLE);
-                });
-            });
-
-            ui.add_space(6.0);
-
-            // ---- New task ----
-            if row(ui, 32.0, false, |p, r, _| {
-                icons::plus(
-                    p,
-                    Rect::from_center_size(
-                        Pos2::new(r.left() + 18.0, r.center().y),
-                        Vec2::splat(16.0),
-                    ),
-                    theme::FG,
-                );
-                text(
-                    p,
-                    Pos2::new(r.left() + 34.0, r.center().y),
-                    egui::Align2::LEFT_CENTER,
-                    13.0,
-                    theme::FG,
-                    "New task",
-                );
-            })
-            .clicked()
-            {
-                state.new_task();
-            }
-
-            // ---- Automations ----
-            row(ui, 32.0, false, |p, r, _| {
-                icons::zap(
-                    p,
-                    Rect::from_center_size(
-                        Pos2::new(r.left() + 18.0, r.center().y),
-                        Vec2::splat(16.0),
-                    ),
-                    theme::FG_SUBTLE,
-                );
-                text(
-                    p,
-                    Pos2::new(r.left() + 34.0, r.center().y),
-                    egui::Align2::LEFT_CENTER,
-                    13.0,
-                    theme::FG,
-                    "Automations",
-                );
-            })
-            .clicked();
-
-            // ---- Plugin Marketplace ----
-            row(ui, 32.0, false, |p, r, _| {
-                icons::sparkle(
-                    p,
-                    Rect::from_center_size(
-                        Pos2::new(r.left() + 18.0, r.center().y),
-                        Vec2::splat(16.0),
-                    ),
-                    theme::FG_SUBTLE,
-                );
-                text(
-                    p,
-                    Pos2::new(r.left() + 34.0, r.center().y),
-                    egui::Align2::LEFT_CENTER,
-                    13.0,
-                    theme::FG,
-                    "Plugin Marketplace",
-                );
-            })
-            .clicked();
-
-            ui.add_space(10.0);
-
-            // ---- Projects ----
-            text(
-                ui.painter(),
-                Pos2::new(ui.min_rect().left() + 6.0, ui.cursor().top() + 8.0),
-                egui::Align2::LEFT_CENTER,
-                11.0,
-                theme::FG_SUBTLEST,
-                "PROJECTS",
-            );
-            ui.add_space(20.0);
-
-            for name in ["Tokenaires", "Xen Code"] {
-                row(ui, 30.0, false, |p, r, hot| {
-                    icons::folder(
-                        p,
-                        Rect::from_center_size(
-                            Pos2::new(r.left() + 18.0, r.center().y),
-                            Vec2::splat(16.0),
-                        ),
-                        if hot { theme::FG } else { theme::FG_SUBTLE },
-                    );
-                    text(
-                        p,
-                        Pos2::new(r.left() + 34.0, r.center().y),
-                        egui::Align2::LEFT_CENTER,
-                        13.0,
-                        theme::FG,
-                        name,
-                    );
-                    let k = Rect::from_min_max(
-                        Pos2::new(r.right() - 36.0, r.top()),
-                        Pos2::new(r.right() - 18.0, r.bottom()),
-                    );
-                    icons::kebab(
-                        p,
-                        k.intersect(r),
-                        if hot {
-                            theme::FG_SUBTLE
-                        } else {
-                            theme::FG_SUBTLEST
-                        },
-                    );
-                });
-            }
-
-            let _ = row(ui, 30.0, false, |p, r, _| {
-                icons::plus(
-                    p,
-                    Rect::from_center_size(
-                        Pos2::new(r.left() + 18.0, r.center().y),
-                        Vec2::splat(16.0),
-                    ),
-                    theme::FG_SUBTLEST,
-                );
-                text(
-                    p,
-                    Pos2::new(r.left() + 34.0, r.center().y),
-                    egui::Align2::LEFT_CENTER,
-                    13.0,
-                    theme::FG_SUBTLE,
-                    "Add project",
-                );
-            });
-
-            ui.add_space(10.0);
-
-            // ---- Tasks ----
-            text(
-                ui.painter(),
-                Pos2::new(ui.min_rect().left() + 6.0, ui.cursor().top() + 8.0),
-                egui::Align2::LEFT_CENTER,
-                11.0,
-                theme::FG_SUBTLEST,
-                "TASKS",
-            );
-            ui.add_space(20.0);
-
-            for (i, task) in state.tasks.iter().enumerate() {
-                let selected = state.open_task == Some(i);
-                // truncate to the row width (272 - 2*10 padding - 34 indent - 12 slack)
-                let max_chars = ((theme::SIDEBAR_WIDTH - 66.0) / 6.5) as usize;
-                let title: String = if task.title.chars().count() > max_chars {
-                    format!("{}…", task.title.chars().take(max_chars - 1).collect::<String>())
-                } else {
-                    task.title.clone()
-                };
-                let resp = row(ui, 30.0, selected, |p, r, _| {
-                    p.circle_filled(Pos2::new(r.left() + 18.0, r.center().y), 3.0, task.color);
-                    text(
-                        p,
-                        Pos2::new(r.left() + 34.0, r.center().y),
-                        egui::Align2::LEFT_CENTER,
-                        13.0,
-                        theme::FG,
-                        &title,
-                    );
-                });
-                if resp.clicked() {
-                    clicked_task = Some(i);
-                }
-            }
-            if let Some(i) = clicked_task {
-                state.open_task(i);
-            }
-
-            ui.add_space(6.0);
-
-            // ---- footer: user + settings ----
-            ui.with_layout(egui::Layout::bottom_up(egui::Align::Min), |ui| {
-                let footer_h = 40.0;
-                let avail = ui.available_size();
-                let (rect, _) =
-                    ui.allocate_exact_size(Vec2::new(avail.x, footer_h), Sense::hover());
-                let p = &ui.painter().clone();
-                // avatar
-                let av = Rect::from_center_size(
-                    Pos2::new(rect.left() + 16.0, rect.center().y),
-                    Vec2::splat(24.0),
-                );
-                p.circle_filled(av.center(), 12.0, theme::BRAND);
-                text(
-                    p,
-                    av.center(),
-                    egui::Align2::CENTER_CENTER,
-                    9.5,
-                    theme::WHITE,
-                    "RF",
-                );
-                text(
-                    p,
-                    Pos2::new(av.right() + 8.0, rect.center().y),
-                    egui::Align2::LEFT_CENTER,
-                    12.5,
-                    theme::FG,
-                    "Resolute Femi",
-                );
-                let g = Rect::from_min_max(
-                    Pos2::new(rect.right() - 56.0, rect.top()),
-                    Pos2::new(rect.right() - 14.0, rect.bottom()),
-                );
-                let gr = Rect::from_center_size(
-                    Pos2::new(g.right() - 8.0, rect.center().y),
-                    Vec2::splat(22.0),
-                );
-                let gresp = ui.allocate_rect(gr, Sense::click());
-                if gresp.hovered() {
-                    p.rect_filled(gr, 6.0, theme::SURFACE_HOVER);
-                }
-                icons::gear(
-                    p,
-                    gr.shrink(4.0),
-                    if gresp.hovered() {
-                        theme::FG
-                    } else {
-                        theme::FG_SUBTLE
-                    },
-                );
-                if gresp.clicked() {
-                    state.settings.open = true;
-                }
-            });
-        });
+fn draw_icon_24(c: &mut Canvas, x: f32, y: f32, icon: &str) {
+    c.icon(icon, x + 5.0, y + 5.0, 14.0, T::FG_SUBTLE());
 }

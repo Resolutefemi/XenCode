@@ -1,6 +1,6 @@
 [package]
 name = "xencode-app"
-description = "XenCode desktop - 100% Rust native GUI (ZCode-faithful)"
+description = "XenCode desktop - 100% Rust native GUI, ZCode v3.17.2 pixel-faithful"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
@@ -12,11 +12,8 @@ name = "xencode"
 path = "src/main.rs"
 
 [dependencies]
-eframe = { workspace = true, features = ["default"] }
-egui = { workspace = true }
+tiny-skia = { workspace = true }
+ab_glyph = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
-portable-pty = { workspace = true }
-vte = { workspace = true }
 anyhow = { workspace = true }
-chrono = { workspace = true }
