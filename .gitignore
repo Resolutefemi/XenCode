@@ -79,3 +79,4 @@ __pycache__/
 # Rust workspace
 app/target/
 app/Cargo.lock
+.xencode/

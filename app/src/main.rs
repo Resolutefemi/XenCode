@@ -1,9 +1,12 @@
-//! XenCode — 100% Rust native GUI.
+//! XenCode — 100% Rust native GUI + agent core.
 //!
-//! Headless render mode: `xencode --screenshot --out DIR` draws every primary
-//! page through the same renderer the live window uses (tiny-skia software
+//! Render mode:  `xencode --screenshot --out DIR` draws every primary page
+//! through the same renderer the live window uses (tiny-skia software
 //! rasterizer) and writes PNGs — the visual ground truth of the GUI.
+//! Agent mode:   `xencode --agent "prompt"` runs the Phase-1 agent core
+//! headlessly against the GLM API (XENCODE_API_KEY).
 
+mod agent;
 mod fonts;
 mod gfx;
 mod icons;
@@ -15,8 +18,9 @@ use gfx::Canvas;
 
 fn main() {
     let mut out = String::from("/home/z/my-project/download/xencode-rust-screenshots");
-    let args: Vec<String> = std::env::args().collect();
+    let args: Vec<String> = std::env::args().skip(1).collect();
     let mut mode = String::from("screenshot");
+    let mut agent_prompt: Option<String> = None;
     let mut i = 0;
     while i < args.len() {
         match args[i].as_str() {
@@ -24,9 +28,25 @@ fn main() {
                 out = args[i + 1].clone();
                 i += 1;
             }
+            "--agent" => {
+                agent_prompt = Some(args[i + 1..].join(" ").trim().to_string());
+                break;
+            }
             other => mode = other.to_string(),
         }
         i += 1;
+    }
+
+    if let Some(prompt) = agent_prompt {
+        if prompt.is_empty() {
+            eprintln!("usage: xencode --agent \"prompt\"");
+            std::process::exit(2);
+        }
+        if let Err(e) = agent::run_cli(&prompt) {
+            eprintln!("agent error: {e:#}");
+            std::process::exit(1);
+        }
+        return;
     }
 
     match mode.as_str() {
