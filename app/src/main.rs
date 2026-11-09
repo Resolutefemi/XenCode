@@ -1,10 +1,18 @@
 //! XenCode — 100% Rust native GUI + agent core.
 //!
-//! Render mode:  `xencode --screenshot --out DIR` draws every primary page
-//! through the same renderer the live window uses (tiny-skia software
-//! rasterizer) and writes PNGs — the visual ground truth of the GUI.
-//! Agent mode:   `xencode --agent "prompt"` runs the Phase-1 agent core
-//! headlessly against the GLM API (XENCODE_API_KEY).
+//! Render mode:     `xencode --screenshot --out DIR` draws every primary page
+//!                  through the same renderer the live window uses (tiny-skia
+//!                  software rasterizer) and writes PNGs — visual ground truth.
+//! Agent mode:      `xencode --agent "prompt"` runs the Phase-1 agent core
+//!                  headlessly against the GLM API (XENCODE_API_KEY).
+//! Agent-UI mode:   `xencode --agent-ui "prompt" --out FILE.png` runs the
+//!                  agent and renders the live conversation (tool rows,
+//!                  permission consent cards, streamed answer) into the chat
+//!                  pane — the composer → loop wiring made visible.
+//!                  `XENCODE_DEMO=1` substitutes a scripted provider so the
+//!                  wiring renders without an API key.
+//! Transcript mode: `xencode --render-session <id> --out FILE.png` renders a
+//!                  saved session from `.xencode/sessions/`.
 
 mod agent;
 mod fonts;
@@ -14,55 +22,98 @@ mod svgpath;
 mod theme;
 mod ui;
 
-use gfx::Canvas;
+use agent::run::{run_agent, AgentEvent, AgentOptions, Asker, AskFn};
+use agent::session::Session;
+use agent::{permissions, CliOptions, Resume};
+use anyhow::{bail, Context, Result};
+use gfx::{Canvas, Rect};
+use ui::shell::{draw_backdrop, draw_header, draw_panel, draw_sidebar_footer, draw_top_overlay, HeaderTitle, HEADER_H, WIN_H, WIN_W, panel_rect};
+use ui::state::{ChatPage, Collector};
+
+const SCALE: f32 = 2.0;
+const DEFAULT_SHOTS_DIR: &str = "/home/z/my-project/download/xencode-rust-screenshots";
+
+enum Mode {
+    Screenshot { out: Option<String> },
+    Agent { prompt: String, cli: CliOptions },
+    AgentUi { prompt: String, out: String },
+    RenderSession { id: String, out: String },
+}
 
 fn main() {
-    let mut out = String::from("/home/z/my-project/download/xencode-rust-screenshots");
+    let mode = match parse_args() {
+        Ok(m) => m,
+        Err(e) => {
+            eprintln!("{e:#}");
+            std::process::exit(2);
+        }
+    };
+
+    let result = match mode {
+        Mode::Screenshot { out } => {
+            screenshot(out.as_deref().unwrap_or(DEFAULT_SHOTS_DIR));
+            Ok(())
+        }
+        Mode::Agent { prompt, cli } => agent::run_cli(&prompt, cli),
+        Mode::AgentUi { prompt, out } => agent_ui(&prompt, &out),
+        Mode::RenderSession { id, out } => render_session(&id, &out),
+    };
+
+    if let Err(e) = result {
+        eprintln!("xencode: {e:#}");
+        std::process::exit(1);
+    }
+}
+
+fn parse_args() -> Result<Mode> {
     let args: Vec<String> = std::env::args().skip(1).collect();
-    let mut mode = String::from("screenshot");
-    let mut agent_prompt: Option<String> = None;
+    let mut out: Option<String> = None;
+    let mut cli = CliOptions::default();
     let mut i = 0;
+
     while i < args.len() {
         match args[i].as_str() {
             "--out" if i + 1 < args.len() => {
-                out = args[i + 1].clone();
-                i += 1;
+                out = Some(args[i + 1].clone());
+                i += 2;
+                continue;
             }
-            "--agent" => {
-                agent_prompt = Some(args[i + 1..].join(" ").trim().to_string());
-                break;
+            "--agent" if i + 1 < args.len() => {
+                let prompt = args[i + 1].clone();
+                return Ok(Mode::Agent { prompt, cli });
             }
-            other => mode = other.to_string(),
+            "--agent-ui" if i + 1 < args.len() => {
+                let prompt = args[i + 1].clone();
+                let out = out.unwrap_or_else(|| "agent-ui.png".into());
+                return Ok(Mode::AgentUi { prompt, out });
+            }
+            "--render-session" if i + 1 < args.len() => {
+                let id = args[i + 1].clone();
+                let out = out.unwrap_or_else(|| format!("{id}.png"));
+                return Ok(Mode::RenderSession { id, out });
+            }
+            "--continue" | "-c" => cli.resume = Some(Resume::Continue),
+            "--resume" if i + 1 < args.len() => {
+                cli.resume = Some(Resume::Id(args[i + 1].clone()));
+                i += 2;
+                continue;
+            }
+            "--fork" if i + 1 < args.len() => {
+                cli.resume = Some(Resume::Fork(args[i + 1].clone()));
+                i += 2;
+                continue;
+            }
+            "--yes" | "-y" => cli.auto_yes = true,
+            "--read-only" => cli.read_only = true,
+            "--screenshot" | "screenshot" | "" => {}
+            "--window" => bail!("live window mode: not wired yet (winit+softbuffer next); use --screenshot"),
+            other => bail!("unknown flag: {other}"),
         }
         i += 1;
     }
 
-    if let Some(prompt) = agent_prompt {
-        if prompt.is_empty() {
-            eprintln!("usage: xencode --agent \"prompt\"");
-            std::process::exit(2);
-        }
-        if let Err(e) = agent::run_cli(&prompt) {
-            eprintln!("agent error: {e:#}");
-            std::process::exit(1);
-        }
-        return;
-    }
-
-    match mode.as_str() {
-        "--screenshot" | "screenshot" | "" => screenshot(&out),
-        "--window" => {
-            eprintln!("live window mode: not wired yet (winit+softbuffer next); use --screenshot");
-            std::process::exit(2);
-        }
-        other => {
-            eprintln!("unknown mode: {other}");
-            std::process::exit(2);
-        }
-    }
+    Ok(Mode::Screenshot { out })
 }
-
-const SCALE: f32 = 2.0;
 
 fn screenshot(out: &str) {
     std::fs::create_dir_all(out).expect("create out dir");
@@ -75,10 +126,177 @@ fn screenshot(out: &str) {
         ("06-terminal-dock", ui::terminal),
     ];
     for (name, draw) in pages {
-        let mut c = Canvas::new(ui::shell::WIN_W, ui::shell::WIN_H, SCALE);
+        let mut c = Canvas::new(WIN_W, WIN_H, SCALE);
         draw(&mut c);
         let path = format!("{out}/{name}.png");
         c.px.save_png(&path).unwrap_or_else(|e| panic!("save {path}: {e:?}"));
         println!("rendered {path}");
     }
+}
+
+/// Frame a chat page in the full workspace shell (backdrop, panel, header,
+/// sidebar) — the same chrome the static pages use.
+fn render_chat_page(page: &ChatPage, header: HeaderTitle<'_>, out: &str) -> Result<()> {
+    let mut c = Canvas::new(WIN_W, WIN_H, SCALE);
+    draw_backdrop(&mut c);
+    let panel = panel_rect();
+    draw_panel(&mut c, panel);
+    draw_top_overlay(&mut c);
+    draw_header(&mut c, panel, &header, false, false);
+    ui::sidebar::draw(&mut c);
+    draw_sidebar_footer(&mut c);
+    let area = Rect::new(panel.x, panel.y + HEADER_H, panel.w, panel.h - HEADER_H);
+    ui::chat::draw_state(&mut c, area, page);
+
+    if let Some(parent) = std::path::Path::new(out).parent() {
+        std::fs::create_dir_all(parent)?;
+    }
+    c.px.save_png(out).map_err(|e| anyhow::anyhow!("save {out}: {e:?}"))?;
+    println!("rendered {out}");
+    Ok(())
+}
+
+fn render_session(id: &str, out: &str) -> Result<()> {
+    let session_dir = std::env::current_dir()?.join(".xencode").join("sessions");
+    let s = Session::load(&session_dir, id).with_context(|| format!("load session {id}"))?;
+    let page = ChatPage::from_conversation(&s.messages);
+    let header = HeaderTitle::Task {
+        project: "xencode",
+        title: "Restored session",
+        summary: Some("from .xencode/sessions"),
+    };
+    render_chat_page(&page, header, out)
+}
+
+/// Run the agent and render the live conversation into the chat pane.
+fn agent_ui(prompt: &str, out: &str) -> Result<()> {
+    let demo = std::env::var("XENCODE_DEMO").map(|v| v == "1").unwrap_or(false);
+    let cwd = std::env::current_dir().context("resolve working directory")?;
+    let session_dir = cwd.join(".xencode").join("sessions");
+
+    let rt = tokio::runtime::Runtime::new().context("start tokio runtime")?;
+    let (page, session_id) = rt.block_on(async {
+        let (page, id) = if demo {
+            demo_run(prompt, &session_dir).await?
+        } else {
+            live_run(prompt, &session_dir).await?
+        };
+        Ok::<_, anyhow::Error>((page, id))
+    })?;
+
+    let summary = if session_id.is_empty() {
+        "live agent run".to_string()
+    } else {
+        format!("session {session_id}")
+    };
+    let header = HeaderTitle::Task {
+        project: "xencode",
+        title: &page.title,
+        summary: Some(&summary),
+    };
+    render_chat_page(&page, header, out)
+}
+
+/// Run the loop inline and fold its (buffered) event stream into the
+/// collector once the run completes. The channel is unbounded, so the loop
+/// never blocks on a slow consumer.
+async fn collect_run<P: agent::provider::Provider>(
+    provider: P,
+    prompt: &str,
+    opts: AgentOptions,
+    collector: &mut Collector,
+) -> Result<String> {
+    let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel::<AgentEvent>();
+    let answer = run_agent(&provider, prompt, opts, tx).await;
+    while let Ok(ev) = rx.try_recv() {
+        collector.on(&ev);
+    }
+    answer
+}
+
+/// Headless agent-UI runs cannot prompt interactively; asks resolve like
+/// `--yes` and the pane renders the resolved consent card afterwards.
+struct AutoAsker;
+
+impl Asker for AutoAsker {
+    fn ask(&mut self, req: &permissions::Request) -> permissions::Response {
+        eprintln!("· permission auto-approved: {} `{}`", req.tool, req.detail);
+        permissions::Response::Allow
+    }
+}
+
+async fn live_run(prompt: &str, session_dir: &std::path::Path) -> Result<(ChatPage, String)> {
+    let provider = agent::provider::GlmProvider::from_env()?;
+    let mut collector = Collector::new(prompt, "Agent run");
+    let opts = AgentOptions {
+        cwd: std::env::current_dir().unwrap_or_default(),
+        session_dir: Some(session_dir.to_path_buf()),
+        gate: Box::new(permissions::AskGate::new()),
+        asker: Some(Box::new(AutoAsker)),
+        ..Default::default()
+    };
+    collect_run(provider, prompt, opts, &mut collector).await?;
+    let id = Session::latest(session_dir).ok().flatten().unwrap_or_default();
+    Ok((collector.page, id))
+}
+
+/// Scripted run for `XENCODE_DEMO=1` — a tiny fake project, a read, a consent
+/// prompt (allowed), a build, and the final answer.
+async fn demo_run(prompt: &str, session_dir: &std::path::Path) -> Result<(ChatPage, String)> {
+    use agent::provider::{Message, MockProvider, Role, ToolCall};
+    use serde_json::json;
+
+    let dir = std::env::temp_dir().join(format!("xencode-demo-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(dir.join("src"))?;
+    std::fs::write(
+        dir.join("src/main.rs"),
+        "fn main() {\n    println!(\"xencode\");\n}\n",
+    )?;
+
+    let provider = MockProvider::new(vec![
+        Message {
+            role: Role::Assistant,
+            content: "Let me look at the entrypoint first.".into(),
+            tool_calls: vec![ToolCall {
+                id: "t1".into(),
+                name: "read_file".into(),
+                arguments: json!({"path": "src/main.rs"}),
+            }],
+            tool_call_id: None,
+        },
+        Message {
+            role: Role::Assistant,
+            content: "The entrypoint is a bare hello-world — it builds as-is, so let me verify with a release build.".into(),
+            tool_calls: vec![ToolCall {
+                id: "t2".into(),
+                name: "bash".into(),
+                arguments: json!({"command": "cargo build --release"}),
+            }],
+            tool_call_id: None,
+        },
+        Message {
+            role: Role::Assistant,
+            content: "Build is green. Nothing to change — the demo project compiles clean and the run is done.".into(),
+            tool_calls: vec![],
+            tool_call_id: None,
+        },
+    ]);
+
+    let mut collector = Collector::new(prompt, "Demo agent run");
+    let opts = AgentOptions {
+        cwd: dir.clone(),
+        session_dir: Some(session_dir.to_path_buf()),
+        gate: Box::new(permissions::AskGate::new()),
+        asker: Some(Box::new(AskFn(|req: &permissions::Request| {
+            eprintln!("· permission (demo): {} `{}` — allowed", req.tool, req.detail);
+            permissions::Response::AllowAlways
+        }))),
+        ..Default::default()
+    };
+
+    collect_run(provider, prompt, opts, &mut collector).await?;
+    let id = Session::latest(session_dir).ok().flatten().unwrap_or_default();
+    let _ = std::fs::remove_dir_all(&dir);
+    Ok((collector.page, id))
 }

@@ -11,9 +11,9 @@ pub enum SendState {
     Stop,
 }
 
-pub struct ComposerOpts {
+pub struct ComposerOpts<'a> {
     pub placeholder: &'static str,
-    pub typed: Option<&'static str>,
+    pub typed: Option<&'a str>,
     pub context_header: bool,
     pub mode: &'static str,
     pub mode_icon: &'static str,
@@ -25,7 +25,7 @@ pub struct ComposerOpts {
 
 pub const HEIGHT: f32 = 128.0;
 
-pub fn draw(c: &mut Canvas, x: f32, y: f32, w: f32, o: &ComposerOpts) {
+pub fn draw(c: &mut Canvas, x: f32, y: f32, w: f32, o: &ComposerOpts<'_>) {
     let r = Rect::new(x, y, w, HEIGHT);
     // shell: rounded-2xl (16), 0.5px border, bg-input
     c.card(r, 16.0, T::CARD(), T::BORDER(), 0.5);

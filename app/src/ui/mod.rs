@@ -8,6 +8,7 @@ pub mod settings;
 pub mod shell;
 pub mod sidebar;
 pub mod splash;
+pub mod state;
 pub mod welcome;
 
 use crate::gfx::{Canvas, Rect};

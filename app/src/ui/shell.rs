@@ -40,15 +40,15 @@ pub fn draw_top_overlay(c: &mut Canvas) {
     c.icon("message-circle-plus", 100.0, iy, 16.0, T::FG_SUBTLE());
 }
 
-pub enum HeaderTitle {
+pub enum HeaderTitle<'a> {
     /// Draft: project name + git summary
-    Draft { project: &'static str, branch: &'static str },
+    Draft { project: &'a str, branch: &'a str },
     /// Active task: project + task title (+ optional change summary)
-    Task { project: &'static str, title: &'static str, summary: Option<&'static str> },
+    Task { project: &'a str, title: &'a str, summary: Option<&'a str> },
 }
 
 /// Workspace header (h-12, border-b border-border/50) with window controls.
-pub fn draw_header(c: &mut Canvas, panel: Rect, title: &HeaderTitle, terminal_open: bool, side_pane_open: bool) {
+pub fn draw_header(c: &mut Canvas, panel: Rect, title: &HeaderTitle<'_>, terminal_open: bool, side_pane_open: bool) {
     let cy = panel.y + HEADER_H / 2.0;
     let mut x = panel.x + 10.0;
     match title {
