@@ -1,6 +1,0 @@
-{
-  "version": 1,
-  "caseName": "plugin-management-discovery-presentation",
-  "spec": "./test/e2e/plugins/plugin-management-discovery-presentation.test.ts",
-  "fixtures": []
-}

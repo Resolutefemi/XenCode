@@ -1,6 +1,0 @@
-{
-  "version": 1,
-  "caseName": "plugin-cdn-zip-marketplace-install",
-  "spec": "./test/e2e/plugins/plugin-cdn-zip-marketplace-install.test.ts",
-  "fixtures": []
-}

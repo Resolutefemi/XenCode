@@ -1,6 +1,0 @@
-{
-  "version": 1,
-  "caseName": "plugin-lifecycle-telemetry",
-  "spec": "./test/e2e/plugins/plugin-lifecycle-telemetry.test.ts",
-  "fixtures": []
-}
