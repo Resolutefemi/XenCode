@@ -3,6 +3,11 @@
 //!
 //! Token math: color-mix(white X%, transparent) composited over --color-background
 //! (neutral-900 #171717) gives the resolved sRGB value below.
+//!
+//! Some tokens are ported ahead of the screens that use them (chat bubbles,
+//! destructive states, etc.) — they are the contract for the upcoming ports.
+
+#![allow(dead_code)]
 
 use egui::Color32;
 

@@ -1,14 +1,10 @@
 //! Left sidebar — faithful to ZCode main screen: New task, Automations,
 //! Plugin Marketplace, Projects, Tasks, user footer.
 
-use egui::{Color32, FontId, Pos2, Rect, Rounding, Sense, Stroke, Vec2};
+use egui::{Color32, FontId, Pos2, Rect, Rounding, Sense, Vec2};
 
 use crate::icons;
 use crate::theme;
-
-pub struct SidebarState {
-    pub selected_task: Option<usize>,
-}
 
 fn row(
     ui: &mut egui::Ui,
@@ -23,7 +19,11 @@ fn row(
         if selected {
             p.rect_filled(rect, Rounding::same(theme::RADIUS_ROW), theme::SURFACE);
         } else if resp.hovered() {
-            p.rect_filled(rect, Rounding::same(theme::RADIUS_ROW), theme::SURFACE_HOVER);
+            p.rect_filled(
+                rect,
+                Rounding::same(theme::RADIUS_ROW),
+                theme::SURFACE_HOVER,
+            );
         }
         paint_row(p, rect, resp.hovered() || selected);
     }
@@ -66,7 +66,14 @@ pub fn render(ctx: &egui::Context, state: &mut crate::AppState) {
 
             // ---- New task ----
             if row(ui, 32.0, false, |p, r, _| {
-                icons::plus(p, Rect::from_center_size(Pos2::new(r.left() + 18.0, r.center().y), Vec2::splat(16.0)), theme::FG);
+                icons::plus(
+                    p,
+                    Rect::from_center_size(
+                        Pos2::new(r.left() + 18.0, r.center().y),
+                        Vec2::splat(16.0),
+                    ),
+                    theme::FG,
+                );
                 text(
                     p,
                     Pos2::new(r.left() + 34.0, r.center().y),
@@ -82,10 +89,13 @@ pub fn render(ctx: &egui::Context, state: &mut crate::AppState) {
             }
 
             // ---- Automations ----
-            if row(ui, 32.0, false, |p, r, _| {
+            row(ui, 32.0, false, |p, r, _| {
                 icons::zap(
                     p,
-                    Rect::from_center_size(Pos2::new(r.left() + 18.0, r.center().y), Vec2::splat(16.0)),
+                    Rect::from_center_size(
+                        Pos2::new(r.left() + 18.0, r.center().y),
+                        Vec2::splat(16.0),
+                    ),
                     theme::FG_SUBTLE,
                 );
                 text(
@@ -97,14 +107,16 @@ pub fn render(ctx: &egui::Context, state: &mut crate::AppState) {
                     "Automations",
                 );
             })
-            .clicked()
-            {}
+            .clicked();
 
             // ---- Plugin Marketplace ----
-            if row(ui, 32.0, false, |p, r, _| {
+            row(ui, 32.0, false, |p, r, _| {
                 icons::sparkle(
                     p,
-                    Rect::from_center_size(Pos2::new(r.left() + 18.0, r.center().y), Vec2::splat(16.0)),
+                    Rect::from_center_size(
+                        Pos2::new(r.left() + 18.0, r.center().y),
+                        Vec2::splat(16.0),
+                    ),
                     theme::FG_SUBTLE,
                 );
                 text(
@@ -116,8 +128,7 @@ pub fn render(ctx: &egui::Context, state: &mut crate::AppState) {
                     "Plugin Marketplace",
                 );
             })
-            .clicked()
-            {}
+            .clicked();
 
             ui.add_space(10.0);
 
@@ -136,7 +147,10 @@ pub fn render(ctx: &egui::Context, state: &mut crate::AppState) {
                 row(ui, 30.0, false, |p, r, hot| {
                     icons::folder(
                         p,
-                        Rect::from_center_size(Pos2::new(r.left() + 18.0, r.center().y), Vec2::splat(16.0)),
+                        Rect::from_center_size(
+                            Pos2::new(r.left() + 18.0, r.center().y),
+                            Vec2::splat(16.0),
+                        ),
                         if hot { theme::FG } else { theme::FG_SUBTLE },
                     );
                     text(
@@ -147,15 +161,29 @@ pub fn render(ctx: &egui::Context, state: &mut crate::AppState) {
                         theme::FG,
                         name,
                     );
-                    let k = Rect::from_min_max(Pos2::new(r.right() - 36.0, r.top()), Pos2::new(r.right() - 18.0, r.bottom()));
-                    icons::kebab(p, k.intersect(r), if hot { theme::FG_SUBTLE } else { theme::FG_SUBTLEST });
+                    let k = Rect::from_min_max(
+                        Pos2::new(r.right() - 36.0, r.top()),
+                        Pos2::new(r.right() - 18.0, r.bottom()),
+                    );
+                    icons::kebab(
+                        p,
+                        k.intersect(r),
+                        if hot {
+                            theme::FG_SUBTLE
+                        } else {
+                            theme::FG_SUBTLEST
+                        },
+                    );
                 });
             }
 
             let _ = row(ui, 30.0, false, |p, r, _| {
                 icons::plus(
                     p,
-                    Rect::from_center_size(Pos2::new(r.left() + 18.0, r.center().y), Vec2::splat(16.0)),
+                    Rect::from_center_size(
+                        Pos2::new(r.left() + 18.0, r.center().y),
+                        Vec2::splat(16.0),
+                    ),
                     theme::FG_SUBTLEST,
                 );
                 text(
@@ -210,8 +238,9 @@ pub fn render(ctx: &egui::Context, state: &mut crate::AppState) {
             ui.with_layout(egui::Layout::bottom_up(egui::Align::Min), |ui| {
                 let footer_h = 40.0;
                 let avail = ui.available_size();
-                let (rect, _) = ui.allocate_exact_size(Vec2::new(avail.x, footer_h), Sense::hover());
-                let p = ui.painter();
+                let (rect, _) =
+                    ui.allocate_exact_size(Vec2::new(avail.x, footer_h), Sense::hover());
+                let p = &ui.painter().clone();
                 // avatar
                 let av = Rect::from_center_size(
                     Pos2::new(rect.left() + 16.0, rect.center().y),
@@ -234,12 +263,30 @@ pub fn render(ctx: &egui::Context, state: &mut crate::AppState) {
                     theme::FG,
                     "Resolute Femi",
                 );
-                let g = Rect::from_min_max(Pos2::new(rect.right() - 56.0, rect.top()), Pos2::new(rect.right() - 14.0, rect.bottom()));
+                let g = Rect::from_min_max(
+                    Pos2::new(rect.right() - 56.0, rect.top()),
+                    Pos2::new(rect.right() - 14.0, rect.bottom()),
+                );
                 let gr = Rect::from_center_size(
                     Pos2::new(g.right() - 8.0, rect.center().y),
                     Vec2::splat(22.0),
                 );
-                icons::gear(p, gr, theme::FG_SUBTLE);
+                let gresp = ui.allocate_rect(gr, Sense::click());
+                if gresp.hovered() {
+                    p.rect_filled(gr, 6.0, theme::SURFACE_HOVER);
+                }
+                icons::gear(
+                    p,
+                    gr.shrink(4.0),
+                    if gresp.hovered() {
+                        theme::FG
+                    } else {
+                        theme::FG_SUBTLE
+                    },
+                );
+                if gresp.clicked() {
+                    state.settings.open = true;
+                }
             });
         });
 }

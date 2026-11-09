@@ -18,9 +18,17 @@ fn chip(ui: &mut egui::Ui, label: &str, icon: impl FnOnce(&egui::Painter, Rect, 
         p.rect_filled(
             rect,
             Rounding::same(theme::RADIUS_CHIP),
-            if resp.hovered() { theme::SURFACE_HOVER } else { theme::SURFACE },
+            if resp.hovered() {
+                theme::SURFACE_HOVER
+            } else {
+                theme::SURFACE
+            },
         );
-        p.rect_stroke(rect, Rounding::same(theme::RADIUS_CHIP), Stroke::new(1.0_f32, theme::BORDER));
+        p.rect_stroke(
+            rect,
+            Rounding::same(theme::RADIUS_CHIP),
+            Stroke::new(1.0_f32, theme::BORDER),
+        );
         let ir = Rect::from_center_size(
             Pos2::new(rect.left() + 16.0, rect.center().y),
             Vec2::splat(13.0),
@@ -31,7 +39,11 @@ fn chip(ui: &mut egui::Ui, label: &str, icon: impl FnOnce(&egui::Painter, Rect, 
             Pos2::new(rect.left() + 28.0, rect.center().y),
             egui::Align2::LEFT_CENTER,
             12.5,
-            if resp.hovered() { theme::FG } else { theme::FG_SUBTLE },
+            if resp.hovered() {
+                theme::FG
+            } else {
+                theme::FG_SUBTLE
+            },
             label,
         );
     }
@@ -49,9 +61,17 @@ fn toggle(ui: &mut egui::Ui, on: &mut bool, label: &str) -> egui::Response {
         p.rect_filled(
             track,
             Rounding::same(9.0),
-            if *on { theme::BRAND } else { theme::NEUTRAL_700 },
+            if *on {
+                theme::BRAND
+            } else {
+                theme::NEUTRAL_700
+            },
         );
-        let knob_x = if *on { track.right() - 9.0 } else { track.left() + 9.0 };
+        let knob_x = if *on {
+            track.right() - 9.0
+        } else {
+            track.left() + 9.0
+        };
         p.circle_filled(Pos2::new(knob_x, track.center().y), 7.0, theme::WHITE);
         text(
             p,
@@ -69,16 +89,22 @@ fn toggle(ui: &mut egui::Ui, on: &mut bool, label: &str) -> egui::Response {
 }
 
 pub fn render(ctx: &egui::Context, state: &mut crate::AppState) {
+    let chip_rect: std::rc::Rc<std::cell::RefCell<Option<Rect>>> = Default::default();
     egui::CentralPanel::default()
         .frame(egui::Frame::none().fill(theme::BG))
         .show(ctx, |ui| {
             // ============ topbar ============
-            let (tb, _) = ui
-                .allocate_exact_size(Vec2::new(ui.available_width(), theme::TOPBAR_HEIGHT), Sense::hover());
+            let (tb, _) = ui.allocate_exact_size(
+                Vec2::new(ui.available_width(), theme::TOPBAR_HEIGHT),
+                Sense::hover(),
+            );
             {
                 let p = ui.painter();
                 p.line_segment(
-                    [Pos2::new(tb.left(), tb.bottom()), Pos2::new(tb.right(), tb.bottom())],
+                    [
+                        Pos2::new(tb.left(), tb.bottom()),
+                        Pos2::new(tb.right(), tb.bottom()),
+                    ],
                     Stroke::new(1.0_f32, theme::BORDER),
                 );
                 text(
@@ -91,7 +117,10 @@ pub fn render(ctx: &egui::Context, state: &mut crate::AppState) {
                 );
                 text(
                     p,
-                    Pos2::new(tb.left() + 16.0 + state.project.len() as f32 * 7.2 + 10.0, tb.center().y),
+                    Pos2::new(
+                        tb.left() + 16.0 + state.project.len() as f32 * 7.2 + 10.0,
+                        tb.center().y,
+                    ),
                     egui::Align2::LEFT_CENTER,
                     12.0,
                     theme::FG_SUBTLEST,
@@ -116,7 +145,8 @@ pub fn render(ctx: &egui::Context, state: &mut crate::AppState) {
 
             // greeting
             ui.vertical_centered(|ui| {
-                let (gr, _) = ui.allocate_exact_size(Vec2::new(ui.available_width(), 44.0), Sense::hover());
+                let (gr, _) =
+                    ui.allocate_exact_size(Vec2::new(ui.available_width(), 44.0), Sense::hover());
                 text(
                     ui.painter(),
                     gr.center(),
@@ -130,15 +160,17 @@ pub fn render(ctx: &egui::Context, state: &mut crate::AppState) {
             ui.add_space(22.0);
 
             // composer card
-            let mut composer = egui::Frame::none()
+            let composer = egui::Frame::none()
                 .fill(theme::CARD)
                 .rounding(Rounding::same(theme::RADIUS_CARD))
                 .stroke(Stroke::new(1.0_f32, theme::BORDER))
                 .inner_margin(egui::Margin::same(14.0));
-            ui.allocate_ui_at_rect(
-                Rect::from_min_size(Pos2::new(ui.min_rect().left() + center_left, ui.cursor().top()), Vec2::new(center_w, 10.0)),
+            ui.allocate_new_ui(
+                egui::UiBuilder::new().max_rect(Rect::from_min_size(
+                    Pos2::new(ui.min_rect().left() + center_left, ui.cursor().top()),
+                    Vec2::new(center_w, 10.0),
+                )),
                 |ui| {
-                    ui.set_min_size(Vec2::new(center_w, 10.0));
                     composer.show(ui, |ui| {
                         ui.set_width(ui.available_width());
                         let te = egui::TextEdit::multiline(&mut state.draft)
@@ -150,30 +182,68 @@ pub fn render(ctx: &egui::Context, state: &mut crate::AppState) {
                         ui.add_space(10.0);
                         ui.horizontal(|ui| {
                             toggle(ui, &mut state.full_access, "Full access");
-                            let _ = icons::icon_button(ui, 26.0, icons::paperclip, theme::FG_SUBTLE);
-                            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                                // model picker chip
-                                let (mr, mresp) = ui.allocate_exact_size(Vec2::new(104.0, 26.0), Sense::click());
-                                {
-                                    let p = ui.painter();
-                                    p.rect_filled(mr, Rounding::same(8.0), if mresp.hovered() { theme::SURFACE_HOVER } else { Color32::TRANSPARENT });
-                                    text(p, Pos2::new(mr.left() + 8.0, mr.center().y), egui::Align2::LEFT_CENTER, 12.0, theme::FG_SUBTLE, &state.model);
-                                    let cd = Rect::from_center_size(Pos2::new(mr.right() - 12.0, mr.center().y), Vec2::splat(12.0));
-                                    icons::chevron_down(p, cd, theme::FG_SUBTLE);
-                                }
-                                ui.add_space(6.0);
-                                // send button
-                                let (sr, sresp) = ui.allocate_exact_size(Vec2::splat(28.0), Sense::click());
-                                {
-                                    let p = ui.painter();
-                                    let bg = if state.draft.is_empty() { theme::NEUTRAL_700 } else if sresp.hovered() { theme::BRAND_BRIGHT } else { theme::BRAND };
-                                    p.rect_filled(sr, Rounding::same(8.0), bg);
-                                    icons::arrow_up(p, sr.shrink(7.0), theme::WHITE);
-                                }
-                                if sresp.clicked() && !state.draft.trim().is_empty() {
-                                    state.push_task_from_draft();
-                                }
-                            });
+                            let _ =
+                                icons::icon_button(ui, 26.0, icons::paperclip, theme::FG_SUBTLE);
+                            ui.with_layout(
+                                egui::Layout::right_to_left(egui::Align::Center),
+                                |ui| {
+                                    // model picker chip — real builtin models from
+                                    // config/provider/zcode-builtin.json (Z.ai Coding Plan)
+                                    let chip_w = state.model.len() as f32 * 7.0 + 30.0;
+                                    let (mr, mresp) = ui.allocate_exact_size(
+                                        Vec2::new(chip_w, 26.0),
+                                        Sense::click(),
+                                    );
+                                    {
+                                        let p = ui.painter();
+                                        p.rect_filled(
+                                            mr,
+                                            Rounding::same(8.0),
+                                            if mresp.hovered() {
+                                                theme::SURFACE_HOVER
+                                            } else {
+                                                Color32::TRANSPARENT
+                                            },
+                                        );
+                                        text(
+                                            p,
+                                            Pos2::new(mr.left() + 8.0, mr.center().y),
+                                            egui::Align2::LEFT_CENTER,
+                                            12.0,
+                                            theme::FG_SUBTLE,
+                                            &state.model,
+                                        );
+                                        let cd = Rect::from_center_size(
+                                            Pos2::new(mr.right() - 12.0, mr.center().y),
+                                            Vec2::splat(12.0),
+                                        );
+                                        icons::chevron_down(p, cd, theme::FG_SUBTLE);
+                                    }
+                                    if mresp.clicked() {
+                                        state.model_picker_open = !state.model_picker_open;
+                                    }
+                                    *chip_rect.borrow_mut() = Some(mr);
+                                    ui.add_space(6.0);
+                                    // send button
+                                    let (sr, sresp) =
+                                        ui.allocate_exact_size(Vec2::splat(28.0), Sense::click());
+                                    {
+                                        let p = ui.painter();
+                                        let bg = if state.draft.is_empty() {
+                                            theme::NEUTRAL_700
+                                        } else if sresp.hovered() {
+                                            theme::BRAND_BRIGHT
+                                        } else {
+                                            theme::BRAND
+                                        };
+                                        p.rect_filled(sr, Rounding::same(8.0), bg);
+                                        icons::arrow_up(p, sr.shrink(7.0), theme::WHITE);
+                                    }
+                                    if sresp.clicked() && !state.draft.trim().is_empty() {
+                                        state.push_task_from_draft();
+                                    }
+                                },
+                            );
                         });
                     });
                 },
@@ -182,16 +252,18 @@ pub fn render(ctx: &egui::Context, state: &mut crate::AppState) {
             ui.add_space(18.0);
 
             // quick action chips
-            ui.allocate_ui_at_rect(
-                Rect::from_min_size(Pos2::new(ui.min_rect().left() + center_left, ui.cursor().top()), Vec2::new(center_w, 32.0)),
+            ui.allocate_new_ui(
+                egui::UiBuilder::new().max_rect(Rect::from_min_size(
+                    Pos2::new(ui.min_rect().left() + center_left, ui.cursor().top()),
+                    Vec2::new(center_w, 32.0),
+                )),
                 |ui| {
-                    ui.set_min_size(Vec2::new(center_w, 32.0));
                     ui.horizontal(|ui| {
-                        if chip(ui, "Weekly Summary", icons::sparkle) {}
+                        chip(ui, "Weekly Summary", icons::sparkle);
                         ui.add_space(6.0);
-                        if chip(ui, "Error Fix", icons::zap) {}
+                        chip(ui, "Error Fix", icons::zap);
                         ui.add_space(6.0);
-                        if chip(ui, "PPT Creation", icons::sparkle) {}
+                        chip(ui, "PPT Creation", icons::sparkle);
                         ui.add_space(6.0);
                         if chip(ui, "Idle-time task", icons::clock) {}
                     });
@@ -200,42 +272,80 @@ pub fn render(ctx: &egui::Context, state: &mut crate::AppState) {
 
             // ============ terminal dock (bottom) ============
             ui.with_layout(egui::Layout::bottom_up(egui::Align::Min), |ui| {
-                let dock_h = theme::TERMINAL_DOCK_HEIGHT;
-                let avail_w = ui.available_width();
-                let (dock, _) = ui.allocate_exact_size(Vec2::new(avail_w, dock_h), Sense::hover());
-                let p = ui.painter();
-                p.rect_filled(dock, Rounding::ZERO, theme::NEUTRAL_950);
-                p.line_segment([dock.left_top(), dock.right_top()], Stroke::new(1.0_f32, theme::BORDER));
-                // header
-                text(
-                    p,
-                    Pos2::new(dock.left() + 14.0, dock.top() + 16.0),
-                    egui::Align2::LEFT_CENTER,
-                    10.5,
-                    theme::FG_SUBTLEST,
-                    "POWERSHELL",
-                );
-                // body lines (faithful to ZCode first-run terminal)
-                let lines: Vec<(&str, Color32)> = vec![
-                    ("PowerShell 7.6.2", theme::FG_SUBTLE),
-                    ("Install the latest PowerShell for new features and improvements!", theme::FG_SUBTLEST),
-                    ("", theme::FG_SUBTLEST),
-                    ("PS C:\\Users\\ariyo\\XenCode\\rust> ", theme::FG_SUBTLE),
-                ];
-                let mut y = dock.top() + 40.0;
-                for (s, c) in lines {
-                    if !s.is_empty() {
-                        text(p, Pos2::new(dock.left() + 14.0, y), egui::Align2::LEFT_CENTER, 12.5, c, s);
-                    }
-                    y += 22.0;
-                }
-                // caret
-                let prompt_w = "PS C:\\Users\\ariyo\\XenCode\\rust> ".len() as f32 * 7.4;
-                p.rect_filled(
-                    Rect::from_min_size(Pos2::new(dock.left() + 14.0 + prompt_w, y - 14.0), Vec2::new(7.0, 14.0)),
-                    Rounding::ZERO,
-                    theme::FG_SUBTLE,
-                );
+                let dock_h = if state.dock_collapsed {
+                    36.0
+                } else {
+                    state.dock_height
+                };
+                let (dock, _) =
+                    ui.allocate_exact_size(Vec2::new(ui.available_width(), dock_h), Sense::hover());
+                crate::ui::terminal::render_dock(ui, state, dock);
             });
         });
+
+    // ---------- model picker popover ----------
+    if state.model_picker_open {
+        if let Some(chip) = *chip_rect.borrow() {
+            // click-away backdrop (sits below the picker in draw order)
+            egui::Area::new(egui::Id::new("model-picker-backdrop"))
+                .order(egui::Order::Foreground)
+                .fixed_pos(Pos2::ZERO)
+                .show(ctx, |ui| {
+                    let (whole, resp) = ui.allocate_exact_size(ui.available_size(), Sense::click());
+                    if resp.clicked() {
+                        state.model_picker_open = false;
+                    }
+                    let _ = whole;
+                });
+
+            egui::Area::new(egui::Id::new("model-picker"))
+                .order(egui::Order::Foreground)
+                .fixed_pos(Pos2::new(chip.center().x - 110.0, chip.bottom() + 4.0))
+                .show(ctx, |ui| {
+                    egui::Frame::none()
+                        .fill(theme::CARD)
+                        .rounding(Rounding::same(10.0))
+                        .stroke(Stroke::new(1.0_f32, theme::BORDER))
+                        .inner_margin(egui::Margin::same(4.0))
+                        .show(ui, |ui| {
+                            ui.set_width(224.0);
+                            for model in ["GLM-5.3", "GLM-5.3-Flash"] {
+                                let (r, resp) =
+                                    ui.allocate_exact_size(Vec2::new(216.0, 30.0), Sense::click());
+                                let p = ui.painter();
+                                if resp.hovered() {
+                                    p.rect_filled(r, Rounding::same(6.0), theme::SURFACE_HOVER);
+                                }
+                                let selected = state.model == model;
+                                text(
+                                    p,
+                                    Pos2::new(r.left() + 10.0, r.center().y),
+                                    egui::Align2::LEFT_CENTER,
+                                    12.5,
+                                    if selected {
+                                        theme::FG
+                                    } else {
+                                        theme::FG_SUBTLE
+                                    },
+                                    model,
+                                );
+                                if selected {
+                                    icons::check(
+                                        p,
+                                        Rect::from_center_size(
+                                            Pos2::new(r.right() - 14.0, r.center().y),
+                                            Vec2::splat(14.0),
+                                        ),
+                                        theme::BRAND,
+                                    );
+                                }
+                                if resp.clicked() {
+                                    state.model = model.to_string();
+                                    state.model_picker_open = false;
+                                }
+                            }
+                        });
+                });
+        }
+    }
 }

@@ -1,15 +1,23 @@
 //! XenCode — 100% Rust native desktop GUI (eframe/egui).
-//! Milestone 1: main workspace screen, faithful to the ZCode design tokens.
+//! Milestone 2: main workspace screen + live PTY terminal dock + settings view,
+//! faithful to the ZCode design tokens.
 
 mod icons;
+mod pty;
+mod term;
 mod theme;
 mod ui;
 
 use egui::{Color32, Vec2};
 
-pub struct TaskEntry {
-    name: String,
-    color: Color32,
+pub use ui::settings::Section as SettingsSection;
+
+#[derive(Clone, Copy, PartialEq, Eq, Default)]
+pub enum ThemeMode {
+    System,
+    #[default]
+    Dark,
+    Light,
 }
 
 pub struct SidebarState {
@@ -24,6 +32,17 @@ pub struct AppState {
     pub model: String,
     pub tasks: Vec<(String, Color32)>,
     pub sidebar: SidebarState,
+    pub settings: ui::settings::SettingsState,
+    pub theme: ThemeMode,
+    // terminal dock
+    pub term: Option<pty::TermSession>,
+    pub term_focus: bool,
+    pub term_scroll: i64,
+    pub dock_collapsed: bool,
+    pub dock_height: f32,
+    pub term_error: Option<String>,
+    // model picker
+    pub model_picker_open: bool,
     hour: u8,
 }
 
@@ -39,8 +58,8 @@ impl AppState {
 
     pub fn push_task_from_draft(&mut self) {
         let first = self.draft.lines().next().unwrap_or("").to_string();
-        let title = if first.len() > 40 {
-            format!("{}…", &first[..40])
+        let title = if first.chars().count() > 40 {
+            format!("{}…", first.chars().take(40).collect::<String>())
         } else {
             first
         };
@@ -52,18 +71,36 @@ impl AppState {
 impl Default for AppState {
     fn default() -> Self {
         let hour = chrono_hour();
+        let cwd = std::env::current_dir()
+            .map(|p| p.to_string_lossy().to_string())
+            .unwrap_or_default();
+        let project = std::path::Path::new(&cwd)
+            .file_name()
+            .map(|n| n.to_string_lossy().to_string())
+            .unwrap_or_else(|| "workspace".to_string());
         Self {
-            project: "rust".to_string(),
-            project_path: "C:\\Users\\ariyo\\XenCode\\rust".to_string(),
+            project,
+            project_path: cwd,
             draft: String::new(),
             full_access: true,
-            model: "glm-5.3 Max".to_string(),
+            model: "GLM-5.3".to_string(),
             tasks: vec![
                 ("hello".to_string(), theme::SUCCESS),
                 ("hello".to_string(), theme::FG_SUBTLEST),
                 ("hello".to_string(), theme::FG_SUBTLEST),
             ],
-            sidebar: SidebarState { selected_task: None },
+            sidebar: SidebarState {
+                selected_task: None,
+            },
+            settings: ui::settings::SettingsState::default(),
+            theme: ThemeMode::default(),
+            term: None,
+            term_focus: false,
+            term_scroll: 0,
+            dock_collapsed: false,
+            dock_height: theme::TERMINAL_DOCK_HEIGHT,
+            term_error: None,
+            model_picker_open: false,
             hour,
         }
     }
@@ -82,7 +119,11 @@ fn chrono_hour() -> u8 {
 impl eframe::App for AppState {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
         ui::sidebar::render(ctx, self);
-        ui::welcome::render(ctx, self);
+        if self.settings.open {
+            ui::settings::render(ctx, self);
+        } else {
+            ui::welcome::render(ctx, self);
+        }
     }
 }
 
@@ -115,12 +156,12 @@ fn main() -> eframe::Result<()> {
             style.visuals = visuals;
             style.spacing.item_spacing = Vec2::new(0.0, 0.0);
             cc.egui_ctx.set_style(style);
-            // hint text color for the composer
-            let mut fonts_tex: Vec<(String, f32)> = Vec::new();
-            let _ = fonts_tex;
-            Ok(Box::new(AppState::default()))
+            let mut app = AppState::default();
+            // headless test hook: XENCODE_OPEN_SETTINGS=1 boots into the settings view
+            if std::env::var("XENCODE_OPEN_SETTINGS").as_deref() == Ok("1") {
+                app.settings.open = true;
+            }
+            Ok(Box::new(app))
         }),
     )
 }
-
-// keep Pos2 import used (silences unused import warnings on some toolchains)

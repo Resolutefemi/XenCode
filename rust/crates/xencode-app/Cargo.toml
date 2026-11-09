@@ -16,3 +16,6 @@ eframe = { workspace = true, features = ["default"] }
 egui = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
+portable-pty = { workspace = true }
+vte = { workspace = true }
+anyhow = { workspace = true }
