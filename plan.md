@@ -31,13 +31,16 @@ Execution order: 0 → 1 → 2 → 6.1–6.2 → 3 → 4 → 8 → 7 → 5. Phas
 
 - Apply the two queued fidelity fixes (home watermark glow underlay, string audit on settings/chat/git/terminal pages).
 - Re-render all 6 pages (`--screenshot --out`) → side-by-side acceptance vs ZCode → push.
-- Status: fidelity pass committed (`dba447f`); final screenshot sweep pending.
+- Status: **DONE** — all six pages rendered, QA'd and committed under `screenshots/` (also embedded in the README).
 
 ## Phase 1 — Agent core backend (M)
 
 - Agent loop on GLM with streaming; tool executors (read/write/edit, glob/grep, process, todo).
 - Session store: resume, fork, compaction.
 - Permission prompts wired to the native GUI.
+- Status: **core landed** — `app/src/agent/` (GLM SSE streaming client, 7 tools, the loop,
+  JSON sessions, permission gates) + `xencode --agent "prompt"` CLI; tests green.
+  GUI wiring (composer → loop, permission prompts in panes) is the next milestone.
 
 ## Phase 2 — QuickJS automation core (M)
 
