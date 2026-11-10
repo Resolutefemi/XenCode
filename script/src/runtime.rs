@@ -172,12 +172,38 @@ impl ScriptRuntime {
         self.run_script_with_timeout(path, args, self.default_timeout).await
     }
 
+    /// Run an agent hook script (Phase 3). Evaluated like any script, but a
+    /// callable default export wins: it is invoked with the hook payload
+    /// (`ctx`) and its promise-aware return value becomes the hook's JSON
+    /// verdict (`{ decision, reason, feedback }`). A plain default value or
+    /// `export async function main(ctx)` also resolve to the verdict.
+    pub async fn run_hook(
+        &self,
+        path: &Path,
+        payload: &serde_json::Value,
+    ) -> anyhow::Result<serde_json::Value> {
+        let abs = path
+            .canonicalize()
+            .map_err(|e| anyhow::anyhow!("{}: {e}", path.display()))?;
+        let source = std::fs::read_to_string(&abs)
+            .map_err(|e| anyhow::anyhow!("{}: {e}", abs.display()))?;
+        // The interrupt guard must cover hooks too — a hung hook script
+        // (e.g. an accidental `while (true)`) has to hit the deadline, not
+        // spin forever in a thread the agent loop waits on.
+        self.interrupt.set_timeout(self.default_timeout);
+        let result = self.eval_module_source(&abs, &source, payload, true).await;
+        self.interrupt.set_timeout(None);
+        result
+    }
+
     /// Evaluate pre-read source as a module (entry point machinery).
+    /// `hook` selects the hook entry convention (callable default first).
     async fn eval_module_source(
         &self,
         abs: &Path,
         source: &str,
         args: &serde_json::Value,
+        hook: bool,
     ) -> anyhow::Result<serde_json::Value> {
         let name = abs.to_string_lossy().to_string();
         let js = ts::strip(source, &name)
@@ -193,6 +219,21 @@ impl ScriptRuntime {
                     eval.into_future::<()>().await?;
                     let ns = module.namespace()?;
                     let default: Option<Value> = ns.get("default").ok().flatten();
+
+                    // Hook convention: a callable default export — or failing
+                    // that `main(ctx)` — receives the payload and its
+                    // (promise-aware) return value is the verdict. A
+                    // non-callable default only speaks when neither entry
+                    // function exists (a static verdict object).
+                    if hook {
+                        if let Some(f) = default.as_ref().and_then(|v| v.as_function()) {
+                            return call_entry(&cx, f, &args).await;
+                        }
+                        if let Some(main) = ns.get::<_, Option<rquickjs::Function>>("main").ok().flatten() {
+                            return call_entry(&cx, &main, &args).await;
+                        }
+                    }
+
                     match default {
                         Some(v) if !v.is_undefined() => crate::jsvalue::to_json(&cx, &v)
                             .map_err(crate::host::js_err),
@@ -200,19 +241,7 @@ impl ScriptRuntime {
                             // `xencode.main(args)` / `export async function main(args)` fallback
                             let main: Option<rquickjs::Function> = ns.get("main").ok().flatten();
                             if let Some(main) = main {
-                                let arg = crate::jsvalue::to_js(&cx, &args)?;
-                                let res: Value = main.call((arg,))?;
-                                if res.is_promise() {
-                                    let p: rquickjs::Promise =
-                                        rquickjs::Promise::from_value(res.clone())?;
-                                    let v: Value = p.into_future().await?;
-                                    crate::jsvalue::to_json(&cx, &v).map_err(crate::host::js_err)
-                                } else if res.is_undefined() {
-                                    Ok(serde_json::Value::Null)
-                                } else {
-                                    crate::jsvalue::to_json(&cx, &res)
-                                        .map_err(crate::host::js_err)
-                                }
+                                call_entry(&cx, &main, &args).await
                             } else {
                                 Ok(serde_json::Value::Null)
                             }
@@ -291,6 +320,27 @@ impl ScriptRuntime {
     }
 }
 
+/// Call a JS entry function with `args` and JSON-ify the promise-aware
+/// result. Shared by the script entry (`main`) and the hook entries
+/// (callable default / `main`).
+async fn call_entry<'a>(
+    cx: &Ctx<'a>,
+    f: &rquickjs::Function<'a>,
+    args: &serde_json::Value,
+) -> Result<serde_json::Value, JsError> {
+    let arg = crate::jsvalue::to_js(cx, args)?;
+    let res: Value = f.call((arg,))?;
+    if res.is_promise() {
+        let p: rquickjs::Promise = rquickjs::Promise::from_value(res.clone())?;
+        let v: Value = p.into_future().await?;
+        crate::jsvalue::to_json(cx, &v).map_err(crate::host::js_err)
+    } else if res.is_undefined() {
+        Ok(serde_json::Value::Null)
+    } else {
+        crate::jsvalue::to_json(cx, &res).map_err(crate::host::js_err)
+    }
+}
+
 impl ScriptRuntime {
     /// `run_script` with an explicit deadline.
     pub async fn run_script_with_timeout(
@@ -305,7 +355,7 @@ impl ScriptRuntime {
         let source = std::fs::read_to_string(&abs)
             .map_err(|e| anyhow::anyhow!("{}: {e}", abs.display()))?;
         self.interrupt.set_timeout(timeout);
-        let result = self.eval_module_source(&abs, &source, args).await;
+        let result = self.eval_module_source(&abs, &source, args, false).await;
         self.interrupt.set_timeout(None);
         result
     }

@@ -168,6 +168,17 @@ impl Collector {
                     allowed: Some(*allowed),
                 });
             }
+            // Hook runs render as tool rows (`hook:PreToolUse guard.ts`),
+            // hook console output stays a CLI-only detail.
+            AgentEvent::HookRun { kind, script, ok } => {
+                self.streaming_idx = None;
+                self.page.entries.push(Entry::Tool {
+                    name: format!("hook:{kind}"),
+                    summary: script.clone(),
+                    ok: *ok,
+                });
+            }
+            AgentEvent::HookLog(_) => {}
             AgentEvent::Compacted { before, after } => {
                 self.page.entries.push(Entry::Compaction {
                     note: format!("context compacted: {before} → {after} chars"),
@@ -197,6 +208,8 @@ mod tests {
         });
         col.on(&AgentEvent::ToolStart { name: "bash".into(), summary: "cargo build".into() });
         col.on(&AgentEvent::ToolEnd { name: "bash".into(), ok: true, ms: 12 });
+        col.on(&AgentEvent::HookRun { kind: "PreToolUse".into(), script: "guard.ts".into(), ok: true });
+        col.on(&AgentEvent::HookLog("hook console noise".into()));
         col.on(&AgentEvent::Text("Build is green.".into()));
         col.on(&AgentEvent::Done);
 
@@ -209,7 +222,12 @@ mod tests {
         assert!(matches!(&p.entries[1], Entry::Assistant { text } if text.contains("Reading")));
         assert!(matches!(&p.entries[2], Entry::Permission { allowed: Some(true), tool, .. } if tool == "bash"));
         assert!(matches!(&p.entries[3], Entry::Tool { ok: true, .. }));
-        assert!(matches!(&p.entries[4], Entry::Assistant { text } if text.contains("green")));
+        assert!(
+            matches!(&p.entries[4], Entry::Tool { name, summary, ok: true, .. }
+                if name == "hook:PreToolUse" && summary == "guard.ts"),
+            "hook runs render as tool rows"
+        );
+        assert!(matches!(&p.entries[5], Entry::Assistant { text } if text.contains("green")));
     }
 
     #[test]

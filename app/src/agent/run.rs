@@ -12,6 +12,7 @@ use super::compact;
 use super::permissions::{Decision, PermissionGate, Request, Response};
 use super::provider::{Message, Provider, Role, ToolDef};
 use super::{session, tools};
+use xencode_script::hooks::{HookKind, HookRunner};
 
 /// Progress events for a UI or CLI printer.
 #[derive(Clone)]
@@ -22,6 +23,10 @@ pub enum AgentEvent {
     ToolEnd { name: String, ok: bool, ms: u128 },
     /// A consent prompt was resolved for `tool` (`allowed` = the outcome).
     Ask { tool: String, detail: String, allowed: bool },
+    /// A hook script ran at a loop checkpoint (`ok` = ran to completion).
+    HookRun { kind: String, script: String, ok: bool },
+    /// Console output produced by a hook script (CLI stderr only).
+    HookLog(String),
     /// Older turns were folded into a summary (chars before → after).
     Compacted { before: usize, after: usize },
     /// The final message list — what a session store / GUI transcript renders.
@@ -57,6 +62,13 @@ pub struct AgentOptions {
     /// Transcript budget in chars; older turns compact when exceeded.
     /// `None` disables compaction.
     pub compact_chars: Option<usize>,
+    /// Agent hooks from `xen.toml` (`[hooks]`) — PreToolUse / PostToolUse /
+    /// Stop, each executed in its own sandboxed QuickJS runtime. `None` or
+    /// an empty runner skips the machinery entirely.
+    pub hooks: Option<Arc<HookRunner>>,
+    /// Plan mode: the system prompt instructs research-only behavior and
+    /// mutations are blocked until the plan is approved (Phase 3).
+    pub plan_mode: bool,
 }
 
 impl Default for AgentOptions {
@@ -69,6 +81,8 @@ impl Default for AgentOptions {
             history: Vec::new(),
             asker: None,
             compact_chars: Some(compact::DEFAULT_BUDGET_CHARS),
+            hooks: None,
+            plan_mode: false,
         }
     }
 }
@@ -88,17 +102,31 @@ pub async fn run_agent<P: Provider>(
         history,
         mut asker,
         compact_chars,
+        ref hooks,
+        plan_mode,
     } = opts;
     let tool_defs: Vec<ToolDef> = tools::tool_defs();
     let ctx = tools::ToolCtx { cwd: cwd.clone() };
 
+    // Hook scripts' console output flows through its own channel; a drainer
+    // forwards it to the UI as HookLog events for the whole run.
+    let (hook_tx, mut hook_rx) = xencode_script::events::channel();
+    let hook_log_tx = tx.clone();
+    tokio::spawn(async move {
+        while let Some(ev) = hook_rx.recv().await {
+            if let Some(line) = xencode_script::events::format_cli(&ev) {
+                let _ = hook_log_tx.send(AgentEvent::HookLog(line));
+            }
+        }
+    });
+
     // Seed the loop: fresh sessions get system+prompt; resumes append to history.
     let mut messages = if history.is_empty() {
-        vec![Message::system(system_prompt(&cwd)), Message::user(prompt)]
+        vec![Message::system(system_prompt(&cwd, plan_mode)), Message::user(prompt)]
     } else {
         let mut h = history;
         if !h.iter().any(|m| m.role == Role::System) {
-            h.insert(0, Message::system(system_prompt(&cwd)));
+            h.insert(0, Message::system(system_prompt(&cwd, plan_mode)));
         }
         h.push(Message::user(prompt));
         h
@@ -137,6 +165,18 @@ pub async fn run_agent<P: Provider>(
         let _ = pump.await;
 
         if assistant.tool_calls.is_empty() {
+            // Stop hooks may block stopping: the reason is pushed into the
+            // loop as a user turn and the model keeps working (bounded by
+            // max_iterations like every other path).
+            if let Some(reason) = stop_hook_block(hooks.as_ref(), &assistant.content, iteration, hook_tx.clone(), &tx).await {
+                if iteration < max_iterations {
+                    messages.push(assistant.clone());
+                    messages.push(Message::user(format!(
+                        "[Stop hook] Your reply was blocked: {reason}\nContinue working on the task."
+                    )));
+                    continue;
+                }
+            }
             if let Some(dir) = session_dir {
                 messages.push(assistant.clone());
                 let _ = session::Session::from_messages(&messages).save(dir);
@@ -184,7 +224,19 @@ pub async fn run_agent<P: Provider>(
                     summary: "(denied by permission gate)".into(),
                 });
                 let _ = tx.send(AgentEvent::ToolEnd { name: call.name.clone(), ok: false, ms: 0 });
-                messages.push(Message::tool_result(&call.id, "Permission denied by the user."));
+                messages.push(Message::tool_result(&call.id, gate.denial_message()));
+                continue;
+            }
+
+            // PreToolUse hooks run after the permission gate and can still
+            // block the call with an explicit `{ decision: "deny" }` verdict.
+            if let Some(block) = pre_tool_hook(hooks.as_ref(), &call.name, &call.arguments, &cwd, hook_tx.clone(), &tx).await {
+                let _ = tx.send(AgentEvent::ToolStart {
+                    name: call.name.clone(),
+                    summary: "(blocked by PreToolUse hook)".into(),
+                });
+                let _ = tx.send(AgentEvent::ToolEnd { name: call.name.clone(), ok: false, ms: 0 });
+                messages.push(Message::tool_result(&call.id, block));
                 continue;
             }
 
@@ -196,8 +248,13 @@ pub async fn run_agent<P: Provider>(
             let result = tools::execute(&call.name, &call.arguments, &ctx).await;
             let ms = t0.elapsed().as_millis();
             let ok = result.is_ok();
-            let text = result.unwrap_or_else(|e| format!("Error: {e:#}"));
+            let mut text = result.unwrap_or_else(|e| format!("Error: {e:#}"));
             let _ = tx.send(AgentEvent::ToolEnd { name: call.name.clone(), ok, ms });
+
+            // PostToolUse hooks may attach feedback that joins the result
+            // the model sees for this tool call.
+            post_tool_hook(hooks.as_ref(), &call.name, &call.arguments, &mut text, ok, ms, hook_tx.clone(), &tx).await;
+
             messages.push(Message::tool_result(&call.id, text));
         }
     }
@@ -205,8 +262,8 @@ pub async fn run_agent<P: Provider>(
     bail!("agent stopped: reached max iterations ({})", max_iterations)
 }
 
-fn system_prompt(cwd: &Path) -> String {
-    format!(
+fn system_prompt(cwd: &Path, plan_mode: bool) -> String {
+    let mut p = format!(
         "You are XenCode, a coding agent working inside the user's project at {}.\n\n\
          Rules:\n\
          - Use the provided tools to read, search, edit and run code. Never guess file contents — read first.\n\
@@ -214,7 +271,125 @@ fn system_prompt(cwd: &Path) -> String {
          - Verify your changes: run builds or tests with bash when you can.\n\
          - Keep answers short and concrete. When you are done, reply with the final summary only — no tool calls.",
         cwd.display()
-    )
+    );
+
+    // Phase 3: memory files auto-loaded into context (XENCODE.md / AGENTS.md).
+    if let Some(memory) = super::memory::system_memory_section(cwd) {
+        p.push_str(&memory);
+    }
+
+    if plan_mode {
+        p.push_str(
+            "\n\n# Plan mode\n\n\
+             PLAN MODE IS ACTIVE. You may research freely (read, grep, list, read-only bash) \n\
+             but every mutating tool call is blocked. Produce a step-by-step implementation \n\
+             plan as your final answer: files to touch, the change for each, verification \n\
+             steps, and risks. The user will review the plan before any edit happens.",
+        );
+    }
+    p
+}
+
+/// Run PreToolUse hooks; `Some(message)` means the call is blocked and the
+/// message becomes the tool result the model sees.
+async fn pre_tool_hook(
+    hooks: Option<&Arc<HookRunner>>,
+    tool: &str,
+    args: &Value,
+    cwd: &Path,
+    hook_tx: xencode_script::events::UiEventTx,
+    tx: &tokio::sync::mpsc::UnboundedSender<AgentEvent>,
+) -> Option<String> {
+    let hooks = hooks?;
+    if !hooks.has(HookKind::PreToolUse) {
+        return None;
+    }
+    let payload = serde_json::json!({
+        "hook": HookKind::PreToolUse.as_str(),
+        "tool": tool,
+        "args": args,
+        "cwd": cwd.display().to_string(),
+    });
+    let outcomes = hooks.run(HookKind::PreToolUse, payload, hook_tx).await;
+    for o in outcomes {
+        let _ = tx.send(AgentEvent::HookRun {
+            kind: HookKind::PreToolUse.as_str().into(),
+            script: o.script.clone(),
+            ok: o.ok,
+        });
+        if o.denies() {
+            let reason = o.reason.unwrap_or_else(|| "no reason given".into());
+            return Some(format!("Blocked by PreToolUse hook ({}): {reason}", o.script));
+        }
+    }
+    None
+}
+
+/// Run PostToolUse hooks; feedback verdicts are appended to the tool result.
+async fn post_tool_hook(
+    hooks: Option<&Arc<HookRunner>>,
+    tool: &str,
+    args: &Value,
+    text: &mut String,
+    ok: bool,
+    ms: u128,
+    hook_tx: xencode_script::events::UiEventTx,
+    tx: &tokio::sync::mpsc::UnboundedSender<AgentEvent>,
+) {
+    let Some(hooks) = hooks else { return };
+    if !hooks.has(HookKind::PostToolUse) {
+        return;
+    }
+    let payload = serde_json::json!({
+        "hook": HookKind::PostToolUse.as_str(),
+        "tool": tool,
+        "args": args,
+        "result": text,
+        "ok": ok,
+        "ms": ms,
+    });
+    let outcomes = hooks.run(HookKind::PostToolUse, payload, hook_tx).await;
+    for o in outcomes {
+        let _ = tx.send(AgentEvent::HookRun {
+            kind: HookKind::PostToolUse.as_str().into(),
+            script: o.script.clone(),
+            ok: o.ok,
+        });
+        if let Some(feedback) = o.feedback {
+            text.push_str(&format!("\n\n[hook feedback from {}]: {feedback}", o.script));
+        }
+    }
+}
+
+/// Run Stop hooks; `Some(reason)` blocks stopping and feeds the reason back.
+async fn stop_hook_block(
+    hooks: Option<&Arc<HookRunner>>,
+    answer: &str,
+    iterations: usize,
+    hook_tx: xencode_script::events::UiEventTx,
+    tx: &tokio::sync::mpsc::UnboundedSender<AgentEvent>,
+) -> Option<String> {
+    let hooks = hooks?;
+    if !hooks.has(HookKind::Stop) {
+        return None;
+    }
+    let payload = serde_json::json!({
+        "hook": HookKind::Stop.as_str(),
+        "answer": answer,
+        "iterations": iterations,
+    });
+    let outcomes = hooks.run(HookKind::Stop, payload, hook_tx).await;
+    for o in outcomes {
+        let _ = tx.send(AgentEvent::HookRun {
+            kind: HookKind::Stop.as_str().into(),
+            script: o.script.clone(),
+            ok: o.ok,
+        });
+        if o.blocks() {
+            return Some(o.reason.unwrap_or_else(|| "stop blocked by hook".into()));
+        }
+    }
+    None
 }
 
 pub(crate) fn summarize(args: &Value) -> String {
@@ -234,9 +409,10 @@ pub(crate) fn summarize(args: &Value) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::agent::permissions::{AskGate, ReadOnly};
+    use crate::agent::permissions::{self, AskGate, ReadOnly};
     use crate::agent::provider::{MockProvider, Role, ToolCall};
     use serde_json::json;
+    use std::sync::Arc;
     use tokio::sync::mpsc;
 
     fn tmp(tag: &str) -> PathBuf {
@@ -492,6 +668,259 @@ mod tests {
 
         let listing = tools::execute("list_dir", &json!({}), &ctx).await.unwrap();
         assert!(listing.contains("a.rs"));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    // ------------------------------------------------------------------
+    // Phase 3: memory files, hooks, plan mode
+    // ------------------------------------------------------------------
+
+    /// Write a hook config into `dir` and return the runner for it.
+    fn hook_runner(dir: &Path, hooks_toml: &str) -> Arc<HookRunner> {
+        std::fs::write(dir.join("xen.toml"), hooks_toml).unwrap();
+        let cfg = xencode_script::XenConfig::load(&dir.join("xen.toml")).unwrap();
+        Arc::new(HookRunner::from_config(&dir.join("xen.toml"), &cfg.hooks))
+    }
+
+    #[tokio::test]
+    async fn memory_files_reach_the_system_prompt() {
+        let dir = tmp("mem-prompt");
+        std::fs::write(dir.join("XENCODE.md"), "project convention: never use unwrap()").unwrap();
+
+        let mock = MockProvider::new(vec![final_turn("noted")]);
+        let (tx, mut rx) = mpsc::unbounded_channel();
+        let opts = AgentOptions {
+            cwd: dir.clone(),
+            ..Default::default()
+        };
+        run_agent(&mock, "hello", opts, tx).await.unwrap();
+
+        let mut system = None;
+        while let Ok(ev) = rx.try_recv() {
+            if let AgentEvent::Transcript(msgs) = ev {
+                system = Some(msgs[0].content.clone());
+            }
+        }
+        let system = system.expect("transcript event");
+        assert!(system.contains("never use unwrap()"), "memory must reach the prompt");
+        assert!(system.contains("Project memory"));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[tokio::test]
+    async fn pre_tool_use_hook_blocks_the_call() {
+        let dir = tmp("pre-hook");
+        std::fs::write(
+            dir.join("guard.ts"),
+            r#"
+            export default function (ctx) {
+              if (ctx.tool === "write_file" && ctx.args.path.includes("forbidden")) {
+                return { decision: "deny", reason: "forbidden path" };
+              }
+              return { decision: "allow" };
+            }
+            "#,
+        )
+        .unwrap();
+        let hooks = hook_runner(&dir, "[hooks]\npre_tool_use = [\"guard.ts\"]\n");
+
+        let mock = MockProvider::new(vec![
+            tool_turn("t1", "write_file", json!({"path": "forbidden.txt", "content": "nope"})),
+            final_turn("the write was blocked"),
+        ]);
+        let (tx, mut rx) = mpsc::unbounded_channel();
+        let opts = AgentOptions {
+            cwd: dir.clone(),
+            hooks: Some(hooks),
+            ..Default::default()
+        };
+        run_agent(&mock, "write it", opts, tx).await.unwrap();
+
+        let mut blocked_text = None;
+        let mut saw_hook_event = false;
+        while let Ok(ev) = rx.try_recv() {
+            match ev {
+                AgentEvent::HookRun { kind, ok, .. } => {
+                    if kind == "PreToolUse" && ok {
+                        saw_hook_event = true;
+                    }
+                }
+                AgentEvent::Transcript(msgs) => {
+                    blocked_text = msgs
+                        .iter()
+                        .find(|m| m.role == Role::Tool)
+                        .map(|m| m.content.clone());
+                }
+                _ => {}
+            }
+        }
+        assert!(saw_hook_event, "HookRun event must reach the UI channel");
+        let blocked = blocked_text.expect("tool result in transcript");
+        assert!(blocked.contains("Blocked by PreToolUse hook"), "got: {blocked}");
+        assert!(blocked.contains("forbidden path"));
+        assert!(!dir.join("forbidden.txt").exists(), "hook must prevent the write");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[tokio::test]
+    async fn post_tool_use_feedback_joins_the_result() {
+        let dir = tmp("post-hook");
+        std::fs::write(
+            dir.join("audit.ts"),
+            r#"
+            export default function (ctx) {
+              if (ctx.ok && ctx.tool === "write_file") {
+                return { feedback: "remember to run the formatter" };
+              }
+              return {};
+            }
+            "#,
+        )
+        .unwrap();
+        let hooks = hook_runner(&dir, "[hooks]\npost_tool_use = [\"audit.ts\"]\n");
+
+        let mock = MockProvider::new(vec![
+            tool_turn("t1", "write_file", json!({"path": "out.txt", "content": "hi"})),
+            final_turn("wrote it"),
+        ]);
+        let (tx, mut rx) = mpsc::unbounded_channel();
+        let opts = AgentOptions {
+            cwd: dir.clone(),
+            hooks: Some(hooks),
+            ..Default::default()
+        };
+        run_agent(&mock, "write it", opts, tx).await.unwrap();
+
+        let mut tool_text = None;
+        while let Ok(ev) = rx.try_recv() {
+            if let AgentEvent::Transcript(msgs) = ev {
+                tool_text = msgs
+                    .iter()
+                    .find(|m| m.role == Role::Tool)
+                    .map(|m| m.content.clone());
+            }
+        }
+        let text = tool_text.expect("tool result");
+        assert!(text.contains("Wrote"), "tool result present");
+        assert!(
+            text.contains("[hook feedback from") && text.contains("formatter"),
+            "feedback must join the tool result, got: {text}"
+        );
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[tokio::test]
+    async fn stop_hook_blocks_until_the_answer_qualifies() {
+        let dir = tmp("stop-hook");
+        std::fs::write(
+            dir.join("verify.ts"),
+            r#"
+            export default function (ctx) {
+              if (!ctx.answer.includes("tests")) {
+                return { decision: "block", reason: "report the test results" };
+              }
+              return {};
+            }
+            "#,
+        )
+        .unwrap();
+        let hooks = hook_runner(&dir, "[hooks]\nstop = [\"verify.ts\"]\n");
+
+        let mock = MockProvider::new(vec![
+            final_turn("all done"),
+            final_turn("done — tests pass"),
+        ]);
+        let (tx, mut rx) = mpsc::unbounded_channel();
+        let opts = AgentOptions {
+            cwd: dir.clone(),
+            hooks: Some(hooks),
+            ..Default::default()
+        };
+        let answer = run_agent(&mock, "finish", opts, tx).await.unwrap();
+        assert_eq!(answer, "done — tests pass", "blocked stop must continue the loop");
+
+        let mut saw_stop_note = false;
+        while let Ok(ev) = rx.try_recv() {
+            if let AgentEvent::Transcript(msgs) = ev {
+                saw_stop_note = msgs
+                    .iter()
+                    .any(|m| m.content.contains("[Stop hook]") && m.content.contains("test results"));
+            }
+        }
+        assert!(saw_stop_note, "stop-hook reason must reach the transcript");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[tokio::test]
+    async fn plan_mode_blocks_mutations_until_gate_swap() {
+        let dir = tmp("plan");
+        std::fs::write(dir.join("note.txt"), "research me").unwrap();
+
+        // Plan run: the model tries to write anyway — blocked by the gate.
+        let mock = MockProvider::new(vec![
+            tool_turn("t1", "write_file", json!({"path": "plan.txt", "content": "step 1"})),
+            final_turn("Here is my plan: 1. write the file"),
+        ]);
+        let (tx, mut rx) = mpsc::unbounded_channel();
+        let opts = AgentOptions {
+            cwd: dir.clone(),
+            gate: Box::new(permissions::PlanGate),
+            plan_mode: true,
+            ..Default::default()
+        };
+        let answer = run_agent(&mock, "plan it", opts, tx).await.unwrap();
+        assert!(answer.contains("Here is my plan"));
+        assert!(!dir.join("plan.txt").exists(), "plan mode must block writes");
+
+        let mut blocked = None;
+        while let Ok(ev) = rx.try_recv() {
+            if let AgentEvent::Transcript(msgs) = ev {
+                blocked = msgs
+                    .iter()
+                    .find(|m| m.role == Role::Tool)
+                    .map(|m| m.content.clone());
+            }
+        }
+        assert!(
+            blocked.unwrap_or_default().contains("Plan mode:"),
+            "denial must explain plan mode"
+        );
+
+        // Execution run (post-approval): same tool now passes the AskGate.
+        let mock2 = MockProvider::new(vec![
+            tool_turn("t2", "write_file", json!({"path": "plan.txt", "content": "step 1"})),
+            final_turn("implemented"),
+        ]);
+        let (tx2, _rx2) = mpsc::unbounded_channel();
+        let opts2 = AgentOptions {
+            cwd: dir.clone(),
+            gate: Box::new(permissions::AllowAll),
+            plan_mode: false,
+            ..Default::default()
+        };
+        run_agent(&mock2, "implement", opts2, tx2).await.unwrap();
+        assert!(dir.join("plan.txt").exists(), "approved run writes");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[tokio::test]
+    async fn plan_mode_system_prompt_is_flagged() {
+        let dir = tmp("plan-prompt");
+        let mock = MockProvider::new(vec![final_turn("the plan")]);
+        let (tx, mut rx) = mpsc::unbounded_channel();
+        let opts = AgentOptions {
+            cwd: dir.clone(),
+            plan_mode: true,
+            ..Default::default()
+        };
+        run_agent(&mock, "plan it", opts, tx).await.unwrap();
+        let mut system = None;
+        while let Ok(ev) = rx.try_recv() {
+            if let AgentEvent::Transcript(msgs) = ev {
+                system = Some(msgs[0].content.clone());
+            }
+        }
+        assert!(system.expect("transcript").contains("PLAN MODE IS ACTIVE"));
         let _ = std::fs::remove_dir_all(&dir);
     }
 }

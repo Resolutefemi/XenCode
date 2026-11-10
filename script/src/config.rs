@@ -1,6 +1,13 @@
-//! `xen.toml` — automation configuration: permissions and triggers.
+//! `xen.toml` — automation configuration: permissions, triggers and hooks.
 //!
 //! ```toml
+//! [hooks]
+//! # Agent-loop hooks (Phase 3) — QuickJS scripts, each in a fresh sandbox.
+//! pre_tool_use  = [".xencode/hooks/guard.ts"]   # may deny a tool call
+//! post_tool_use = [".xencode/hooks/audit.js"]   # may attach feedback
+//! stop          = [".xencode/hooks/verify.ts"]  # may block stopping
+//! timeout_ms    = 10000
+//!
 //! [permissions]
 //! net  = ["api.example.com"]   # host allowlist, or `true` for all
 //! fs   = ["$PROJECT/data"]     # path allowlist ($PROJECT = xen.toml dir)
@@ -41,8 +48,35 @@ pub struct XenConfig {
     pub permissions: PermissionConfig,
     /// Automation triggers — one engine, four kinds.
     pub triggers: Vec<TriggerConfig>,
+    /// Agent-loop hooks (`[hooks]`) — PreToolUse / PostToolUse / Stop.
+    pub hooks: HooksConfig,
     /// Extra env vars injected into scripts (`[automation.env]`).
     pub automation: AutomationConfig,
+}
+
+/// `[hooks]` table of `xen.toml`: the scripts that observe and gate the
+/// agent loop. Every entry is a script path relative to the config file;
+/// each run executes in its own isolated QuickJS context (fresh sandbox,
+/// interrupt guard, per-hook timeout).
+#[derive(Debug, Clone, Deserialize, Default)]
+#[serde(default)]
+pub struct HooksConfig {
+    /// Run before a tool executes — return `{ decision: "deny", reason }` to block.
+    pub pre_tool_use: Vec<String>,
+    /// Run after a tool executed — return `{ feedback: "…" }` appended to the result.
+    pub post_tool_use: Vec<String>,
+    /// Run when the model is about to stop — return `{ decision: "block", reason }`
+    /// to push the reason into the loop and continue.
+    pub stop: Vec<String>,
+    /// Per-hook-run timeout in milliseconds (default 10 000).
+    pub timeout_ms: Option<u64>,
+}
+
+impl HooksConfig {
+    /// True when no hook scripts are configured at all.
+    pub fn is_empty(&self) -> bool {
+        self.pre_tool_use.is_empty() && self.post_tool_use.is_empty() && self.stop.is_empty()
+    }
 }
 
 #[derive(Debug, Clone, Deserialize, Default)]
@@ -188,7 +222,26 @@ mod tests {
     fn empty_config_is_default() {
         let cfg: XenConfig = toml::from_str("").unwrap();
         assert!(cfg.triggers.is_empty());
+        assert!(cfg.hooks.is_empty());
         assert!(cfg.permissions.is_empty());
+    }
+
+    #[test]
+    fn parses_hooks_table() {
+        let cfg: XenConfig = toml::from_str(
+            r#"
+            [hooks]
+            pre_tool_use = [".xencode/hooks/guard.ts", ".xencode/hooks/second.js"]
+            stop = [".xencode/hooks/verify.ts"]
+            timeout_ms = 5000
+            "#,
+        )
+        .unwrap();
+        assert!(!cfg.hooks.is_empty());
+        assert_eq!(cfg.hooks.pre_tool_use.len(), 2);
+        assert_eq!(cfg.hooks.post_tool_use.len(), 0);
+        assert_eq!(cfg.hooks.stop.len(), 1);
+        assert_eq!(cfg.hooks.timeout_ms, Some(5000));
     }
 
     #[test]

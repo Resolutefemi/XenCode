@@ -13,6 +13,12 @@
 //!                  wiring renders without an API key.
 //! Transcript mode: `xencode --render-session <id> --out FILE.png` renders a
 //!                  saved session from `.xencode/sessions/`.
+//! Commands mode:   `xencode --commands` lists the markdown slash commands
+//!                  found in `.xencode/commands/` (project) and
+//!                  `~/.xencode/commands/` (user).
+//! Plan mode:       `xencode --plan "task"` (or `--permission-mode plan`)
+//!                  researches read-only, prints the plan, and — in a TTY —
+//!                  asks for approval before implementing.
 
 mod agent;
 mod fonts;
@@ -22,9 +28,10 @@ mod svgpath;
 mod theme;
 mod ui;
 
+use agent::permissions::PermissionMode;
 use agent::run::{run_agent, AgentEvent, AgentOptions, Asker, AskFn};
 use agent::session::Session;
-use agent::{permissions, CliOptions, Resume};
+use agent::{commands, permissions, CliOptions, Resume};
 use anyhow::{bail, Context, Result};
 use gfx::{Canvas, Rect};
 use ui::shell::{draw_backdrop, draw_header, draw_panel, draw_sidebar_footer, draw_top_overlay, HeaderTitle, HEADER_H, WIN_H, WIN_W, panel_rect};
@@ -38,6 +45,7 @@ enum Mode {
     Agent { prompt: String, cli: CliOptions },
     AgentUi { prompt: String, out: String },
     RenderSession { id: String, out: String },
+    Commands,
 }
 
 fn main() {
@@ -57,6 +65,7 @@ fn main() {
         Mode::Agent { prompt, cli } => agent::run_cli(&prompt, cli),
         Mode::AgentUi { prompt, out } => agent_ui(&prompt, &out),
         Mode::RenderSession { id, out } => render_session(&id, &out),
+        Mode::Commands => list_commands(),
     };
 
     if let Err(e) = result {
@@ -69,6 +78,9 @@ fn parse_args() -> Result<Mode> {
     let args: Vec<String> = std::env::args().skip(1).collect();
     let mut out: Option<String> = None;
     let mut cli = CliOptions::default();
+    let mut agent: Option<String> = None;
+    let mut agent_ui: Option<String> = None;
+    let mut render: Option<String> = None;
     let mut i = 0;
 
     while i < args.len() {
@@ -79,18 +91,16 @@ fn parse_args() -> Result<Mode> {
                 continue;
             }
             "--agent" if i + 1 < args.len() => {
-                let prompt = args[i + 1].clone();
-                return Ok(Mode::Agent { prompt, cli });
+                agent = Some(args[i + 1].clone());
+                i += 1; // prompt consumed; keep scanning trailing flags
             }
             "--agent-ui" if i + 1 < args.len() => {
-                let prompt = args[i + 1].clone();
-                let out = out.unwrap_or_else(|| "agent-ui.png".into());
-                return Ok(Mode::AgentUi { prompt, out });
+                agent_ui = Some(args[i + 1].clone());
+                i += 1;
             }
             "--render-session" if i + 1 < args.len() => {
-                let id = args[i + 1].clone();
-                let out = out.unwrap_or_else(|| format!("{id}.png"));
-                return Ok(Mode::RenderSession { id, out });
+                render = Some(args[i + 1].clone());
+                i += 1;
             }
             "--continue" | "-c" => cli.resume = Some(Resume::Continue),
             "--resume" if i + 1 < args.len() => {
@@ -105,6 +115,20 @@ fn parse_args() -> Result<Mode> {
             }
             "--yes" | "-y" => cli.auto_yes = true,
             "--read-only" => cli.read_only = true,
+            "--plan" => cli.permission_mode = Some(PermissionMode::Plan),
+            "--permission-mode" if i + 1 < args.len() => {
+                let raw = &args[i + 1];
+                match PermissionMode::parse(raw) {
+                    Some(m) => cli.permission_mode = Some(m),
+                    None => bail!(
+                        "unknown permission mode `{raw}` — expected one of: \
+                         default, accept-edits, read-only, plan, yolo"
+                    ),
+                }
+                i += 2;
+                continue;
+            }
+            "--commands" => return Ok(Mode::Commands),
             "--screenshot" | "screenshot" | "" => {}
             "--window" => bail!("live window mode: not wired yet (winit+softbuffer next); use --screenshot"),
             other => bail!("unknown flag: {other}"),
@@ -112,7 +136,45 @@ fn parse_args() -> Result<Mode> {
         i += 1;
     }
 
+    // Deferred mode resolution — flags may appear on either side of the
+    // prompt/session arguments.
+    if let Some(prompt) = agent {
+        return Ok(Mode::Agent { prompt, cli });
+    }
+    if let Some(prompt) = agent_ui {
+        let out = out.unwrap_or_else(|| "agent-ui.png".into());
+        return Ok(Mode::AgentUi { prompt, out });
+    }
+    if let Some(id) = render {
+        let out = out.unwrap_or_else(|| format!("{id}.png"));
+        return Ok(Mode::RenderSession { id, out });
+    }
+
     Ok(Mode::Screenshot { out })
+}
+
+/// `xencode --commands` — list every markdown slash command visible to the
+/// current project (user scope + project scope, project wins on clashes).
+fn list_commands() -> Result<()> {
+    let cwd = std::env::current_dir().context("resolve working directory")?;
+    let cmds = commands::list(&cwd);
+    if cmds.is_empty() {
+        println!("no slash commands found");
+        println!(
+            "add markdown files to .xencode/commands/ (project) or ~/.xencode/commands/ (user)"
+        );
+        return Ok(());
+    }
+    println!("available slash commands:");
+    for c in &cmds {
+        let desc = if c.description.is_empty() {
+            String::new()
+        } else {
+            format!(" — {}", c.description)
+        };
+        println!("  /{:<14} [{}]{}", c.name, c.scope, desc);
+    }
+    Ok(())
 }
 
 fn screenshot(out: &str) {
@@ -228,11 +290,13 @@ impl Asker for AutoAsker {
 async fn live_run(prompt: &str, session_dir: &std::path::Path) -> Result<(ChatPage, String)> {
     let provider = agent::provider::GlmProvider::from_env()?;
     let mut collector = Collector::new(prompt, "Agent run");
+    let cwd = std::env::current_dir().unwrap_or_default();
     let opts = AgentOptions {
-        cwd: std::env::current_dir().unwrap_or_default(),
+        cwd,
         session_dir: Some(session_dir.to_path_buf()),
         gate: Box::new(permissions::AskGate::new()),
         asker: Some(Box::new(AutoAsker)),
+        hooks: agent::hooks_for_project(&std::env::current_dir().unwrap_or_default()),
         ..Default::default()
     };
     collect_run(provider, prompt, opts, &mut collector).await?;

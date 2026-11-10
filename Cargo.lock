@@ -2988,6 +2988,7 @@ dependencies = [
  "serde_json",
  "tiny-skia",
  "tokio",
+ "xencode-script",
 ]
 
 [[package]]

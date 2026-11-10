@@ -49,6 +49,12 @@ pub trait PermissionGate: Send + Sync {
 
     /// Record an "always allow <tool>" answer for the rest of the session.
     fn allow_always(&self, _tool: &str) {}
+
+    /// The tool-result text a `Decision::Deny` produces. Gates can
+    /// specialize it (plan mode explains what is blocked and why).
+    fn denial_message(&self) -> String {
+        "Permission denied by the user.".to_string()
+    }
 }
 
 /// Allow everything — headless/CI default (non-interactive runs).
@@ -121,6 +127,108 @@ impl PermissionGate for DenyAll {
     }
 }
 
+/// Plan mode (Phase 3): research freely, mutations hard-denied until the
+/// user approves the plan. Approval re-runs the session with the execution
+/// gate — this gate never asks, it just blocks.
+pub struct PlanGate;
+
+impl PermissionGate for PlanGate {
+    fn review(&self, tool: &str, _args: &Value) -> Decision {
+        if is_read_only_tool(tool) {
+            Decision::Allow
+        } else {
+            Decision::Deny
+        }
+    }
+
+    fn denial_message(&self) -> String {
+        "Plan mode: mutations are blocked until the plan is approved.".to_string()
+    }
+}
+
+/// `accept-edits` permission mode: file edits run without prompting,
+/// everything else follows the interactive AskGate flow.
+pub struct AcceptEdits {
+    inner: AskGate,
+}
+
+impl AcceptEdits {
+    pub fn new() -> Self {
+        Self { inner: AskGate::new() }
+    }
+}
+
+impl Default for AcceptEdits {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl PermissionGate for AcceptEdits {
+    fn review(&self, tool: &str, args: &Value) -> Decision {
+        match tool {
+            "write_file" | "edit_file" => Decision::Allow,
+            _ => self.inner.review(tool, args),
+        }
+    }
+
+    fn allow_always(&self, tool: &str) {
+        self.inner.allow_always(tool)
+    }
+}
+
+/// The five permission modes (Phase 3, harness port #5 — from Claude Code /
+/// Codex). Selected with `--permission-mode <name>` (or `--plan`, which is
+/// sugar for `plan`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum PermissionMode {
+    /// Reads free, mutations ask (the interactive default).
+    #[default]
+    Default,
+    /// File edits auto-approved, the rest asks.
+    AcceptEdits,
+    /// Mutations hard-denied (`--read-only` sugar).
+    ReadOnly,
+    /// Research-only until the plan is approved.
+    Plan,
+    /// Allow everything, never ask (CI/bypass).
+    Yolo,
+}
+
+impl PermissionMode {
+    pub fn parse(s: &str) -> Option<Self> {
+        match s {
+            "default" => Some(Self::Default),
+            "accept-edits" => Some(Self::AcceptEdits),
+            "read-only" | "readonly" => Some(Self::ReadOnly),
+            "plan" => Some(Self::Plan),
+            "yolo" | "bypass-permissions" => Some(Self::Yolo),
+            _ => None,
+        }
+    }
+
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            Self::Default => "default",
+            Self::AcceptEdits => "accept-edits",
+            Self::ReadOnly => "read-only",
+            Self::Plan => "plan",
+            Self::Yolo => "yolo",
+        }
+    }
+
+    /// The gate this mode installs for a run.
+    pub fn gate(&self) -> Box<dyn PermissionGate> {
+        match self {
+            Self::Default => Box::new(AskGate::new()),
+            Self::AcceptEdits => Box::new(AcceptEdits::new()),
+            Self::ReadOnly => Box::new(ReadOnly),
+            Self::Plan => Box::new(PlanGate),
+            Self::Yolo => Box::new(AllowAll),
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -152,5 +260,39 @@ mod tests {
         g.allow_always("bash");
         assert_eq!(g.review("bash", &json!({})), Decision::Allow);
         assert_eq!(g.review("write_file", &json!({})), Decision::Ask);
+    }
+
+    #[test]
+    fn plan_gate_blocks_mutations_with_a_clear_message() {
+        let g = PlanGate;
+        assert_eq!(g.review("read_file", &json!({})), Decision::Allow);
+        assert_eq!(g.review("grep", &json!({})), Decision::Allow);
+        assert_eq!(g.review("list_dir", &json!({})), Decision::Allow);
+        assert_eq!(g.review("write_file", &json!({})), Decision::Deny);
+        assert_eq!(g.review("edit_file", &json!({})), Decision::Deny);
+        assert_eq!(g.review("bash", &json!({})), Decision::Deny);
+        assert!(g.denial_message().contains("Plan mode"));
+    }
+
+    #[test]
+    fn accept_edits_auto_allows_file_edits_only() {
+        let g = AcceptEdits::new();
+        assert_eq!(g.review("write_file", &json!({})), Decision::Allow);
+        assert_eq!(g.review("edit_file", &json!({})), Decision::Allow);
+        assert_eq!(g.review("bash", &json!({})), Decision::Ask);
+        g.allow_always("bash");
+        assert_eq!(g.review("bash", &json!({})), Decision::Allow);
+    }
+
+    #[test]
+    fn permission_modes_parse_and_build_gates() {
+        for name in ["default", "accept-edits", "read-only", "plan", "yolo"] {
+            let m = PermissionMode::parse(name).unwrap_or_else(|| panic!("{name} must parse"));
+            assert_eq!(m.as_str(), name);
+            let _ = m.gate(); // every mode installs a gate
+        }
+        assert!(PermissionMode::parse("bogus").is_none());
+        assert!(PermissionMode::parse("bypass-permissions").is_some());
+        assert_eq!(PermissionMode::parse("plan"), Some(PermissionMode::Plan));
     }
 }

@@ -16,6 +16,7 @@
 
 pub mod config;
 pub mod events;
+pub mod hooks;
 pub mod host;
 pub mod jsvalue;
 pub mod modules;
@@ -29,6 +30,7 @@ pub mod ts;
 
 pub use config::XenConfig;
 pub use events::{UiEvent, UiEventTx};
+pub use hooks::{HookKind, HookOutcome, HookRunner};
 pub use npm::VendorCache;
 pub use permissions::{PermissionState, PromptBridge, PromptReply};
 pub use runtime::{RuntimeOptions, ScriptRuntime};

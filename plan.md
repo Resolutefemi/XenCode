@@ -113,6 +113,37 @@ Execution order: 0 → 1 → 2 → 6.1–6.2 → 3 → 4 → 8 → 7 → 5. Phas
 - **Markdown slash commands** — `.xencode/commands/*.md` with `$ARGUMENTS`.
 - **Hooks** — PreToolUse / PostToolUse / Stop; executed by the QuickJS runtime.
 - **Plan mode** — read-only until the user approves the plan.
+- Status: **DONE**.
+  - Memory (`app/src/agent/memory.rs`): `XENCODE.md` at the project root with `AGENTS.md` compat fallback, same
+    pair under `~/.xencode/` for the user scope; both loaded once per run and appended to the system prompt under
+    a `# Project memory` section. Per-file truncation at 32k chars, 64k total budget with project memory protected
+    over user memory; empty/missing files are simply skipped.
+  - Slash commands (`app/src/agent/commands.rs`): `.xencode/commands/*.md` (project shadows user), file stem is the
+    command name, optional `description:` frontmatter, `$ARGUMENTS` substitution (args appended when the body has no
+    placeholder). `/name args` expands before the loop runs (`xencode --agent "/review the auth diff"`); `--commands`
+    lists what's available with scope + description.
+  - Hooks (`script/src/hooks.rs` + loop wiring in `app/src/agent/run.rs`): `[hooks]` table in `xen.toml` —
+    `pre_tool_use` / `post_tool_use` / `stop` script lists + per-hook `timeout_ms` (default 10 s). Each run executes
+    in its own isolated QuickJS sandbox (fresh `ScriptRuntime`, memory limit, interrupt-guarded deadline) on a
+    dedicated thread behind `spawn_blocking` — a hung hook can never take the loop down. Payload arrives as the `ctx`
+    argument (`{ hook, tool, args, cwd }` pre / `{ …, result, ok, ms }` post / `{ hook, answer, iterations }` stop);
+    verdicts: `{ decision: "deny", reason }` blocks the tool call (result the model sees), `{ feedback }` joins the
+    post-tool result, `{ decision: "block", reason }` pushes a user turn and continues the run. Thrown exceptions are
+    non-blocking (matching Claude Code); missing hook files are skipped with a warning. Entry convention: callable
+    default export → `main(ctx)` → static default value. Hook runs surface as `AgentEvent::HookRun` rows in the
+    chat pane; hook console output streams as `HookLog`.
+  - Plan mode + permission modes (`app/src/agent/permissions.rs` + CLI): five modes — `default`, `accept-edits`
+    (file edits auto-approved), `read-only`, `plan` (`PlanGate`: reads free, mutations hard-denied with a plan-mode
+    message), `yolo` — selected via `--permission-mode <name>` / `--plan` sugar. The plan-mode system prompt demands
+    a step-by-step plan as the final answer; on approval (interactive prompt) the whole research transcript carries
+    into a second run under the regular gate with a fresh non-plan system prompt. Non-interactive plan runs print
+    the plan and stop. Denial text is now gate-specific (`PermissionGate::denial_message`).
+  - CLI polish: flags may appear on either side of `--agent "prompt"` (deferred mode resolution — previously
+    trailing flags were silently ignored), slash expansion and hook inventory print before the provider key check.
+  - Verified: 100 workspace tests green (40 app + 60 script) — memory scopes/budget, command expansion/shadowing,
+    hook deny/feedback/block/timeout/short-circuit/main-fallback, plan-mode gate + prompt flagging, end-to-end loop
+    integration tests with a `MockProvider`; `--commands` + flag parsing smoke-tested against the real binary and
+    all six GUI pages still render.
 
 ## Phase 4 — Harness ports, wave 2 (M each)
 

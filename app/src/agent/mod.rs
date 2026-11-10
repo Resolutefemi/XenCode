@@ -2,7 +2,9 @@
 //! Phase 1 of plan.md. The GUI (composer, panes) drives this through the
 //! same public API the CLI uses below.
 
+pub mod commands;
 pub mod compact;
+pub mod memory;
 pub mod permissions;
 pub mod provider;
 pub mod run;
@@ -11,10 +13,12 @@ pub mod tools;
 
 use anyhow::{Context, Result};
 use std::io::IsTerminal;
+use std::path::Path;
+use std::sync::Arc;
 use tokio::sync::mpsc;
 
-use permissions::{AskGate, PermissionGate, ReadOnly, Request, Response};
-use provider::GlmProvider;
+use permissions::{AskGate, PermissionGate, PermissionMode, Request, Response};
+use provider::{GlmProvider, Message, Role};
 use run::{run_agent, AgentEvent, AgentOptions, Asker};
 
 /// How to seed the loop from the session store.
@@ -36,6 +40,22 @@ pub struct CliOptions {
     pub auto_yes: bool,
     /// Hard read-only policy (`--read-only`): mutations are denied outright.
     pub read_only: bool,
+    /// Explicit permission mode (`--permission-mode`, `--plan`). Overrides
+    /// `read_only` when set.
+    pub permission_mode: Option<PermissionMode>,
+}
+
+/// Discover the project's `[hooks]` from its `xen.toml`. `None` when the
+/// project has no hooks configured (the machinery is skipped entirely).
+pub fn hooks_for_project(cwd: &Path) -> Option<Arc<xencode_script::HookRunner>> {
+    let (cfg, cfg_path) = xencode_script::XenConfig::discover(cwd).ok()?;
+    if cfg.hooks.is_empty() {
+        return None;
+    }
+    Some(Arc::new(xencode_script::HookRunner::from_config(
+        &cfg_path,
+        &cfg.hooks,
+    )))
 }
 
 /// Terminal permission prompter: y = once, a = always (this session), n = no.
@@ -67,10 +87,24 @@ impl Asker for StdinAsker {
 }
 
 /// Entry for `xencode --agent "prompt"` — headless, streaming to stdout.
+/// Phase 3 adds: slash-command expansion, memory files (auto-loaded in the
+/// system prompt), QuickJS hooks from `xen.toml`, and plan mode with an
+/// interactive approve-then-implement flow.
 pub fn run_cli(prompt: &str, cli: CliOptions) -> Result<()> {
-    let provider = GlmProvider::from_env()?;
     let cwd = std::env::current_dir().context("resolve working directory")?;
     let session_dir = cwd.join(".xencode").join("sessions");
+
+    // Slash commands: `/name args` expands from .xencode/commands/*.md;
+    // unknown or non-command prompts pass through unchanged.
+    let prompt = match commands::expand(&cwd, prompt) {
+        Some(expanded) => {
+            eprintln!("xencode · slash command expanded ({} chars)", expanded.len());
+            expanded
+        }
+        None => prompt.to_string(),
+    };
+
+    let provider = GlmProvider::from_env()?;
 
     // Seed history from the session store when resuming / forking.
     let mut history = Vec::new();
@@ -93,63 +127,152 @@ pub fn run_cli(prompt: &str, cli: CliOptions) -> Result<()> {
         }
     }
 
-    // Gate selection: read-only flag → ReadOnly; interactive TTY → AskGate
-    // with the stdin prompter; non-interactive → AllowAll (CI default).
+    // Permission mode: explicit flag > --read-only > interactive default.
     let interactive = std::io::stdin().is_terminal();
-    let (gate, asker): (Box<dyn PermissionGate>, Option<Box<dyn Asker>>) = if cli.read_only {
-        (Box::new(ReadOnly), None)
-    } else if interactive {
-        (
-            Box::new(AskGate::new()),
-            Some(Box::new(StdinAsker { auto_yes: cli.auto_yes })),
-        )
+    let mode = if cli.read_only {
+        PermissionMode::ReadOnly
     } else {
-        (Box::new(AskGate::new()), Some(Box::new(StdinAsker { auto_yes: true })))
+        cli.permission_mode.unwrap_or_default()
     };
+    let asker = Box::new(StdinAsker { auto_yes: cli.auto_yes || !interactive });
+    let (gate, asker): (Box<dyn PermissionGate>, Option<Box<dyn Asker>>) = match mode {
+        // Never-ask modes: the gate hard-decides everything.
+        PermissionMode::ReadOnly | PermissionMode::Plan | PermissionMode::Yolo => {
+            (mode.gate(), None)
+        }
+        // Interactive-capable modes ask (auto-yes in CI).
+        PermissionMode::Default | PermissionMode::AcceptEdits => (mode.gate(), Some(asker)),
+    };
+
+    let hooks = hooks_for_project(&cwd);
+    if let Some(h) = &hooks {
+        eprintln!(
+            "xencode · hooks active: {} pre-tool, {} post-tool, {} stop",
+            h.count(xencode_script::HookKind::PreToolUse),
+            h.count(xencode_script::HookKind::PostToolUse),
+            h.count(xencode_script::HookKind::Stop),
+        );
+    }
+    if mode == PermissionMode::Plan {
+        eprintln!("xencode · plan mode: mutations blocked until the plan is approved");
+    }
 
     let rt = tokio::runtime::Runtime::new().context("start tokio runtime")?;
     rt.block_on(async move {
-        let (tx, mut rx) = mpsc::unbounded_channel::<AgentEvent>();
-        let printer = tokio::spawn(async move {
-            while let Some(ev) = rx.recv().await {
-                match ev {
-                    AgentEvent::Iteration(n) => eprintln!("xencode · iteration {n}"),
-                    AgentEvent::Text(s) => {
-                        use std::io::Write;
-                        print!("{s}");
-                        let _ = std::io::stdout().flush();
-                    }
-                    AgentEvent::ToolStart { name, summary } => {
-                        eprintln!("\n· {name} {summary}");
-                    }
-                    AgentEvent::ToolEnd { name, ok, ms } => {
-                        eprintln!("  {name} {} ({ms}ms)", if ok { "ok" } else { "failed" });
-                    }
-                    AgentEvent::Ask { allowed, .. } => {
-                        if !allowed {
-                            eprintln!("  permission denied by user");
-                        }
-                    }
-                    AgentEvent::Compacted { before, after } => {
-                        eprintln!("xencode · compacted context {before} → {after} chars");
-                    }
-                    AgentEvent::Transcript(_) | AgentEvent::Done => {}
-                }
-            }
-        });
-
+        // --- run 1: research / plan ---
+        let (tx, rx) = mpsc::unbounded_channel::<AgentEvent>();
+        let printer = spawn_cli_printer(rx);
         let opts = AgentOptions {
-            cwd,
-            session_dir: Some(session_dir),
-            history,
+            cwd: cwd.clone(),
+            session_dir: Some(session_dir.clone()),
+            history: history.clone(),
             gate,
             asker,
+            hooks: hooks.clone(),
+            plan_mode: mode == PermissionMode::Plan,
             ..Default::default()
         };
-        let answer = run_agent(&provider, prompt, opts, tx).await;
-        let _ = printer.await;
+        let answer = run_agent(&provider, &prompt, opts, tx).await?;
+        let transcript = printer
+            .await
+            .unwrap_or_default()
+            .unwrap_or_else(|| Arc::new(Vec::new()));
         eprintln!();
-        answer?;
+
+        // --- plan mode: approval gate, then implementation run ---
+        if mode == PermissionMode::Plan {
+            if !interactive {
+                // CI/headless plan runs print the plan and stop — nothing
+                // was approved, nothing was changed.
+                return Ok(());
+            }
+            use std::io::Write;
+            eprint!("\nxencode · proceed with this plan? [y]es [n]o: ");
+            let _ = std::io::stderr().flush();
+            let mut line = String::new();
+            if std::io::stdin().read_line(&mut line).unwrap_or(0) == 0 {
+                return Ok(()); // EOF — treat as “not approved”
+            }
+            match line.trim() {
+                "y" | "yes" | "" => {}
+                _ => {
+                    eprintln!("xencode · plan not approved — no changes were made");
+                    return Ok(());
+                }
+            }
+            eprintln!("xencode · plan approved — implementing");
+
+            let (tx2, rx2) = mpsc::unbounded_channel::<AgentEvent>();
+            let printer2 = spawn_cli_printer(rx2);
+            // Drop the plan-mode system prompt: the execution run re-seeds a
+            // fresh one (with memory) and keeps the whole research thread.
+            let exec_history: Vec<Message> = transcript
+                .iter()
+                .skip_while(|m| m.role == Role::System)
+                .cloned()
+                .collect();
+            let opts2 = AgentOptions {
+                cwd,
+                session_dir: Some(session_dir),
+                history: exec_history,
+                gate: Box::new(AskGate::new()),
+                asker: Some(Box::new(StdinAsker { auto_yes: cli.auto_yes })),
+                hooks,
+                plan_mode: false,
+                ..Default::default()
+            };
+            let follow_up = "The user reviewed and APPROVED the plan above. Implement it now, \
+                             step by step, starting with the first step.";
+            let _ = run_agent(&provider, follow_up, opts2, tx2).await?;
+            let _ = printer2.await;
+        } else {
+            let _ = answer;
+        }
         Ok(())
+    })
+}
+
+/// CLI event printer — streams loop progress to stderr/stdout and captures
+/// the final transcript (plan mode needs it for the approval hand-off).
+fn spawn_cli_printer(
+    mut rx: mpsc::UnboundedReceiver<AgentEvent>,
+) -> tokio::task::JoinHandle<Option<Arc<Vec<Message>>>> {
+    tokio::spawn(async move {
+        let mut transcript: Option<Arc<Vec<Message>>> = None;
+        while let Some(ev) = rx.recv().await {
+            match ev {
+                AgentEvent::Iteration(n) => eprintln!("xencode · iteration {n}"),
+                AgentEvent::Text(s) => {
+                    use std::io::Write;
+                    print!("{s}");
+                    let _ = std::io::stdout().flush();
+                }
+                AgentEvent::ToolStart { name, summary } => {
+                    eprintln!("\n· {name} {summary}");
+                }
+                AgentEvent::ToolEnd { name, ok, ms } => {
+                    eprintln!("  {name} {} ({ms}ms)", if ok { "ok" } else { "failed" });
+                }
+                AgentEvent::Ask { allowed, .. } => {
+                    if !allowed {
+                        eprintln!("  permission denied by user");
+                    }
+                }
+                AgentEvent::HookRun { kind, script, ok } => {
+                    eprintln!(
+                        "  hook {kind} {} {}",
+                        script,
+                        if ok { "ok" } else { "failed" }
+                    );
+                }
+                AgentEvent::HookLog(s) => eprintln!("{s}"),
+                AgentEvent::Compacted { before, after } => {
+                    eprintln!("xencode · compacted context {before} → {after} chars");
+                }
+                AgentEvent::Transcript(t) => transcript = Some(t),
+                AgentEvent::Done => {}
+            }
+        }
+        transcript
     })
 }
