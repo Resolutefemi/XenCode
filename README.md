@@ -40,6 +40,13 @@
 | --- |
 | ![agent-ui](screenshots/07-agent-ui.png) |
 
+**Phase 4 run** — subagent card (`Agent · reviewer · done`), consent card for the
+dispatch, checkpoint timeline row, and the checkpointed write:
+
+| Subagent card, checkpoint row, consent cards |
+| --- |
+| ![agent-ui-phase4](screenshots/08-agent-ui-phase4.png) |
+
 ## Build & run
 
 Requires a stable [Rust](https://rustup.rs) toolchain.
