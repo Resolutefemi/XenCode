@@ -5,6 +5,7 @@ pub mod browser;
 pub mod chat;
 pub mod composer;
 pub mod panes;
+pub mod re;
 pub mod settings;
 pub mod shell;
 pub mod sidebar;

@@ -323,6 +323,52 @@ impl ScriptRuntime {
         outcome.await.map_err(|e| anyhow::anyhow!("{e}"))
     }
 
+    /// Evaluate a script expression and await its promise-aware result —
+    /// the `xen.*` host bridge is async, so tests and tools hitting it go
+    /// through here rather than [`Self::eval_json`].
+    pub async fn eval_json_async(&self, code: &str) -> anyhow::Result<serde_json::Value> {
+        let code = code.to_string();
+        let outcome = self.ctx.async_with(async move |cx| {
+            let v: Value = match cx.eval(code.as_str()) {
+                Ok(v) => v,
+                Err(JsError::Exception) => {
+                    // Surface the real JS error instead of the bare marker.
+                    let exc = cx.catch();
+                    let msg = if let Some(s) = exc.as_string().and_then(|s| s.to_string().ok()) {
+                        s
+                    } else if let Some(obj) = exc.as_object() {
+                        // Error objects: prefer `.message`, fall back to
+                        // `.name` / `.stack` (syntax errors carry line:col).
+                        let m: Option<String> = obj
+                            .get::<_, Option<String>>("message")
+                            .ok()
+                            .flatten()
+                            .or_else(|| obj.get::<_, Option<String>>("name").ok().flatten())
+                            .or_else(|| obj.get::<_, Option<String>>("stack").ok().flatten());
+                        m.unwrap_or_else(|| "exception".into())
+                    } else {
+                        "exception".into()
+                    };
+                    return Err(JsError::FromJs {
+                        from: "script",
+                        to: "result",
+                        message: Some(msg),
+                    });
+                }
+                Err(e) => return Err(e),
+            };
+            let v = if v.is_promise() {
+                let p: rquickjs::Promise = rquickjs::Promise::from_value(v)?;
+                let awaited: Value = p.into_future().await?;
+                awaited
+            } else {
+                v
+            };
+            crate::jsvalue::to_json(&cx, &v).map_err(crate::host::js_err)
+        });
+        outcome.await.map_err(|e| anyhow::anyhow!("{e}"))
+    }
+
     /// Drive pending jobs/timers until the runtime is quiet.
     pub async fn idle(&self) {
         self.rt.idle().await;
@@ -403,6 +449,7 @@ async fn install_xen_global(ctx: &AsyncContext) -> JsResult<()> {
             ("proc", "xen/proc"),
             ("agent", "xen/agent"),
             ("ui", "xen/ui"),
+            ("re", "xen/re"),
         ] {
             let promise = rquickjs::Module::import(&cx, spec)?;
             let ns: rquickjs::Object = promise.into_future().await?;
@@ -548,6 +595,7 @@ fn build_native_module_loader() -> ModuleLoader {
         .with_module("xen/proc", crate::host::proc::XenProc)
         .with_module("xen/agent", crate::host::agent::XenAgent)
         .with_module("xen/ui", crate::host::ui::XenUi)
+        .with_module("xen/re", crate::host::re::XenRe)
         .with_module("xen/path", crate::modules::path::XenPath)
         .with_module("xen/glob", crate::modules::glob::XenGlob)
         .with_module("xen/yaml", crate::modules::yaml::XenYaml)
@@ -643,6 +691,127 @@ mod tests {
         // the interrupt test above
         let _ = start;
         assert!(res.is_err() || res.unwrap().is_err());
+        rt.shutdown().await;
+        }).await;
+    }
+
+    /// Phase 7: the `xen.re` host module end-to-end inside QuickJS —
+    /// analyze a handcrafted minimal ELF, extract strings, disassemble
+    /// from the entry point, and read the function list.
+    #[tokio::test(flavor = "current_thread")]
+    async fn xen_re_isolated_eval() {
+        tokio::task::LocalSet::new().run_until(async {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(dir.path().join("sample.elf"), [0u8; 64]).unwrap();
+        let (tx, _rx) = crate::events::channel();
+        let rt = ScriptRuntime::new(RuntimeOptions::new(
+            dir.path().to_str().unwrap(),
+            PermissionState::allow_all(),
+            tx,
+        ))
+        .await
+        .unwrap();
+        let path_json = serde_json::to_string(&dir.path().join("sample.elf")).unwrap();
+        let code = format!(
+            "(async () => {{ try {{ const r = await xen.re.analyze({path_json}); return {{ f: r.format }}; }} catch (e) {{ return {{ js_error: String(e && e.message || e) }}; }} }})()"
+        );
+        eprintln!("isolated code: {code:?}");
+        match rt.eval_json_async(&code).await {
+            Ok(v) => eprintln!("isolated OK: {v}"),
+            Err(e) => eprintln!("isolated ERR: {e}"),
+        }
+        rt.shutdown().await;
+        }).await;
+    }
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn xen_re_module_pipeline() {
+        tokio::task::LocalSet::new().run_until(async {
+        let dir = tempfile::tempdir().unwrap();
+        let bin = dir.path().join("sample.elf");
+
+        // Minimal ELF64: header + one PT_LOAD covering the file; a `ret`
+        // (0xc3) sits at file offset 0x80 == va 0x400080 == entry.
+        let mut f = vec![0u8; 0x100];
+        f[0..4].copy_from_slice(b"\x7fELF");
+        f[4] = 2; // 64-bit
+        f[5] = 1; // LE
+        f[16..18].copy_from_slice(&2u16.to_le_bytes()); // ET_EXEC
+        f[18..20].copy_from_slice(&0x3eu16.to_le_bytes()); // EM_X86_64
+        f[20..24].copy_from_slice(&1u32.to_le_bytes());
+        f[24..32].copy_from_slice(&0x400080u64.to_le_bytes()); // e_entry
+        f[32..40].copy_from_slice(&0x40u64.to_le_bytes()); // e_phoff
+        f[52..54].copy_from_slice(&64u16.to_le_bytes());
+        f[54..56].copy_from_slice(&56u16.to_le_bytes());
+        f[56..58].copy_from_slice(&1u16.to_le_bytes()); // e_phnum
+        // PT_LOAD R+X over the whole file
+        f[0x40..0x44].copy_from_slice(&1u32.to_le_bytes());
+        f[0x44..0x48].copy_from_slice(&5u32.to_le_bytes());
+        f[0x48..0x50].copy_from_slice(&0u64.to_le_bytes());
+        f[0x50..0x58].copy_from_slice(&0x400000u64.to_le_bytes());
+        f[0x60..0x68].copy_from_slice(&0x100u64.to_le_bytes()); // p_filesz
+        f[0x68..0x70].copy_from_slice(&0x100u64.to_le_bytes()); // p_memsz
+        // code + text strings in the body
+        f[0x80] = 0xc3; // ret
+        f[0x90..0x9a].copy_from_slice(b"hello\0re!\0"); // strings
+
+        std::fs::write(&bin, &f).unwrap();
+
+        let (tx, _rx) = crate::events::channel();
+        let rt = ScriptRuntime::new(RuntimeOptions::new(
+            dir.path().to_str().unwrap(),
+            PermissionState::allow_all(),
+            tx,
+        ))
+        .await
+        .unwrap();
+
+        let path_json = serde_json::to_string(&bin).unwrap();
+
+        let code_dbg = format!(
+                "(async () => {{ \
+                 try {{ const r = await xen.re.analyze({path_json}); \
+                 return {{ format: r.format, arch: r.arch, entry: r.entry_va, \
+                 pie: r.pie, loads: r.sections.length }}; \
+                 }} catch (e) {{ return {{ js_error: String(e && e.message || e) }}; }} }})()"
+            );
+        let info = rt
+            .eval_json_async(&code_dbg)
+            .await
+            .unwrap();
+        if info.get("js_error").is_some() {
+            panic!("xen.re.analyze failed: {}", info["js_error"]);
+        }
+        assert_eq!(info["format"], "elf");
+        assert_eq!(info["arch"], "x86_64");
+        assert_eq!(info["entry"], 0x400080);
+
+        let dis = rt
+            .eval_json_async(&format!(
+                "(async () => await xen.re.disasm({path_json}, {{ max: 8 }}))()"
+            ))
+            .await
+            .unwrap();
+        assert_eq!(dis[0]["mnemonic"], "ret");
+        assert_eq!(dis[0]["addr"], 0x400080);
+
+        let hits = rt
+            .eval_json_async(&format!(
+                "(async () => await xen.re.strings({path_json}, {{ minLen: 5 }}))()"
+            ))
+            .await
+            .unwrap();
+        assert_eq!(hits[0]["text"], "hello");
+
+        let fns = rt
+            .eval_json_async(&format!(
+                "(async () => await xen.re.functions({path_json}))()"
+            ))
+            .await
+            .unwrap();
+        assert_eq!(fns[0]["name"], "<entry>");
+        assert_eq!(fns[0]["va"], 0x400080);
+
         rt.shutdown().await;
         }).await;
     }

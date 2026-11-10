@@ -1,0 +1,24 @@
+[package]
+name = "xencode-re"
+description = "XenRE — binary reverse-engineering toolkit: ELF/PE/Mach-O analysis, hex/strings, disassembly (Phase 7). Authorized/user-owned targets only; no DRM keys or circumvention tooling."
+version = "3.17.2"
+edition = "2021"
+license = "Apache-2.0"
+authors = ["Resolute Femi <ariyooluwafemi487@gmail.com>"]
+repository = "https://github.com/Resolutefemi/XenCode"
+
+[dependencies]
+# Format parsers (ELF / PE / Mach-O / COFF / TE / fat) — pure Rust, no C runtime.
+goblin = "0.10"
+# Disassembly: x86/x64, ARM, ARM64, PPC/Xenon (static C core, bundled build).
+capstone = { version = "0.14", features = ["arch_x86", "arch_arm", "arch_arm64", "arch_powerpc"] }
+serde = { version = "1", features = ["derive"] }
+anyhow = "1"
+thiserror = "2"
+
+[dev-dependencies]
+tempfile = "3"
+
+[lib]
+name = "xencode_re"
+path = "src/lib.rs"

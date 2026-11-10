@@ -7,6 +7,7 @@
 //! | `xen.proc` | [`proc`] | spawn processes, capture stdout/stderr/exit |
 //! | `xen.agent` | [`agent`] | hooks (beforeTool/afterTool/onStop), session context, messaging |
 //! | `xen.ui` | [`ui`] | toasts, prompts, progress in the native GUI |
+//! | `xen.re` | [`re`] | binary analysis (ELF/PE/Mach-O), strings, hex, disasm |
 //!
 //! Shared state ([`state::RuntimeState`] — event channel, permissions,
 //! agent/ui bridges) travels through context userdata so the stateless
@@ -16,6 +17,7 @@ pub mod agent;
 pub mod fs;
 pub mod http;
 pub mod proc;
+pub mod re;
 pub mod state;
 pub mod ui;
 

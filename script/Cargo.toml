@@ -9,6 +9,8 @@ repository = "https://github.com/Resolutefemi/XenCode"
 
 [dependencies]
 rquickjs = { version = "0.14", features = ["full-async", "array-buffer", "classes", "properties"] }
+# Phase 7: XenRE — binary analysis surfaced as xen.re hooks.
+xencode-re = { path = "../re" }
 tokio = { version = "1", features = ["rt", "rt-multi-thread", "macros", "fs", "process", "io-util", "time", "sync", "net", "signal"] }
 reqwest = { version = "0.12", default-features = false, features = ["json", "stream", "rustls-tls"] }
 serde = { version = "1", features = ["derive"] }

@@ -26,6 +26,8 @@ regex = "1"
 xencode-script = { path = "../script" }
 # Phase 6: XenBrowser — CDP client, Spaces, snapshots, screencast frames.
 xencode-browser = { path = "../browser" }
+# Phase 7: XenRE — binary analysis (ELF/PE/Mach-O), hex/strings, disasm.
+xencode-re = { path = "../re" }
 # Phase 5 repo map: tree-sitter symbol extraction (Aider-style relevance ranking).
 tree-sitter = "0.25"
 tree-sitter-rust = "0.24"

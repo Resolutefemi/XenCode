@@ -96,6 +96,24 @@ enum Mode {
     ApiDiff { old: String, new: String, json: bool },
     /// `xencode api monitor <url> --baseline FILE` — capture → diff → alert.
     ApiMonitor { url: String, baseline: String, update: bool, json: bool, opts: ApiCaptureOptions },
+    // Phase 7 -------------------------------------------------------------
+    /// `xencode re info <FILE>` — format/arch/entry/sections summary.
+    ReInfo { file: String, json: bool },
+    /// `xencode re strings <FILE> [--min N] [--utf16]` — string extraction.
+    ReStrings { file: String, min: usize, utf16_only: bool, json: bool },
+    /// `xencode re hex <FILE> [--offset N] [--len N]` — hex-view rows.
+    ReHex { file: String, offset: u64, len: u64, json: bool },
+    /// `xencode re symbols <FILE>` — symbol table.
+    ReSymbols { file: String, json: bool },
+    /// `xencode re imports <FILE>` — imported symbols.
+    ReImports { file: String, json: bool },
+    /// `xencode re exports <FILE>` — exported symbols.
+    ReExports { file: String, json: bool },
+    /// `xencode re disasm <FILE> [--offset N | --entry] [--len N] [--arch X]`.
+    ReDisasm { file: String, offset: Option<u64>, len: u64, arch: Option<String>, json: bool },
+    /// `xencode --re-ui <FILE>` — the Phase-7 native RE tab with the
+    /// analyzed binary rendered into the workspace.
+    ReUi { file: String, out: String },
 }
 
 /// `xencode api copy --as` flavor.
@@ -229,6 +247,19 @@ fn main() -> Result<()> {
             }
             Ok(())
         }
+        // Phase 7 — XenRE subcommands.
+        Mode::ReInfo { file, json } => run_re_info(&file, json),
+        Mode::ReStrings { file, min, utf16_only, json } => {
+            run_re_strings(&file, min, utf16_only, json)
+        }
+        Mode::ReHex { file, offset, len, json } => run_re_hex(&file, offset, len, json),
+        Mode::ReSymbols { file, json } => run_re_symbols(&file, json),
+        Mode::ReImports { file, json } => run_re_imports(&file, json),
+        Mode::ReExports { file, json } => run_re_exports(&file, json),
+        Mode::ReDisasm { file, offset, len, arch, json } => {
+            run_re_disasm(&file, offset, len, arch.as_deref(), json)
+        }
+        Mode::ReUi { file, out } => re_ui(&file, &out),
     };
     if let Err(e) = result {
         eprintln!("xencode: {e:#}");
@@ -256,6 +287,10 @@ fn parse_args() -> Result<Mode> {
     if args.first().map(|s| s.as_str()) == Some("api") {
         return parse_api(&args[1..]);
     }
+    // `xencode re info|strings|hex|symbols|imports|exports|disasm …` — Phase 7.
+    if args.first().map(|s| s.as_str()) == Some("re") {
+        return parse_re(&args[1..]);
+    }
 
     let mut out: Option<String> = None;
     let mut cli = CliOptions::default();
@@ -263,6 +298,7 @@ fn parse_args() -> Result<Mode> {
     let mut agent_ui: Option<String> = None;
     let mut render: Option<String> = None;
     let mut browser_ui_url: Option<String> = None;
+    let mut re_ui_file: Option<String> = None;
     let mut i = 0;
 
     while i < args.len() {
@@ -323,6 +359,11 @@ fn parse_args() -> Result<Mode> {
                 return Ok(Mode::Oracle { question: args[i + 1].clone() });
             }
             "--repo-map" => return Ok(Mode::RepoMap),
+            "--re-ui" if i + 1 < args.len() => {
+                re_ui_file = Some(args[i + 1].clone());
+                i += 2;
+                continue;
+            }
             "--browser-ui" if i + 1 < args.len() => {
                 browser_ui_url = Some(args[i + 1].clone());
                 i += 1;
@@ -346,6 +387,9 @@ fn parse_args() -> Result<Mode> {
     if let Some(id) = render {
         let out = out.unwrap_or_else(|| format!("{id}.png"));
         return Ok(Mode::RenderSession { id, out });
+    }
+    if let Some(file) = re_ui_file {
+        return Ok(Mode::ReUi { file, out: out.unwrap_or_else(|| "re-tab.png".to_string()) });
     }
     if let Some(url) = browser_ui_url {
         let out = out.unwrap_or_else(|| "browser-tab.png".into());
@@ -1644,4 +1688,583 @@ fn run_api_monitor(
         }
     }
     Ok(diff.has_changes())
+}
+
+// ============================================================================
+// Phase 7 — XenRE (`xencode re …`)
+// ============================================================================
+
+/// Parse the `re` subcommand tree.
+fn parse_re(args: &[String]) -> Result<Mode> {
+    let Some(cmd) = args.first() else {
+        bail!(
+            "usage: xencode re info <FILE> | strings <FILE> | hex <FILE> | symbols <FILE> | \
+             imports <FILE> | exports <FILE> | disasm <FILE>"
+        );
+    };
+    let rest = &args[1..];
+    match cmd.as_str() {
+        "info" => {
+            let (file, flags) = re_file_flags(rest)?;
+            Ok(Mode::ReInfo { file, json: flags.json })
+        }
+        "strings" => {
+            let mut file = None;
+            let mut min = 4usize;
+            let mut utf16_only = false;
+            let mut json = false;
+            let mut i = 0;
+            while i < rest.len() {
+                match rest[i].as_str() {
+                    "--min" if i + 1 < rest.len() => {
+                        min = rest[i + 1]
+                            .parse()
+                            .context("--min expects a number of bytes")?;
+                        i += 2;
+                    }
+                    "--utf16" => {
+                        utf16_only = true;
+                        i += 1;
+                    }
+                    "--json" => {
+                        json = true;
+                        i += 1;
+                    }
+                    other if other.starts_with('-') => bail!("unknown re strings flag: {other}"),
+                    other if file.is_none() => {
+                        file = Some(other.to_string());
+                        i += 1;
+                    }
+                    other => bail!("unexpected re strings argument: {other}"),
+                }
+            }
+            Ok(Mode::ReStrings {
+                file: re_file(file, "re strings")?,
+                min,
+                utf16_only,
+                json,
+            })
+        }
+        "hex" => {
+            let mut file = None;
+            let mut offset = 0u64;
+            let mut len = 256u64;
+            let mut json = false;
+            let mut i = 0;
+            while i < rest.len() {
+                match rest[i].as_str() {
+                    "--offset" if i + 1 < rest.len() => {
+                        offset = re_hexnum(&rest[i + 1], "--offset")?;
+                        i += 2;
+                    }
+                    "--len" if i + 1 < rest.len() => {
+                        len = re_hexnum(&rest[i + 1], "--len")?;
+                        i += 2;
+                    }
+                    "--json" => {
+                        json = true;
+                        i += 1;
+                    }
+                    other if other.starts_with('-') => bail!("unknown re hex flag: {other}"),
+                    other if file.is_none() => {
+                        file = Some(other.to_string());
+                        i += 1;
+                    }
+                    other => bail!("unexpected re hex argument: {other}"),
+                }
+            }
+            Ok(Mode::ReHex {
+                file: re_file(file, "re hex")?,
+                offset,
+                len,
+                json,
+            })
+        }
+        "symbols" | "imports" | "exports" => {
+            let (file, flags) = re_file_flags(rest)?;
+            let mode = match cmd.as_str() {
+                "symbols" => Mode::ReSymbols { file, json: flags.json },
+                "imports" => Mode::ReImports { file, json: flags.json },
+                _ => Mode::ReExports { file, json: flags.json },
+            };
+            Ok(mode)
+        }
+        "disasm" => {
+            let mut file = None;
+            let mut offset = None;
+            let mut len = 0u64; // 0 = auto (entry point / section window)
+            let mut arch = None;
+            let mut json = false;
+            let mut i = 0;
+            while i < rest.len() {
+                match rest[i].as_str() {
+                    "--offset" if i + 1 < rest.len() => {
+                        offset = Some(re_hexnum(&rest[i + 1], "--offset")?);
+                        i += 2;
+                    }
+                    "--len" if i + 1 < rest.len() => {
+                        len = re_hexnum(&rest[i + 1], "--len")?;
+                        i += 2;
+                    }
+                    "--arch" if i + 1 < rest.len() => {
+                        arch = Some(rest[i + 1].clone());
+                        i += 2;
+                    }
+                    "--entry" => {
+                        i += 1;
+                    }
+                    "--json" => {
+                        json = true;
+                        i += 1;
+                    }
+                    other if other.starts_with('-') => bail!("unknown re disasm flag: {other}"),
+                    other if file.is_none() => {
+                        file = Some(other.to_string());
+                        i += 1;
+                    }
+                    other => bail!("unexpected re disasm argument: {other}"),
+                }
+            }
+            Ok(Mode::ReDisasm {
+                file: re_file(file, "re disasm")?,
+                offset,
+                len,
+                arch,
+                json,
+            })
+        }
+        other => bail!(
+            "unknown re subcommand `{other}` — expected: info, strings, hex, symbols, imports, exports, disasm"
+        ),
+    }
+}
+
+/// Flags shared by every `re` subcommand: a positional FILE plus --json.
+fn re_file_flags(args: &[String]) -> Result<(String, ReFlags)> {
+    let mut file = None;
+    let mut flags = ReFlags::default();
+    for arg in args {
+        match arg.as_str() {
+            "--json" => flags.json = true,
+            other if other.starts_with('-') => bail!("unknown flag: {other}"),
+            other if file.is_none() => file = Some(other.to_string()),
+            other => bail!("unexpected argument: {other}"),
+        }
+    }
+    Ok((re_file(file, "re")?, flags))
+}
+
+#[derive(Default)]
+struct ReFlags {
+    json: bool,
+}
+
+fn re_file(file: Option<String>, what: &str) -> Result<String> {
+    file.with_context(|| format!("{what} needs a FILE — see `xencode re` usage"))
+}
+/// Parse a hex (`0x2e0`, `2e0`) or decimal number — offsets are hex-first
+/// in RE workflows.
+fn re_hexnum(s: &str, what: &str) -> Result<u64> {
+    let t = s.trim();
+    let (neg, t) = if let Some(r) = t.strip_prefix('-') { (true, r) } else { (false, t) };
+    let digits = t.strip_prefix("0x").or_else(|| t.strip_prefix("0X")).unwrap_or(t);
+    let (v, radix) = if digits.contains(|c: char| c.is_ascii_hexdigit() && !c.is_ascii_digit())
+        && !t.starts_with("0x")
+        && !t.starts_with("0X")
+    {
+        (digits.parse::<u64>().with_context(|| format!("{what} expects a number, got {s}"))?, 10)
+    } else {
+        (
+            u64::from_str_radix(digits, 16).or_else(|_| digits.parse::<u64>())
+                .with_context(|| format!("{what} expects a number, got {s}"))?,
+            16,
+        )
+    };
+    let _ = radix;
+    Ok(if neg { v.wrapping_neg() } else { v })
+}
+
+
+/// Analyze once, reuse everywhere.
+fn re_analyze(file: &str) -> Result<(xencode_re::BinaryInfo, Vec<u8>)> {
+    let data = std::fs::read(file).with_context(|| format!("read {file}"))?;
+    if data.len() as u64 > xencode_re::MAX_INPUT_BYTES {
+        bail!("{} exceeds the {} analysis cap", file, xencode_re::MAX_INPUT_BYTES);
+    }
+    let info = xencode_re::analyze_file(file)?;
+    Ok((info, data))
+}
+
+/// `xencode re info <FILE>` — one-screen summary of the image.
+fn run_re_info(file: &str, json: bool) -> Result<()> {
+    let (info, _data) = re_analyze(file)?;
+    if json {
+        println!("{}", serde_json::to_string_pretty(&info)?);
+        return Ok(());
+    }
+
+    println!("file      {file}");
+    println!("format    {} ({}-bit, {} endian)", info.format, info.bits, info.endian);
+    println!("kind      {}", info.kind);
+    println!("arch      {}", info.arch);
+    if info.pie {
+        println!("pie       yes");
+    }
+    if let Some(base) = info.image_base {
+        println!("base      {base:#x}");
+    }
+    if let Some(entry) = info.entry_va {
+        println!("entry     {entry:#x}");
+    }
+    if let Some(interp) = &info.interpreter {
+        println!("interp    {interp}");
+    }
+    if !info.libs.is_empty() {
+        println!("libs      {}", info.libs.join(", "));
+    }
+    println!(
+        "counts    {} sections · {} symbols · {} imports · {} exports",
+        info.sections.len(),
+        info.symbols.len(),
+        info.imports.len(),
+        info.exports.len()
+    );
+    println!();
+    println!("{:<18} {:>10} {:>10} {:>10}  flags", "section", "va", "size", "raw");
+    for s in &info.sections {
+        let fl = format!(
+            "{}{}{}",
+            if s.flags.read { "r" } else { "-" },
+            if s.flags.write { "w" } else { "-" },
+            if s.flags.exec { "x" } else { "-" }
+        );
+        println!(
+            "{:<18} {:>10} {:>10} {:>10}  {}",
+            s.name,
+            s.va.map(|v| format!("{v:#x}")).unwrap_or_default(),
+            s.size,
+            s.file_size,
+            fl
+        );
+    }
+    Ok(())
+}
+
+/// `xencode re strings <FILE> [--min N] [--utf16]` — printable runs.
+fn run_re_strings(file: &str, min: usize, utf16_only: bool, json: bool) -> Result<()> {
+    let (_info, data) = re_analyze(file)?;
+    let mut hits = xencode_re::extract_strings(&data, min);
+    if utf16_only {
+        hits.retain(|s| s.encoding == xencode_re::StrEnc::Utf16Le);
+    }
+    if json {
+        println!("{}", serde_json::to_string_pretty(&hits)?);
+        return Ok(());
+    }
+    println!("{} strings (min {} bytes)", hits.len(), min);
+    println!();
+    const SHOW: usize = 80;
+    for s in hits.iter().take(SHOW) {
+        let tag = match s.encoding {
+            xencode_re::StrEnc::Ascii => "  ",
+            xencode_re::StrEnc::Utf16Le => "u ",
+        };
+        println!("{:>10}  {tag}{}", s.offset, s.text);
+    }
+    if hits.len() > SHOW {
+        println!("… {} more ({} total)", hits.len() - SHOW, hits.len());
+    }
+    Ok(())
+}
+
+/// `xencode re hex <FILE> [--offset N] [--len N]` — hex view rows.
+fn run_re_hex(file: &str, offset: u64, len: u64, json: bool) -> Result<()> {
+    let (_info, data) = re_analyze(file)?;
+    let (off, take) = xencode_re::clamp_range(offset, len, data.len() as u64);
+    let rows = xencode_re::hex_rows(
+        &data[off as usize..(off + take) as usize],
+        off,
+        xencode_re::DEFAULT_ROW_WIDTH,
+    );
+    if json {
+        println!("{}", serde_json::to_string_pretty(&rows)?);
+        return Ok(());
+    }
+    println!("{} · {} bytes @ {off:#x}..{:#x}", file, take, off + take);
+    println!();
+    for row in &rows {
+        println!("{}", xencode_re::render_hex_row(row, xencode_re::DEFAULT_ROW_WIDTH));
+    }
+    Ok(())
+}
+
+/// `xencode re symbols|imports|exports <FILE>` — symbol tables.
+fn run_re_symbols(file: &str, json: bool) -> Result<()> {
+    let (info, _data) = re_analyze(file)?;
+    if json {
+        println!("{}", serde_json::to_string_pretty(&info.symbols)?);
+        return Ok(());
+    }
+    println!("{} symbols", info.symbols.len());
+    println!();
+    const SHOW: usize = 60;
+    for s in info.symbols.iter().take(SHOW) {
+        let dyn_tag = if s.dynamic { " (dyn)" } else { "" };
+        println!("{:>10}  {}{}", s.va, s, dyn_tag);
+    }
+    if info.symbols.len() > SHOW {
+        println!("… {} more ({} total)", info.symbols.len() - SHOW, info.symbols.len());
+    }
+    Ok(())
+}
+
+fn run_re_imports(file: &str, json: bool) -> Result<()> {
+    let (info, _data) = re_analyze(file)?;
+    if json {
+        println!("{}", serde_json::to_string_pretty(&info.imports)?);
+        return Ok(());
+    }
+    println!("{} imports", info.imports.len());
+    println!();
+    const SHOW: usize = 60;
+    for imp in info.imports.iter().take(SHOW) {
+        println!("{imp}");
+    }
+    if info.imports.len() > SHOW {
+        println!("… {} more ({} total)", info.imports.len() - SHOW, info.imports.len());
+    }
+    Ok(())
+}
+
+fn run_re_exports(file: &str, json: bool) -> Result<()> {
+    let (info, _data) = re_analyze(file)?;
+    if json {
+        println!("{}", serde_json::to_string_pretty(&info.exports)?);
+        return Ok(());
+    }
+    println!("{} exports", info.exports.len());
+    println!();
+    const SHOW: usize = 60;
+    for exp in info.exports.iter().take(SHOW) {
+        println!("{exp}");
+    }
+    if info.exports.len() > SHOW {
+        println!("… {} more ({} total)", info.exports.len() - SHOW, info.exports.len());
+    }
+    Ok(())
+}
+
+/// `xencode re disasm <FILE> [--offset N | --entry] [--len N] [--arch X]`.
+///
+/// Default window: the entry point's section (or the first executable
+/// section), capped at `DEFAULT_DISASM_BYTES`; `--offset` disassembles from
+/// a file offset (base VA taken from the address map when it rounds-trips).
+fn run_re_disasm(
+    file: &str,
+    offset: Option<u64>,
+    len: u64,
+    arch: Option<&str>,
+    json: bool,
+) -> Result<()> {
+    const DEFAULT_DISASM_BYTES: u64 = 4096;
+    let (info, data) = re_analyze(file)?;
+
+    let dis_arch = match arch {
+        Some(a) => xencode_re::parse_arch(a)?,
+        None => xencode_re::arch_from_binary(&info)
+            .with_context(|| "pass --arch to override")?,
+    };
+
+    // Window: explicit offset, else the entry point, else first exec section.
+    let (off, base_va) = match offset {
+        Some(o) => (o, info.offset_to_va(o).unwrap_or(0)),
+        None => {
+            let va = info
+                .entry_va
+                .or_else(|| info.exec_sections().first().and_then(|s| s.va))
+                .context("no entry point and no executable section — pass --offset")?;
+            (info.va_to_offset(va).with_context(|| format!("VA {va:#x} not mapped"))?, va)
+        }
+    };
+    let take = if len > 0 {
+        len
+    } else {
+        DEFAULT_DISASM_BYTES.min(data.len() as u64 - off)
+    };
+    let code = &data[off as usize..(off + take) as usize];
+
+    let insns = xencode_re::disasm_bytes(code, base_va, dis_arch, 4096)?;
+    if json {
+        println!("{}", serde_json::to_string_pretty(&insns)?);
+        return Ok(());
+    }
+    println!(
+        "{} · {} disassembly @ {:#x} ({} bytes → {} instructions)",
+        file,
+        dis_arch,
+        base_va,
+        take,
+        insns.len()
+    );
+    println!();
+    for insn in &insns {
+        println!("{}", xencode_re::render_insn(insn));
+    }
+    Ok(())
+}
+
+/// `xencode --re-ui <FILE>` — the Phase-7.1 native RE tab: analyze the real
+/// binary through the XenRE core and render the hex / strings / symbols /
+/// imports views into the workspace (same renderer as the live window).
+fn re_ui(file: &str, out: &str) -> Result<()> {
+    let (info, data) = re_analyze(file)?;
+    let started = std::time::Instant::now();
+
+    // Hex: 12 rows starting at the entry point (or the first exec section).
+    let hex_start_off = info
+        .entry_va
+        .and_then(|va| info.va_to_offset(va))
+        .or_else(|| info.exec_sections().first().and_then(|s| Some(s.file_off)))
+        .unwrap_or(0);
+    let hex_take = ((12 * xencode_re::DEFAULT_ROW_WIDTH) as u64)
+        .min(data.len() as u64 - hex_start_off);
+    let hex_rows: Vec<String> = if hex_take > 0 {
+        let slice = &data
+            [hex_start_off as usize..(hex_start_off + hex_take) as usize];
+        xencode_re::hex_rows(slice, hex_start_off, xencode_re::DEFAULT_ROW_WIDTH)
+            .iter()
+            .map(|r| xencode_re::render_hex_row(r, xencode_re::DEFAULT_ROW_WIDTH))
+            .collect()
+    } else {
+        Vec::new()
+    };
+
+    // Strings: first 14 runs ≥ 5 bytes across the whole image.
+    let strings: Vec<ui::re::ReString<'_>> = xencode_re::extract_strings(&data, 5)
+        .into_iter()
+        .take(14)
+        .map(|s| ui::re::ReString {
+            offset: s.offset,
+            text: Box::leak(s.text.into_boxed_str()),
+            utf16: s.encoding == xencode_re::StrEnc::Utf16Le,
+        })
+        .collect();
+
+    // Symbols: defined functions first (the interesting ones), then the rest.
+    let mut syms: Vec<&xencode_re::Symbol> = info
+        .symbols
+        .iter()
+        .filter(|s| s.defined && !s.name.is_empty())
+        .collect();
+    syms.sort_by_key(|s| std::cmp::Reverse(s.kind == xencode_re::SymbolKind::Func));
+    let symbols: Vec<ui::re::ReSym<'_>> = syms
+        .iter()
+        .take(12)
+        .map(|s| ui::re::ReSym {
+            va: s.va,
+            name: Box::leak(s.name.clone().into_boxed_str()),
+            kind: match s.kind {
+                xencode_re::SymbolKind::Func => "Func",
+                xencode_re::SymbolKind::Object => "Data",
+                _ => "Sym",
+            },
+        })
+        .collect();
+
+    let imports: Vec<ui::re::ReImport<'_>> = info
+        .imports
+        .iter()
+        .take(10)
+        .map(|i| ui::re::ReImport {
+            dll: Box::leak(i.dll.clone().unwrap_or_default().into_boxed_str()),
+            name: Box::leak(i.name.clone().into_boxed_str()),
+        })
+        .collect();
+
+    let sections: Vec<ui::re::ReSection<'_>> = info
+        .sections
+        .iter()
+        .filter(|s| s.size > 0)
+        .take(8)
+        .map(|s| ui::re::ReSection {
+            name: Box::leak(s.name.clone().into_boxed_str()),
+            va: s.va,
+            size: s.size,
+            exec: s.flags.exec,
+        })
+        .collect();
+
+    let functions: Vec<ui::re::ReFunction<'_>> = xencode_re::functions(&info)
+        .into_iter()
+        .take(9)
+        .map(|f| ui::re::ReFunction {
+            va: f.va,
+            name: Box::leak(f.name.into_boxed_str()),
+        })
+        .collect();
+
+    let status = format!(
+        "{} · {} · {} sections · {} symbols · {} imports · analyzed in {}ms",
+        info.format,
+        info.kind,
+        info.sections.len(),
+        info.symbols.len(),
+        info.imports.len(),
+        started.elapsed().as_millis()
+    );
+
+    let page = ui::re::RePage {
+        file,
+        format: Box::leak(info.format.to_string().into_boxed_str()),
+        arch: Box::leak(info.arch.to_string().into_boxed_str()),
+        kind: Box::leak(info.kind.to_string().into_boxed_str()),
+        entry: Box::leak(
+            info.entry_va
+                .map(|v| format!("{v:#x}"))
+                .unwrap_or_else(|| "—".into())
+                .into_boxed_str(),
+        ),
+        size: info.size,
+        tab: ui::re::ReTab::Hex,
+        hex: Box::leak(hex_rows.into_boxed_slice()),
+        strings: Box::leak(strings.into_boxed_slice()),
+        symbols: Box::leak(symbols.into_boxed_slice()),
+        imports: Box::leak(imports.into_boxed_slice()),
+        sections: Box::leak(sections.into_boxed_slice()),
+        functions: Box::leak(functions.into_boxed_slice()),
+        status: Box::leak(status.into_boxed_str()),
+    };
+
+    let mut c = Canvas::new(WIN_W, WIN_H, SCALE);
+    draw_backdrop(&mut c);
+    let panel = panel_rect();
+    draw_panel(&mut c, panel);
+    draw_top_overlay(&mut c);
+    let base = std::path::Path::new(file)
+        .file_name()
+        .and_then(|n| n.to_str())
+        .unwrap_or(file)
+        .to_string();
+    draw_header(
+        &mut c,
+        panel,
+        &HeaderTitle::Task {
+            project: "xencode",
+            title: "Binary inspector",
+            summary: Some(&base),
+        },
+        false,
+        false,
+    );
+    ui::sidebar::draw(&mut c);
+    draw_sidebar_footer(&mut c);
+    let area = Rect::new(panel.x, panel.y + HEADER_H, panel.w, panel.h - HEADER_H);
+    ui::re::draw(&mut c, area, &page);
+
+    if let Some(parent) = std::path::Path::new(out).parent() {
+        std::fs::create_dir_all(parent)?;
+    }
+    c.px.save_png(out).map_err(|e| anyhow::anyhow!("save {out}: {e:?}"))?;
+    println!("rendered {out}");
+    Ok(())
 }
