@@ -9,7 +9,7 @@
   with a GLM-powered agent core and a QuickJS automation engine (no Python).
 </p>
 
-> **Status:** active development. The GUI is a pixel-faithful reimplementation of the ZCode v3.17.2 UX (all six primary pages rendered and verified). **Phases 0–5 are complete**: the agent core runs headlessly (GLM streaming, sessions, permission modes), the chat pane renders live transcripts, the QuickJS automation engine ships with the full `xen.*` host bridge, and all three harness waves landed — memory files, slash commands, hooks and plan mode (wave 1); MCP, subagents, checkpoints and `xen exec` (wave 2); repo map, diagnostics loop, recipes, the Oracle and run telemetry (wave 3). **XenBrowser** (embedded agent browser) is next — see [plan.md](plan.md).
+> **Status:** active development. The GUI is a pixel-faithful reimplementation of the ZCode v3.17.2 UX (all six primary pages rendered and verified). **Phases 0–5 are complete**: the agent core runs headlessly (GLM streaming, sessions, permission modes), the chat pane renders live transcripts, the QuickJS automation engine ships with the full `xen.*` host bridge, and all three harness waves landed — memory files, slash commands, hooks and plan mode (wave 1); MCP, subagents, checkpoints and `xen exec` (wave 2); repo map, diagnostics loop, recipes, the Oracle and run telemetry (wave 3). **XenBrowser 6.1–6.2 are complete**: a pure-Rust CDP client drives real Chromium — Spaces, auto-wait actions, DOM snapshots diffed by `backendNodeId`, and a native browser tab compositing live screencast frames (milestones 6.3–6.4: recorder + headless fleet — see [plan.md](plan.md)).
 
 ## Highlights
 
@@ -27,7 +27,7 @@
 - 🛡️ **Permission prompts** — mutations ask for consent (y/n/a in the CLI, consent cards in the chat pane)
 - 📸 **Visual ground truth** — every GUI page renders to PNG headlessly via `--screenshot`; live agent runs render via `--agent-ui`
 - ⚡ **QuickJS automation** — capability-scoped `xen.*` scripting, ~4 ms boot, one static binary; `xen-script run/triggers` CLI
-- 🌐 **XenBrowser & XenRE (roadmap)** — embedded agent browser with Spaces; decompiler toolkit for APK / IPA / XEX / ELF / PE
+- 🌐 **XenBrowser** — a real Chromium driven by a pure-Rust CDP client: isolated Spaces (clean-room or inheriting profiles), auto-wait click/fill/press, DOM snapshots that diff by `backendNodeId` so only deltas reach the model, screencast frames composited into a native browser tab, and a headless `xencode browser` CLI; XenRE (decompiler toolkit) is next on the roadmap
 
 ## Screenshots
 
@@ -38,6 +38,8 @@
 | ![chat](screenshots/03-chat.png) | ![settings](screenshots/04-settings-appearance.png) |
 | **Git pane** | **Terminal dock** |
 | ![git](screenshots/05-git-pane.png) | ![terminal](screenshots/06-terminal-dock.png) |
+| **Agent UI (live run)** | **Browser tab (live screencast)** |
+| ![agent-ui](screenshots/07-agent-ui.png) | ![browser](screenshots/08-browser-tab.png) |
 
 **Live agent run** — the composer → loop wiring rendered in the native chat pane:
 
@@ -296,14 +298,56 @@ output_cost_per_mtok = 2.20
 endpoint = "http://127.0.0.1:4318/v1/traces"    # or XENCODE_OTEL_ENDPOINT
 ```
 
+## XenBrowser (Phase 6)
+
+A real Chromium, driven by a pure-Rust CDP client over the
+`--remote-debugging-pipe` fd pair — no Playwright, no Node, no Python; the
+browser binary is discovered automatically (`XENCODE_BROWSER` overrides;
+well-known Chrome/Edge/Chromium/Brave install paths, then Playwright caches).
+
+**Spaces** — one isolated browser context per task:
+
+- `clean-room` — a throwaway profile under the temp dir, wiped on drop
+- `inherit=<path>` — a copy of an existing profile (cookies, sessions;
+  caches and `Singleton*` locks skipped) for driving logged-in state
+- parallel headless Spaces are just multiple `Space` values — separate
+  processes, no GIL
+
+**Snapshots, not screenshots** — `DOMSnapshot.captureSnapshot` becomes an
+ego-style outline (visible elements with ids, roles, text, layout boxes);
+two snapshots diff by `backendNodeId`, so a counter ticking `0 items → 1
+item` is one `~` line instead of a second full page. Only deltas go to the
+model.
+
+**Browser tab** — the GUI composites the Space's screencast frames into a
+native viewport under an omnibox toolbar:
+
+```bash
+xencode --browser-ui "https://example.com" --out browser-tab.png
+```
+
+**Headless CLI** — the same stack drivable from CI:
+
+```bash
+xencode browser "https://example.com" --snapshot
+xencode browser "$URL" --click "text=Sign in" --fill "#email=a@b.c" \
+  --press Enter --wait 800 --screenshot after.png --json
+xencode browser "$URL" --space inherit=~/.config/google-chrome   # logged-in
+```
+
 ## Repository layout
 
 ```
 app/          the entire Rust application (GUI + agent core)
-  src/ui/     native renderer pages (shell, sidebar, splash, chat, settings…)
+  src/ui/     native renderer pages (shell, sidebar, splash, chat, settings,
+              browser tab)
   src/agent/  provider clients, tools, agent loop, sessions, permission gates,
               subagents, MCP client, checkpoints, repo map, diagnostics loop,
               recipes, oracle, telemetry
+browser/      XenBrowser — CDP client, Spaces, snapshots + diffing,
+              screencast frames (Phase 6)
+script/       the QuickJS automation core (xen.* host bridge, built-in
+              modules, npm-lite vendor cache, triggers, hooks, recipes)
 public/       brand assets
 screenshots/  rendered GUI pages (visual ground truth)
 plan.md       master build plan — phases 0–8

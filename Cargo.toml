@@ -1,7 +1,7 @@
 # XenCode workspace — one static binary, 100% Rust.
 [workspace]
 resolver = "2"
-members = ["app", "script"]
+members = ["app", "script", "browser"]
 
 # release profile applies workspace-wide (moved from app/Cargo.toml)
 [profile.release]

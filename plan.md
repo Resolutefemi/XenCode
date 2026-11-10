@@ -1,6 +1,6 @@
 # XenCode — Master Build Plan
 
-> **Status:** Approved direction — **Phases 0–5 complete** (all three harness waves landed). Next up: **6.1–6.2** (XenBrowser CDP core + GUI tab), then 8 → 7.
+> **Status:** Approved direction — **Phases 0–5 complete** (all three harness waves landed) and **XenBrowser 6.1–6.2 complete** (CDP core + Spaces, GUI browser tab + snapshot/diff). Next up: **8** (API Discovery) → **7** (XenRE); 6.3–6.4 (recorder, headless fleet) can follow in parallel.
 > **Last updated:** 2026-11-10
 > **Stack:** 100% Rust (native self-drawn GUI, no webview) · QuickJS (`rquickjs`) for all automation — no Python · ZCode v3.17.2 is the sole UI/UX spec.
 
@@ -292,6 +292,61 @@ Goal: like ego(lite) — but better, on every platform, built in.
 - Architecture: pure-Rust CDP client driving Chromium (auto-detect system Chrome/Edge, optional managed download); screencast frames composited into the native renderer — a real browser tab inside XenCode.
 - Scraping engine: auto-wait, CSS/XPath/text/AI selectors, pagination + infinite scroll, proxies, rate limits, exports (JSON/CSV/Markdown).
 - Milestones: **6.1** CDP core + Spaces → **6.2** GUI tab + snapshot/diff → **6.3** recorder → **6.4** headless fleet + scraping exports.
+- Status: **6.1 and 6.2 DONE**.
+  - New crate `browser/` (`xencode-browser`) — one static dependency tree, no Playwright/Node/Python:
+    - Discovery (`discover.rs`): `XENCODE_BROWSER` override → PATH lookup → well-known Chrome/Edge/Chromium/Brave
+      install paths (Linux/macOS/Windows) → Playwright browser caches (`chromium-*`, `chromium_headless_shell-*`,
+      newest revision first). Managed download stays an explicit follow-up (open decision #2); launch failures name
+      the fix instead of failing silently.
+    - Launch (`launch.rs`): headless spawn with a lean fleet flag set (`--remote-debugging-pipe`, forced 1.0 device
+      scale, `--disable-dev-shm-usage`, mute-audio, no-first-run/no-sync/no-background-networking), the two pipe ends
+      wired onto fds 3/4 via `pre_exec` (socketpairs half-duplexed), stderr drained, `kill_on_drop`.
+    - CDP connection (`cdp.rs`): transport-agnostic connection over AsyncRead/AsyncWrite halves — NUL-delimited JSON
+      framing, id-matched calls with per-call timeouts, a shared pending map owned by the reader task (EOF fails every
+      outstanding call instead of hanging), and a broadcast event stream so navigation waiters and the screencast pump
+      subscribe independently. Session routing (flatten mode) tested; fake-peer tests run over in-memory duplexes.
+    - Spaces (`space.rs`): one Chromium process per Space. `CleanRoom` (throwaway temp profile, wiped on drop) and
+      `Inherit { profile }` (copy of a real profile — cookies/sessions kept, caches/crashpads/`Singleton*` locks and
+      >64 MiB files skipped, 1 GiB budget). Auto-wait actions: navigate (load-event watch, non-fatal timeout),
+      click/fill (CSS / `text=` / `xpath=` selectors resolved by JS with scrollIntoView + element registry tokens,
+      `Input.dispatchMouseEvent` + `Input.insertText` so React/Vue state follows), press (virtual-key table),
+      scroll, evaluate (`Runtime.evaluate`, RemoteObject unwrapping), screenshot (PNG decode).
+    - Snapshot primitive (`snapshot.rs`): `DOMSnapshot.captureSnapshot` (`computedStyles: [display, visibility]`,
+      `includeDOMRects`) parsed into a node tree keyed by `backendNodeId`. Wire-shape notes verified against Chrome
+      for Testing 143 and tolerant of the documented shape: string table at the result level with **-1 = absent**
+      (and index 0 not guaranteed empty), `parentIndex` wiring with `childNodeIndexes` fallback, `nodeType`-gated
+      `nodeValue` (only text nodes carry one), 2D `layout.bounds` with a flat-array fallback, computed styles from
+      `layout.styles` pairs with a `computedStyles` fallback. Direct `#text` children aggregate onto their parent
+      element; invisible subtrees (display:none / visibility:hidden, inherited) prune with their descendants. The
+      outline renderer collapses bare wrapper chains, skips `html` ghosts and svg internals, and budget-truncates
+      (4 096 chars ≈ 1k tokens, `… N more`-style cap).
+    - Diff engine (`diff.rs`): match by `backendNodeId` → added / removed / changed lines (`+ button "Sign in"`,
+      `~ p "0 items" → "1 item"`), sub-pixel move jitter ignored (2 px epsilon), invisible plumbing never diffs,
+      summary header + budget-capped render, `(no changes)` for identical snapshots.
+    - Screencast (`space.rs`): `Page.startScreencast` (JPEG q70) pumped into a `watch` channel of decoded frames;
+      **frame-level `sessionId` accepted as number (Chrome ≥ 143) or string** and acked verbatim so Chrome keeps
+      producing; `Drop` stops the stream. Frame decoding (`frame.rs`): PNG (all color types) + JPEG (zune) →
+      straight RGBA.
+    - Verified: 28 unit tests (framing/id-matching/session routing/timeouts/EOF, snapshot parse + outline +
+      collapse + budget, diff add/remove/change/jitter/budget, selector parsing, key table, profile-copy skip
+      rules, launch flags) **plus 3 real-Chromium e2e tests** (auto-skipped when no browser is installed, green
+      where one exists — serialized behind a lock: three parallel Chromees OOM the sandbox): navigate → snapshot
+      outline → text-selector click verified by evaluate → fill → press → screenshot decode → snapshot diff with
+      exactly one changed node; screencast frame delivery; two parallel clean-room Spaces with isolated state.
+  - GUI browser tab (6.2): `ui/browser.rs` — omnibox toolbar (back/forward/reload ghost buttons, scheme icon —
+    shield for https, globe otherwise — truncated URL, loading dot), contain-fit screencast viewport blitted
+    through the new `Canvas::blit_rgba` (nearest-neighbor scale + rounded-rect mask, letterboxed on black),
+    status strip (space kind + frame dims, document title). `BrowserPage` is plain state — the windowed GUI
+    consumes the same struct. `xencode --browser-ui <url>` renders the tab with a live frame (real Space +
+    screencast; on machines without a browser it renders the empty viewport with the launch error in the status
+    line, so the surface stays inspectable). `screenshots/08-browser-tab.png`.
+  - Headless CLI (6.1): `xencode browser <url> [--screenshot FILE] [--snapshot] [--json] [--click SEL]
+    [--fill SEL=TEXT] [--press KEY] [--scroll DX,DY] [--wait MS] [--space clean|inherit=PATH]
+    [--browser-path BIN] [--timeout-ms N] [--headed]` — actions run in order through the same auto-wait path;
+    `--space inherit=~/.config/google-chrome` drives logged-in state.
+  - Config: none required. `XENCODE_BROWSER` (binary override) is the only env knob.
+  - Follow-ups (6.3–6.4): interaction recorder → QuickJS replay scripts, parallel headless fleet at scale,
+    scraping exports (JSON/CSV/Markdown), managed Chromium download (open decision #2).
 
 ## Phase 7 — XenRE (L)
 
@@ -330,7 +385,7 @@ Goal: "easily get any website API."
 | 12 | Recipes | Goose | QuickJS runtime | 5 |
 | 13 | Oracle | Amp | Agent core | 5 |
 | 14 | OTel tracing | Observability harnesses | Infra | 5 |
-| 15 | Browser tool | Cline / ego(lite) | XenBrowser | 6 |
+| 15 | Browser tool | Cline / ego(lite) | XenBrowser | 6.1–6.2 ✅ |
 
 ## Decisions
 

@@ -71,6 +71,35 @@ enum Mode {
     Recipe { name: String, params: Vec<(String, String)>, cli: CliOptions },
     Oracle { question: String },
     RepoMap,
+    // Phase 6 -------------------------------------------------------------
+    /// `xencode browser <url> ...` — headless, CLI-drivable Spaces.
+    Browser { url: String, opts: BrowserOptions },
+    /// `xencode --browser-ui <url>` — the native browser tab with a live
+    /// screencast frame composited into the renderer.
+    BrowserUi { url: String, out: String },
+}
+
+/// One headless browser step (`browser` subcommand).
+#[derive(Debug, Clone)]
+enum BrowserAction {
+    Click(String),
+    Fill(String, String),
+    Press(String),
+    Scroll(f64, f64),
+    Wait(u64),
+}
+
+#[derive(Debug, Default, Clone)]
+struct BrowserOptions {
+    headless: bool,
+    screenshot: Option<String>,
+    snapshot: bool,
+    json: bool,
+    browser_path: Option<String>,
+    /// `clean` (default) or `inherit=<profile-path>`.
+    space: String,
+    timeout_ms: u64,
+    actions: Vec<BrowserAction>,
 }
 
 fn main() {
@@ -102,6 +131,8 @@ fn main() {
 
         Mode::Oracle { question } => agent::run_oracle(&question),
         Mode::RepoMap => print_repo_map(),
+        Mode::Browser { url, opts } => run_browser(&url, opts),
+        Mode::BrowserUi { url, out } => browser_ui(&url, &out),
     };
 
     if let Err(e) = result {
@@ -121,12 +152,17 @@ fn parse_args() -> Result<Mode> {
     if args.first().map(|s| s.as_str()) == Some("recipe") {
         return parse_recipe(&args[1..]);
     }
+    // `xencode browser <url> [flags]` — the Phase-6 headless Spaces CLI.
+    if args.first().map(|s| s.as_str()) == Some("browser") {
+        return parse_browser(&args[1..]);
+    }
 
     let mut out: Option<String> = None;
     let mut cli = CliOptions::default();
     let mut agent: Option<String> = None;
     let mut agent_ui: Option<String> = None;
     let mut render: Option<String> = None;
+    let mut browser_ui_url: Option<String> = None;
     let mut i = 0;
 
     while i < args.len() {
@@ -187,6 +223,10 @@ fn parse_args() -> Result<Mode> {
                 return Ok(Mode::Oracle { question: args[i + 1].clone() });
             }
             "--repo-map" => return Ok(Mode::RepoMap),
+            "--browser-ui" if i + 1 < args.len() => {
+                browser_ui_url = Some(args[i + 1].clone());
+                i += 1;
+            }
             "--screenshot" | "screenshot" | "" => {}
             "--window" => bail!("live window mode: not wired yet (winit+softbuffer next); use --screenshot"),
             other => bail!("unknown flag: {other}"),
@@ -206,6 +246,10 @@ fn parse_args() -> Result<Mode> {
     if let Some(id) = render {
         let out = out.unwrap_or_else(|| format!("{id}.png"));
         return Ok(Mode::RenderSession { id, out });
+    }
+    if let Some(url) = browser_ui_url {
+        let out = out.unwrap_or_else(|| "browser-tab.png".into());
+        return Ok(Mode::BrowserUi { url, out });
     }
 
     Ok(Mode::Screenshot { out })
@@ -266,6 +310,288 @@ fn parse_exec(args: &[String]) -> Result<Mode> {
         );
     };
     Ok(Mode::Exec { prompt, ex })
+}
+
+/// Parse the `browser` subcommand: `xencode browser <url> [flags]`.
+fn parse_browser(args: &[String]) -> Result<Mode> {
+    let mut opts = BrowserOptions { headless: true, timeout_ms: 30_000, ..Default::default() };
+    let mut url: Option<String> = None;
+    let mut i = 0;
+    while i < args.len() {
+        match args[i].as_str() {
+            "--headed" => opts.headless = false,
+            "--screenshot" if i + 1 < args.len() => {
+                opts.screenshot = Some(args[i + 1].clone());
+                i += 1;
+            }
+            "--snapshot" => opts.snapshot = true,
+            "--json" => opts.json = true,
+            "--timeout-ms" if i + 1 < args.len() => {
+                opts.timeout_ms = args[i + 1].parse().context("--timeout-ms expects a number")?;
+                i += 1;
+            }
+            "--browser-path" if i + 1 < args.len() => {
+                opts.browser_path = Some(args[i + 1].clone());
+                i += 1;
+            }
+            "--space" if i + 1 < args.len() => {
+                opts.space = args[i + 1].clone();
+                i += 1;
+            }
+            "--click" if i + 1 < args.len() => {
+                opts.actions.push(BrowserAction::Click(args[i + 1].clone()));
+                i += 1;
+            }
+            "--fill" if i + 1 < args.len() => {
+                let (sel, text) = args[i + 1]
+                    .split_once('=')
+                    .context("--fill expects selector=text")?;
+                opts.actions.push(BrowserAction::Fill(sel.to_string(), text.to_string()));
+                i += 1;
+            }
+            "--press" if i + 1 < args.len() => {
+                opts.actions.push(BrowserAction::Press(args[i + 1].clone()));
+                i += 1;
+            }
+            "--scroll" if i + 1 < args.len() => {
+                let (dx, dy) = args[i + 1]
+                    .split_once(',')
+                    .context("--scroll expects dx,dy (e.g. --scroll 0,600)")?;
+                opts.actions.push(BrowserAction::Scroll(
+                    dx.parse().context("--scroll dx must be a number")?,
+                    dy.parse().context("--scroll dy must be a number")?,
+                ));
+                i += 1;
+            }
+            "--wait" if i + 1 < args.len() => {
+                opts.actions.push(BrowserAction::Wait(
+                    args[i + 1].parse().context("--wait expects milliseconds")?,
+                ));
+                i += 1;
+            }
+            other if other.starts_with('-') => bail!("unknown browser flag: {other}"),
+            other if url.is_none() => url = Some(other.to_string()),
+            other => bail!("unexpected browser argument: {other}"),
+        }
+        i += 1;
+    }
+    let Some(url) = url else {
+        bail!(
+            "usage: xencode browser <url> [--headless] [--screenshot FILE] [--snapshot] [--json] \
+             [--click SEL] [--fill SEL=TEXT] [--press KEY] [--scroll DX,DY] [--wait MS] \
+             [--space clean|inherit=PATH] [--browser-path BIN] [--timeout-ms N]"
+        );
+    };
+    Ok(Mode::Browser { url, opts })
+}
+
+/// `xencode browser <url>` — launch a headless Space, navigate, run the
+/// action list, then print/screenshot/snapshot. The CLI-drivable contract
+/// for CI and scripting.
+fn run_browser(url: &str, opts: BrowserOptions) -> Result<()> {
+    use xencode_browser::{Selector, Space, SpaceKind, SpaceOptions};
+
+    let rt = tokio::runtime::Runtime::new().context("start tokio runtime")?;
+    rt.block_on(async move {
+        let kind = if let Some(profile) = opts.space.strip_prefix("inherit=") {
+            SpaceKind::Inherit { profile: profile.into() }
+        } else {
+            SpaceKind::CleanRoom
+        };
+        let started = std::time::Instant::now();
+        let space = Space::launch(SpaceOptions {
+            kind,
+            headless: opts.headless,
+            browser_path: opts.browser_path.clone().map(std::path::PathBuf::from),
+            ..Default::default()
+        })
+        .await
+        .context("launch browser space")?;
+        let nav_timeout = std::time::Duration::from_millis(opts.timeout_ms.max(1_000));
+        let nav = tokio::time::timeout(nav_timeout, space.navigate(url))
+            .await
+            .map_err(|_| anyhow::anyhow!("navigate timed out after {}ms", opts.timeout_ms))?;
+        nav.with_context(|| format!("navigate to {url}"))?;
+
+        for action in &opts.actions {
+            match action {
+                BrowserAction::Click(sel) => {
+                    space.click(&Selector::parse(sel)).await.with_context(|| format!("click {sel}"))?;
+                }
+                BrowserAction::Fill(sel, text) => {
+                    space
+                        .fill(&Selector::parse(sel), text)
+                        .await
+                        .with_context(|| format!("fill {sel}"))?;
+                }
+                BrowserAction::Press(key) => {
+                    space.press(key).await.with_context(|| format!("press {key}"))?;
+                }
+                BrowserAction::Scroll(dx, dy) => {
+                    space.scroll(*dx, *dy).await.context("scroll")?;
+                }
+                BrowserAction::Wait(ms) => {
+                    tokio::time::sleep(std::time::Duration::from_millis(*ms)).await;
+                }
+            }
+        }
+
+        let title = space.title().await.unwrap_or_default();
+        let final_url = space.url().await.unwrap_or_else(|_| url.to_string());
+        let viewport = space.viewport();
+
+        if opts.snapshot {
+            let (outline, truncated) = space.outline().await?;
+            if opts.json {
+                println!(
+                    "{}",
+                    serde_json::json!({
+                        "url": final_url, "title": title, "outline": outline,
+                        "outline_truncated": truncated,
+                    })
+                );
+            } else {
+                print!("{outline}");
+                if truncated {
+                    eprintln!("(outline truncated)");
+                }
+            }
+        }
+
+        if let Some(path) = &opts.screenshot {
+            let frame = space.screenshot().await.context("screenshot")?;
+            if let Some(parent) = std::path::Path::new(path).parent() {
+                std::fs::create_dir_all(parent)?;
+            }
+            save_frame_png(&frame, path)?;
+            if !opts.json {
+                println!("saved {path} ({}x{})", frame.width, frame.height);
+            }
+        }
+
+        if opts.json && !opts.snapshot {
+            println!(
+                "{}",
+                serde_json::json!({
+                    "url": final_url, "title": title,
+                    "viewport": [viewport.0, viewport.1],
+                    "steps": opts.actions.len(),
+                    "ms": started.elapsed().as_millis() as u64,
+                })
+            );
+        }
+        Ok(())
+    })
+}
+
+/// Encode a decoded frame as a PNG file (CLI --screenshot output).
+fn save_frame_png(frame: &xencode_browser::Frame, path: &str) -> Result<()> {
+    let file = std::fs::File::create(path).with_context(|| format!("create {path}"))?;
+    let mut enc = png::Encoder::new(std::io::BufWriter::new(file), frame.width, frame.height);
+    enc.set_color(png::ColorType::Rgba);
+    enc.set_depth(png::BitDepth::Eight);
+    let mut writer = enc.write_header().context("png header")?;
+    writer.write_image_data(&frame.rgba).context("png data")?;
+    writer.finish()?;
+    Ok(())
+}
+
+/// `xencode --browser-ui <url>` — the Phase-6.2 GUI tab: launch a real
+/// Space, navigate, composite a live screencast frame into the renderer.
+/// Falls back to an empty-viewport render (with the launch error in the
+/// status line) when no browser is installed, so the surface stays
+/// inspectable everywhere.
+fn browser_ui(url: &str, out: &str) -> Result<()> {
+    let rt = tokio::runtime::Runtime::new().context("start tokio runtime")?;
+    let (frame, status, title, secure, loading) = rt.block_on(async {
+        match live_browser_frame(url).await {
+            Ok(v) => v,
+            Err(e) => {
+                eprintln!("xencode: browser space unavailable: {e}");
+                (None, format!("space error: {e}"), String::new(), false, false)
+            }
+        }
+    });
+
+    let page = ui::browser::BrowserPage {
+        url,
+        title: &title,
+        status: &status,
+        loading,
+        secure,
+        frame: frame.as_ref(),
+    };
+    let mut c = Canvas::new(WIN_W, WIN_H, SCALE);
+    draw_backdrop(&mut c);
+    let panel = panel_rect();
+    draw_panel(&mut c, panel);
+    draw_top_overlay(&mut c);
+    let host = url
+        .split("://")
+        .nth(1)
+        .unwrap_or(url)
+        .split('/')
+        .next()
+        .unwrap_or(url)
+        .to_string();
+    draw_header(
+        &mut c,
+        panel,
+        &HeaderTitle::Task {
+            project: "xencode",
+            title: "Browser",
+            summary: Some(&host),
+        },
+        false,
+        false,
+    );
+    ui::sidebar::draw(&mut c);
+    draw_sidebar_footer(&mut c);
+    let area = Rect::new(panel.x, panel.y + HEADER_H, panel.w, panel.h - HEADER_H);
+    ui::browser::draw(&mut c, area, &page);
+
+    if let Some(parent) = std::path::Path::new(out).parent() {
+        std::fs::create_dir_all(parent)?;
+    }
+    c.px.save_png(out).map_err(|e| anyhow::anyhow!("save {out}: {e:?}"))?;
+    println!("rendered {out}");
+    Ok(())
+}
+
+/// Launch a clean-room Space, navigate, pump the screencast for ~2.5s and
+/// hand back the latest frame for compositing.
+async fn live_browser_frame(
+    url: &str,
+) -> Result<(Option<xencode_browser::Frame>, String, String, bool, bool)> {
+    use xencode_browser::{Space, SpaceKind, SpaceOptions};
+    use std::time::Duration;
+
+    let space = Space::launch(SpaceOptions {
+        kind: SpaceKind::CleanRoom,
+        headless: true,
+        ..Default::default()
+    })
+    .await?;
+    space.navigate(url).await?;
+    let title = space.title().await.unwrap_or_default();
+    let final_url = space.url().await.unwrap_or_else(|_| url.to_string());
+    let secure = final_url.starts_with("https://");
+
+    let mut cast = space.start_screencast().await?;
+    // Give the page a moment to paint and the stream to deliver a settled
+    // frame (first frames often precede first paint).
+    let mut frame = cast.wait_for_frame(Duration::from_secs(8)).await;
+    tokio::time::sleep(Duration::from_millis(1200)).await;
+    if let Some(later) = cast.latest().await {
+        frame = Some(later);
+    }
+    let frame = frame.map(|arc| (*arc).clone());
+    let dims = frame
+        .as_ref()
+        .map(|f| format!(" · {}×{}", f.width, f.height))
+        .unwrap_or_default();
+    let status = format!("clean-room space · headless{dims}");
+    Ok((frame, status, title, secure, false))
 }
 
 /// Parse the `recipe` subcommand: `xencode recipe <name> [key=value ...]`.

@@ -1,6 +1,7 @@
 //! Page composition — assembles the shell, sidebar, header and page content
 //! exactly like WorkspaceShellLayout for each screenshot.
 
+pub mod browser;
 pub mod chat;
 pub mod composer;
 pub mod panes;

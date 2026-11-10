@@ -7,7 +7,7 @@ use crate::svgpath;
 use crate::theme::T;
 use tiny_skia::{
     Color, FillRule, GradientStop, LinearGradient, LineCap, LineJoin, Paint, PathBuilder, Pixmap,
-    Point, Shader, SpreadMode, Stroke, Transform,
+    PixmapPaint, Point, Shader, SpreadMode, Stroke, Transform,
 };
 
 #[derive(Clone, Copy, Debug)]
@@ -326,6 +326,69 @@ impl Canvas {
         if let Some(path) = pb.finish() {
             self.px.stroke_path(&path, &paint(fill), &stroke(width), self.tr(), None);
         }
+    }
+
+    /// Blit an RGBA frame into `area`, scaled to fit (contain) and clipped
+    /// to a rounded rect — the screencast viewport of the browser tab.
+    /// Nearest-neighbor sampling: frames arrive pre-scaled by Chrome, the
+    /// final 0.5–1.5× step is decorative.
+    pub fn blit_rgba(
+        &mut self,
+        rgba: &[u8],
+        src_w: u32,
+        src_h: u32,
+        area: Rect,
+        radius: f32,
+    ) {
+        if src_w == 0 || src_h == 0 || rgba.len() < (src_w * src_h * 4) as usize {
+            return;
+        }
+        // Device-space viewport.
+        let vx = (area.x * self.s).round() as i32;
+        let vy = (area.y * self.s).round() as i32;
+        let vw = (area.w * self.s).round().max(1.0) as i32;
+        let vh = (area.h * self.s).round().max(1.0) as i32;
+
+        // Contain-fit.
+        let scale = (vw as f64 / src_w as f64).min(vh as f64 / src_h as f64);
+        let out_w = ((src_w as f64 * scale).round() as i32).clamp(1, vw);
+        let out_h = ((src_h as f64 * scale).round() as i32).clamp(1, vh);
+        let ox = vx + (vw - out_w) / 2;
+        let oy = vy + (vh - out_h) / 2;
+
+        // Pre-scale into a device-sized pixmap (opaque → straight == premul).
+        let Some(mut scaled) = Pixmap::new(out_w as u32, out_h as u32) else { return };
+        {
+            let dst = scaled.data_mut();
+            for y in 0..out_h {
+                let sy = ((y as f64 / scale) as u32).min(src_h - 1) as usize;
+                for x in 0..out_w {
+                    let sx = ((x as f64 / scale) as u32).min(src_w - 1) as usize;
+                    let si = (sy * src_w as usize + sx) * 4;
+                    let di = (y as usize * out_w as usize + x as usize) * 4;
+                    dst[di] = rgba[si];
+                    dst[di + 1] = rgba[si + 1];
+                    dst[di + 2] = rgba[si + 2];
+                    dst[di + 3] = 255;
+                }
+            }
+        }
+
+        // Rounded-rect mask over the whole canvas (device px).
+        let Some(mut mask) = tiny_skia::Mask::new(self.px.width(), self.px.height()) else { return };
+        let Some(path) = rrect_path(
+            vx as f32, vy as f32, out_w as f32, out_h as f32,
+            radius * self.s, radius * self.s, radius * self.s, radius * self.s,
+        ) else { return };
+        mask.fill_path(&path, FillRule::Winding, true, Transform::identity());
+        self.px.draw_pixmap(
+            ox,
+            oy,
+            scaled.as_ref(),
+            &PixmapPaint::default(),
+            Transform::identity(),
+            Some(&mask),
+        );
     }
 
     /// Window titlebar logo badge: 20px rounded gradient square + white X.
