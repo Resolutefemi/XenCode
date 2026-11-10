@@ -1,4 +1,5 @@
-//! XenBrowser — the embedded agent browser (Phase 6.1).
+//! XenBrowser — the embedded agent browser (Phase 6) + network capture and
+//! API discovery (Phase 8).
 //!
 //! A pure-Rust CDP client that drives a real Chromium: no Node, no Python,
 //! no Playwright — one static binary talking the DevTools protocol over the
@@ -20,19 +21,33 @@
 //!   backendNodeId so only deltas go to the model.
 //! - [`frame`] decodes screencast/screenshot frames (PNG + JPEG) into RGBA
 //!   buffers for the native renderer.
+//! - [`netcapture`] records every XHR/fetch a page makes (CDP Network
+//!   domain) as secret-redacted [`netcapture::NetEntry`] exchanges.
+//! - [`apidisco`] turns captures into an endpoint catalog (URL templating,
+//!   auth detection, JSON-schema inference) with OpenAPI export, copy-as
+//!   replay snippets and the endpoint monitor diff.
 
+pub mod apidisco;
 pub mod cdp;
 pub mod diff;
 pub mod discover;
 pub mod frame;
 pub mod launch;
+pub mod netcapture;
 pub mod snapshot;
 pub mod space;
 
+pub use apidisco::{
+    build_catalog, copy_as, diff_catalogs, infer_schema, render_catalog_text, schema_brief,
+    to_openapi, ApiDiff, CopyAs, Endpoint, EndpointCatalog,
+};
 pub use cdp::{CdpError, Connection, Event};
 pub use diff::{diff_snapshots, SnapshotDiff};
 pub use discover::{find_browser, BrowserCandidate};
 pub use frame::Frame;
+pub use netcapture::{
+    redact_entry, CaptureFile, CaptureOptions, CaptureState, NetCapture, NetEntry,
+};
 pub use snapshot::{snapshot_outline, SnapNode, Snapshot, OUTLINE_BUDGET};
 pub use space::{ScreenCast, Selector, Space, SpaceKind, SpaceOptions};
 

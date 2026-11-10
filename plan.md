@@ -1,6 +1,6 @@
 # XenCode — Master Build Plan
 
-> **Status:** Approved direction — **Phases 0–5 complete** (all three harness waves landed) and **XenBrowser 6.1–6.2 complete** (CDP core + Spaces, GUI browser tab + snapshot/diff). Next up: **8** (API Discovery) → **7** (XenRE); 6.3–6.4 (recorder, headless fleet) can follow in parallel.
+> **Status:** Approved direction — **Phases 0–5 complete** (all three harness waves landed), **XenBrowser 6.1–6.2 complete** (CDP core + Spaces, GUI browser tab + snapshot/diff), and **Phase 8 complete** (API Discovery — network capture, endpoint catalog, OpenAPI export, copy-as, endpoint monitor). Next up: **7** (XenRE); 6.3–6.4 (recorder, headless fleet) can follow in parallel.
 > **Last updated:** 2026-11-10
 > **Stack:** 100% Rust (native self-drawn GUI, no webview) · QuickJS (`rquickjs`) for all automation — no Python · ZCode v3.17.2 is the sole UI/UX spec.
 
@@ -366,6 +366,57 @@ Goal: "easily get any website API."
 - **Copy as:** cURL / fetch / reqwest / QuickJS.
 - **OpenAPI auto-generation** from observed traffic; JSON schema inference.
 - **Endpoint monitor** — re-capture → diff → alert via automation; secret redaction by default.
+- Status: **DONE** — shipped in the `browser` crate (`netcapture.rs` + `apidisco.rs`) and wired into the CLI as `xencode api`:
+  - Network capture (`netcapture.rs`): `Network.enable` on the Space's session + a pump task folding CDP events into
+    `NetEntry` exchange records — `requestWillBeSent` opens an entry (method/URL/headers/post data/initiator), a
+    `redirectResponse` splits redirect chains into hop entries (status/mime copied from the redirect response),
+    `responseReceived` fills status/mime/headers, `loadingFinished` fetches response bodies (`Network.getResponseBody`,
+    JSON/text/xml only, 256 KiB per-entry cap, 8 MiB session budget) and non-inlined post data
+    (`Network.getRequestPostData`), `loadingFailed` records errors, `requestWillBeSentExtraInfo` sets cookie-auth
+    presence flags (cookie values are never copied). The pump is split into a pure [`CaptureState`] event-fold
+    (unit-testable without a browser) plus the thin async task around it; `NetCapture::stop()` disables the domain and
+    returns entries in first-seen order; entry cap (4 000) guards runaway pages. 9 unit tests.
+  - Endpoint catalog (`apidisco.rs`): entries filter to API traffic (XHR/Fetch/Ping/EventSource/Other, JSON-mime or
+    JSON-bodied unclassified; page assets — Document/Script/Stylesheet/Image/Font/Media/Manifest/WebSocket — and 3xx
+    hops and failures excluded) and group by (method, `scheme://host`, templated path) — numeric/float segments →
+    `{id}`, UUIDs → `{uuid}`, ≥16-char hex → `{hex}`, mixed-case tokens (≥20 chars, ≥2 digits) → `{token}`. Each
+    [`Endpoint`] merges observed statuses, query params (per-param merged scalar schemas + observation counts),
+    request/response JSON shapes, auth kinds (Bearer / API-key / cookie presence / sensitive query token), notable
+    request headers (50-name noise list filtered) and a concrete redacted example entry for replay. 12 unit tests.
+  - JSON schema inference: value → JSON-Schema-ish shape (integer/number/boolean/null, string with light format
+    heuristics — date-time (RFC3339-ish / date), uuid, uri, email — arrays merge item schemas over ≤32 samples,
+    objects with properties + required intersection), [`merge_schema`] deepens same-type shapes and falls back to
+    `anyOf` on conflict; one-line briefs (`object{id: integer, tags: string[]}`) for rendering and monitor reports.
+  - OpenAPI 3.1 export: servers/tags from observed hosts, one operation per (path, method) with path params from the
+    template, query params (required iff observed in every sample), `requestBody` when a JSON body was seen, responses
+    per observed status with inferred response schema and canonical reasons, and `components.securitySchemes`
+    (bearerAuth / apiKeyHeader / cookieAuth / queryToken) wired as operation-level security.
+  - Copy-as: cURL (shell-quoted, line continuations, `--data` for JSON bodies), fetch (options object; plain GETs
+    collapse to one line), reqwest (`.header`/`.body(r#…#)` chain with raw-string delimiter collision handling),
+    QuickJS (`xen.http.fetch` — object bodies ride the auto-JSON path). Redacted values carry through so users refill
+    them; noise headers stripped.
+  - Secret redaction by default: 15 sensitive header names + 20 sensitive query param names → `***` (bodies are left
+    intact for schema integrity — captures are the sharing boundary, documented); `--no-redact` escape hatch. Capture
+    artifacts (`CaptureFile`) record `redacted: true/false` and the monitor warns on baseline/run mismatches.
+  - Endpoint monitor: [`diff_catalogs`] compares endpoint-by-endpoint (identity method+base+path) → added / removed /
+    changed (statuses, request/response shape, auth) with old/new shape briefs in the report; `alert_json()` is the
+    machine envelope (`alert: true/false`) automation consumes. `xencode api diff` and `xencode api monitor` exit
+    non-zero on alert, so cron/CI/webhook triggers alert without parsing output — the QuickJS trigger story wires
+    straight onto the exit code + JSON.
+  - CLI (`xencode api`, in `app/src/main.rs`): `capture <url> [--click/--fill/--press/--scroll/--wait interaction
+    steps] [--no-bodies] [--no-redact] [--out FILE] [--openapi FILE] [--json]` (Space kinds, browser-path, timeouts,
+    headed flag shared with `browser`), `show <FILE> [--json]`, `openapi <FILE> [--out] [--title]`,
+    `copy <FILE> <N> [--as curl|fetch|reqwest|quickjs]`, `diff <OLD> <NEW> [--json]`, `monitor <url> --baseline FILE
+    [--update-baseline] [--json]` — capture always gives post-load XHRs a 1.5 s settle window (a trailing `--wait`
+    adds more) so client-rendered apps still land their calls.
+  - Verified: 21 new unit tests (event pairing, redirect hops, auth detection, redaction, entry caps, body budget,
+    URL templating, schema merge, catalog grouping/filtering, OpenAPI shape, all four copy-as flavors incl. shell/
+    raw-string escaping, monitor diff + alert envelope) **plus a 4th real-Chromium e2e**: local CORS JSON server +
+    page `fetch()` → captured entry (method/status/query/body) → catalog endpoint with inferred response shape →
+    curl snippet with the concrete URL → OpenAPI path → monitor self-diff with no changes → capture artifact
+    round-trip. Live CLI verified against jsonplaceholder.typicode.com: `/users/1` + `/users/7` collapsed into
+    `/users/{id}`, deep response schemas (nested `address`/`company`, `email<email>` format), monitor flagged an
+    added/removed endpoint pair and exited 1.
 
 ## Copied harness features — full mapping
 

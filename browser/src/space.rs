@@ -241,6 +241,16 @@ impl Space {
         self.events.resubscribe()
     }
 
+    /// Clone the underlying CDP connection (network capture pump, tools).
+    pub fn conn_clone(&self) -> Connection {
+        self.conn.clone()
+    }
+
+    /// This Space's page-target session id.
+    pub fn session_id(&self) -> &str {
+        &self.session
+    }
+
     /// Chromium's pid (handy for diagnostics and crash reporting).
     pub fn pid(&self) -> Option<u32> {
         self.child.id()

@@ -1,6 +1,6 @@
 [package]
 name = "xencode-browser"
-description = "XenBrowser — pure-Rust CDP client driving Chromium: Spaces, snapshots, screencast (Phase 6)"
+description = "XenBrowser — pure-Rust CDP client driving Chromium: Spaces, snapshots, screencast (Phase 6) + network capture / API discovery (Phase 8)"
 version = "3.17.2"
 edition = "2021"
 license = "Apache-2.0"

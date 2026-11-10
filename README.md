@@ -9,7 +9,7 @@
   with a GLM-powered agent core and a QuickJS automation engine (no Python).
 </p>
 
-> **Status:** active development. The GUI is a pixel-faithful reimplementation of the ZCode v3.17.2 UX (all six primary pages rendered and verified). **Phases 0–5 are complete**: the agent core runs headlessly (GLM streaming, sessions, permission modes), the chat pane renders live transcripts, the QuickJS automation engine ships with the full `xen.*` host bridge, and all three harness waves landed — memory files, slash commands, hooks and plan mode (wave 1); MCP, subagents, checkpoints and `xen exec` (wave 2); repo map, diagnostics loop, recipes, the Oracle and run telemetry (wave 3). **XenBrowser 6.1–6.2 are complete**: a pure-Rust CDP client drives real Chromium — Spaces, auto-wait actions, DOM snapshots diffed by `backendNodeId`, and a native browser tab compositing live screencast frames (milestones 6.3–6.4: recorder + headless fleet — see [plan.md](plan.md)).
+> **Status:** active development. The GUI is a pixel-faithful reimplementation of the ZCode v3.17.2 UX (all six primary pages rendered and verified). **Phases 0–5 are complete**: the agent core runs headlessly (GLM streaming, sessions, permission modes), the chat pane renders live transcripts, the QuickJS automation engine ships with the full `xen.*` host bridge, and all three harness waves landed — memory files, slash commands, hooks and plan mode (wave 1); MCP, subagents, checkpoints and `xen exec` (wave 2); repo map, diagnostics loop, recipes, the Oracle and run telemetry (wave 3). **XenBrowser 6.1–6.2 are complete**: a pure-Rust CDP client drives real Chromium — Spaces, auto-wait actions, DOM snapshots diffed by `backendNodeId`, and a native browser tab compositing live screencast frames. **Phase 8 (API Discovery) is complete**: network capture turns observed XHR/fetch traffic into an endpoint catalog with copy-as cURL/fetch/reqwest/QuickJS, OpenAPI 3.1 export and a change-alerting endpoint monitor (6.3–6.4 recorder + headless fleet and Phase 7 XenRE remain — see [plan.md](plan.md)).
 
 ## Highlights
 
@@ -335,6 +335,43 @@ xencode browser "$URL" --click "text=Sign in" --fill "#email=a@b.c" \
 xencode browser "$URL" --space inherit=~/.config/google-chrome   # logged-in
 ```
 
+## API Discovery (Phase 8)
+
+Every XHR/fetch a page makes is recorded through the CDP Network domain and
+folded into an **endpoint catalog** — URLs template `/users/1` and `/users/7`
+into `/users/{id}`, JSON bodies become inferred schemas (nested objects,
+arrays, `date-time`/`uuid`/`uri`/`email` formats), auth is classified
+(Bearer / API-key / cookie / query token), and **secret header/query values
+are redacted to `***` by default** (`--no-redact` keeps them).
+
+```bash
+# Record traffic while driving the app, save the capture, export OpenAPI 3.1
+xencode api capture "https://app.example.com/dashboard" \
+  --click "text=Load reports" --wait 2000 \
+  --out capture.json --openapi openapi.json
+
+# The catalog (also: --json)
+xencode api show capture.json
+
+# Replay snippets for endpoint N (as listed by `api show`)
+xencode api copy capture.json 2 --as curl     # or fetch | reqwest | quickjs
+xencode api openapi capture.json --title "Their API"
+```
+
+The **endpoint monitor** re-captures against a baseline and reports added /
+removed / changed endpoints (statuses, request/response shapes, auth).
+`diff` and `monitor` exit non-zero when something changed, so cron, CI or a
+QuickJS webhook trigger can alert without parsing output; `--json` emits the
+`{alert: …}` envelope.
+
+```bash
+xencode api capture "$URL" --out baseline.json
+xencode api monitor "$URL" --baseline baseline.json --update-baseline   # exit 1 on change
+```
+
+Bodies are never redacted (schema inference needs them) — a capture file is
+the sharing boundary; keep redacted captures when in doubt.
+
 ## Repository layout
 
 ```
@@ -345,7 +382,8 @@ app/          the entire Rust application (GUI + agent core)
               subagents, MCP client, checkpoints, repo map, diagnostics loop,
               recipes, oracle, telemetry
 browser/      XenBrowser — CDP client, Spaces, snapshots + diffing,
-              screencast frames (Phase 6)
+              screencast frames (Phase 6), network capture + API discovery
+              (Phase 8)
 script/       the QuickJS automation core (xen.* host bridge, built-in
               modules, npm-lite vendor cache, triggers, hooks, recipes)
 public/       brand assets

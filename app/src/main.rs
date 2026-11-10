@@ -34,6 +34,10 @@
 //!                  (same section the system prompt gets).
 //! Test fixture:    `xencode --mcp-test-server` speaks the MCP protocol over
 //!                  stdio — the integration-test target for the MCP client.
+//! API discovery:   `xencode api capture|show|openapi|copy|diff|monitor …`
+//!                  (Phase 8) records every XHR/fetch a page makes into an
+//!                  endpoint catalog — copy-as cURL/fetch/reqwest/QuickJS,
+//!                  OpenAPI export, and a baseline monitor for automation.
 
 mod agent;
 mod fonts;
@@ -54,6 +58,8 @@ use ui::state::{ChatPage, Collector};
 
 const SCALE: f32 = 2.0;
 const DEFAULT_SHOTS_DIR: &str = "/home/z/my-project/download/xencode-rust-screenshots";
+/// Post-load settle window for `xencode api capture` (ms).
+const API_SETTLE_MS: u64 = 1_500;
 
 enum Mode {
     Screenshot { out: Option<String> },
@@ -77,6 +83,75 @@ enum Mode {
     /// `xencode --browser-ui <url>` — the native browser tab with a live
     /// screencast frame composited into the renderer.
     BrowserUi { url: String, out: String },
+    // Phase 8 -------------------------------------------------------------
+    /// `xencode api capture <url>` — record XHR/fetch traffic.
+    ApiCapture { url: String, opts: ApiCaptureOptions },
+    /// `xencode api show <capture.json>` — summarize the endpoint catalog.
+    ApiShow { file: String, json: bool },
+    /// `xencode api openapi <capture.json>` — OpenAPI 3.1 export.
+    ApiOpenapi { file: String, out: Option<String>, title: Option<String> },
+    /// `xencode api copy <capture.json> <N> [--as …]` — replay snippet.
+    ApiCopy { file: String, index: usize, as_flavor: ApiCopyAs },
+    /// `xencode api diff <old.json> <new.json>` — monitor report.
+    ApiDiff { old: String, new: String, json: bool },
+    /// `xencode api monitor <url> --baseline FILE` — capture → diff → alert.
+    ApiMonitor { url: String, baseline: String, update: bool, json: bool, opts: ApiCaptureOptions },
+}
+
+/// `xencode api copy --as` flavor.
+#[derive(Debug, Clone, Copy, Default)]
+enum ApiCopyAs {
+    #[default]
+    Curl,
+    Fetch,
+    Reqwest,
+    QuickJS,
+}
+
+impl ApiCopyAs {
+    fn parse(s: &str) -> Result<ApiCopyAs> {
+        match s.to_ascii_lowercase().as_str() {
+            "curl" => Ok(ApiCopyAs::Curl),
+            "fetch" | "js" => Ok(ApiCopyAs::Fetch),
+            "reqwest" | "rust" => Ok(ApiCopyAs::Reqwest),
+            "quickjs" | "xen" => Ok(ApiCopyAs::QuickJS),
+            other => bail!(
+                "unknown copy-as flavor `{other}` — expected one of: {}",
+                xencode_browser::apidisco::CopyAs::all().join("|")
+            ),
+        }
+    }
+
+    fn to_lib(self) -> xencode_browser::CopyAs {
+        match self {
+            ApiCopyAs::Curl => xencode_browser::CopyAs::Curl,
+            ApiCopyAs::Fetch => xencode_browser::CopyAs::Fetch,
+            ApiCopyAs::Reqwest => xencode_browser::CopyAs::Reqwest,
+            ApiCopyAs::QuickJS => xencode_browser::CopyAs::QuickJS,
+        }
+    }
+}
+
+/// Flags shared by `api capture` and `api monitor`.
+#[derive(Debug, Default, Clone)]
+struct ApiCaptureOptions {
+    /// Interaction steps to run after navigation (drive the app so XHRs fire;
+    /// a trailing `--wait` doubles as the settle time).
+    actions: Vec<BrowserAction>,
+    /// Disable response-body capture (shapes need bodies; escape hatch).
+    no_bodies: bool,
+    /// Keep secret header/query values verbatim (default: redacted).
+    no_redact: bool,
+    /// Write the raw capture artifact here.
+    out: Option<String>,
+    /// Also export the generated OpenAPI document here.
+    openapi: Option<String>,
+    json: bool,
+    browser_path: Option<String>,
+    /// `clean` (default) or `inherit=<profile-path>`.
+    space: String,
+    timeout_ms: u64,
+    headless: bool,
 }
 
 /// One headless browser step (`browser` subcommand).
@@ -102,7 +177,7 @@ struct BrowserOptions {
     actions: Vec<BrowserAction>,
 }
 
-fn main() {
+fn main() -> Result<()> {
     let mode = match parse_args() {
         Ok(m) => m,
         Err(e) => {
@@ -133,12 +208,33 @@ fn main() {
         Mode::RepoMap => print_repo_map(),
         Mode::Browser { url, opts } => run_browser(&url, opts),
         Mode::BrowserUi { url, out } => browser_ui(&url, &out),
+        Mode::ApiCapture { url, opts } => run_api_capture(&url, &opts),
+        Mode::ApiShow { file, json } => run_api_show(&file, json),
+        Mode::ApiOpenapi { file, out, title } => run_api_openapi(&file, out.as_deref(), title.as_deref()),
+        Mode::ApiCopy { file, index, as_flavor } => run_api_copy(&file, index, as_flavor),
+        // Offline monitor twin: also exits 1 on changes.
+        Mode::ApiDiff { old, new, json } => {
+            let alert = run_api_diff(&old, &new, json)?;
+            if alert {
+                std::process::exit(1);
+            }
+            Ok(())
+        }
+        // The monitor exits non-zero on changes so cron/CI automation can
+        // alert without parsing output (the report itself is on stdout).
+        Mode::ApiMonitor { url, baseline, update, json, opts } => {
+            let alert = run_api_monitor(&url, &baseline, update, json, &opts)?;
+            if alert {
+                std::process::exit(1);
+            }
+            Ok(())
+        }
     };
-
     if let Err(e) = result {
         eprintln!("xencode: {e:#}");
         std::process::exit(1);
     }
+    Ok(())
 }
 
 fn parse_args() -> Result<Mode> {
@@ -155,6 +251,10 @@ fn parse_args() -> Result<Mode> {
     // `xencode browser <url> [flags]` — the Phase-6 headless Spaces CLI.
     if args.first().map(|s| s.as_str()) == Some("browser") {
         return parse_browser(&args[1..]);
+    }
+    // `xencode api capture|show|openapi|copy|diff|monitor …` — Phase 8.
+    if args.first().map(|s| s.as_str()) == Some("api") {
+        return parse_api(&args[1..]);
     }
 
     let mut out: Option<String> = None;
@@ -1024,4 +1124,524 @@ async fn demo_run(prompt: &str, session_dir: &std::path::Path) -> Result<(ChatPa
     let id = Session::latest(session_dir).ok().flatten().unwrap_or_default();
     let _ = std::fs::remove_dir_all(&dir);
     Ok((collector.page, id))
+}
+
+// ---------------------------------------------------------------------
+// Phase 8 — API Discovery (`xencode api …`)
+// ---------------------------------------------------------------------
+
+/// Parse the `api` subcommand.
+fn parse_api(args: &[String]) -> Result<Mode> {
+    let Some(cmd) = args.first() else {
+        bail!(
+            "usage: xencode api capture <url> [flags] | show <FILE> | openapi <FILE> [--out FILE] | \
+             copy <FILE> <N> [--as curl|fetch|reqwest|quickjs] | diff <OLD> <NEW> | \
+             monitor <url> --baseline FILE [--update-baseline]"
+        );
+    };
+    let rest = &args[1..];
+    match cmd.as_str() {
+        "capture" => {
+            let mut opts =
+                ApiCaptureOptions { headless: true, timeout_ms: 30_000, ..Default::default() };
+            let url = parse_capture_flags(rest, &mut opts)?;
+            let Some(url) = url else {
+                bail!("usage: xencode api capture <url> [--wait MS] [--click SEL] [--fill SEL=TEXT] \
+                       [--press KEY] [--scroll DX,DY] [--no-bodies] [--no-redact] [--openapi FILE] \
+                       [--out FILE] [--json] [--space clean|inherit=PATH] [--browser-path BIN] \
+                       [--timeout-ms N] [--headed]");
+            };
+            Ok(Mode::ApiCapture { url, opts })
+        }
+        "show" => {
+            let mut file = None;
+            let mut json = false;
+            for a in rest {
+                match a.as_str() {
+                    "--json" => json = true,
+                    other if other.starts_with('-') => bail!("unknown api show flag: {other}"),
+                    other if file.is_none() => file = Some(other.to_string()),
+                    other => bail!("unexpected api show argument: {other}"),
+                }
+            }
+            let Some(file) = file else {
+                bail!("usage: xencode api show <capture.json> [--json]");
+            };
+            Ok(Mode::ApiShow { file, json })
+        }
+        "openapi" => {
+            let mut file = None;
+            let mut out = None;
+            let mut title = None;
+            let mut i = 0;
+            while i < rest.len() {
+                match rest[i].as_str() {
+                    "--out" if i + 1 < rest.len() => {
+                        out = Some(rest[i + 1].clone());
+                        i += 1;
+                    }
+                    "--title" if i + 1 < rest.len() => {
+                        title = Some(rest[i + 1].clone());
+                        i += 1;
+                    }
+                    other if other.starts_with('-') => bail!("unknown api openapi flag: {other}"),
+                    other if file.is_none() => file = Some(other.to_string()),
+                    other => bail!("unexpected api openapi argument: {other}"),
+                }
+                i += 1;
+            }
+            let Some(file) = file else {
+                bail!("usage: xencode api openapi <capture.json> [--out FILE] [--title T]");
+            };
+            Ok(Mode::ApiOpenapi { file, out, title })
+        }
+        "copy" => {
+            let mut file = None;
+            let mut index = None;
+            let mut as_flavor = ApiCopyAs::Curl;
+            let mut i = 0;
+            while i < rest.len() {
+                match rest[i].as_str() {
+                    "--as" if i + 1 < rest.len() => {
+                        as_flavor = ApiCopyAs::parse(&rest[i + 1])?;
+                        i += 1;
+                    }
+                    other if other.starts_with('-') => bail!("unknown api copy flag: {other}"),
+                    other if file.is_none() => file = Some(other.to_string()),
+                    other if index.is_none() => {
+                        index = Some(other.parse().context("api copy index must be a number (1-based, see `api show`)")?);
+                    }
+                    other => bail!("unexpected api copy argument: {other}"),
+                }
+                i += 1;
+            }
+            let (Some(file), Some(index)) = (file, index) else {
+                bail!("usage: xencode api copy <capture.json> <N> [--as curl|fetch|reqwest|quickjs]");
+            };
+            if index == 0 {
+                bail!("api copy index is 1-based (see the numbering in `xencode api show`)");
+            }
+            Ok(Mode::ApiCopy { file, index, as_flavor })
+        }
+        "diff" => {
+            let mut files: Vec<String> = Vec::new();
+            let mut json = false;
+            for a in rest {
+                match a.as_str() {
+                    "--json" => json = true,
+                    other if other.starts_with('-') => bail!("unknown api diff flag: {other}"),
+                    other => files.push(other.to_string()),
+                }
+            }
+            let [ref old, ref new] = files[..] else {
+                bail!("usage: xencode api diff <old-capture.json> <new-capture.json> [--json]");
+            };
+            Ok(Mode::ApiDiff { old: old.clone(), new: new.clone(), json })
+        }
+        "monitor" => {
+            let mut opts =
+                ApiCaptureOptions { headless: true, timeout_ms: 30_000, ..Default::default() };
+            let mut baseline = None;
+            let mut update = false;
+            let mut json = false;
+            let mut url = None;
+            let mut i = 0;
+            while i < rest.len() {
+                match rest[i].as_str() {
+                    "--baseline" if i + 1 < rest.len() => {
+                        baseline = Some(rest[i + 1].clone());
+                        i += 1;
+                    }
+                    "--update-baseline" => update = true,
+                    "--json" => json = true,
+                    "--wait" if i + 1 < rest.len() => {
+                        opts.actions.push(BrowserAction::Wait(
+                            rest[i + 1].parse().context("--wait expects milliseconds")?,
+                        ));
+                        i += 1;
+                    }
+                    "--click" if i + 1 < rest.len() => {
+                        opts.actions.push(BrowserAction::Click(rest[i + 1].clone()));
+                        i += 1;
+                    }
+                    "--fill" if i + 1 < rest.len() => {
+                        let (sel, text) = rest[i + 1]
+                            .split_once('=')
+                            .context("--fill expects selector=text")?;
+                        opts.actions.push(BrowserAction::Fill(sel.to_string(), text.to_string()));
+                        i += 1;
+                    }
+                    "--press" if i + 1 < rest.len() => {
+                        opts.actions.push(BrowserAction::Press(rest[i + 1].clone()));
+                        i += 1;
+                    }
+                    "--scroll" if i + 1 < rest.len() => {
+                        let (dx, dy) = rest[i + 1]
+                            .split_once(',')
+                            .context("--scroll expects dx,dy (e.g. --scroll 0,600)")?;
+                        opts.actions.push(BrowserAction::Scroll(
+                            dx.parse().context("--scroll dx must be a number")?,
+                            dy.parse().context("--scroll dy must be a number")?,
+                        ));
+                        i += 1;
+                    }
+                    "--no-bodies" => opts.no_bodies = true,
+                    "--no-redact" => opts.no_redact = true,
+                    "--out" if i + 1 < rest.len() => {
+                        opts.out = Some(rest[i + 1].clone());
+                        i += 1;
+                    }
+                    "--space" if i + 1 < rest.len() => {
+                        opts.space = rest[i + 1].clone();
+                        i += 1;
+                    }
+                    "--browser-path" if i + 1 < rest.len() => {
+                        opts.browser_path = Some(rest[i + 1].clone());
+                        i += 1;
+                    }
+                    "--timeout-ms" if i + 1 < rest.len() => {
+                        opts.timeout_ms = rest[i + 1].parse().context("--timeout-ms expects a number")?;
+                        i += 1;
+                    }
+                    "--headed" => opts.headless = false,
+                    other if other.starts_with('-') => bail!("unknown api monitor flag: {other}"),
+                    other if url.is_none() => url = Some(other.to_string()),
+                    other => bail!("unexpected api monitor argument: {other}"),
+                }
+                i += 1;
+            }
+            let (Some(url), Some(baseline)) = (url, baseline) else {
+                bail!(
+                    "usage: xencode api monitor <url> --baseline FILE [--update-baseline] [--json] \
+                     [--click SEL] [--fill SEL=TEXT] [--press KEY] [--scroll DX,DY] [--wait MS] \
+                     [--no-bodies] [--no-redact] [--space clean|inherit=PATH] [--browser-path BIN] \
+                     [--timeout-ms N] [--headed]"
+                );
+            };
+            Ok(Mode::ApiMonitor { url, baseline, update, json, opts })
+        }
+        other => bail!("unknown api subcommand `{other}` — expected capture, show, openapi, copy, diff, monitor"),
+    }
+}
+
+/// Shared capture/monitor flag parsing. Returns the positional URL.
+fn parse_capture_flags(args: &[String], opts: &mut ApiCaptureOptions) -> Result<Option<String>> {
+    let mut url = None;
+    let mut i = 0;
+    while i < args.len() {
+        match args[i].as_str() {
+            "--wait" if i + 1 < args.len() => {
+                // Extra settle time is modeled as a final Wait action.
+                opts.actions.push(BrowserAction::Wait(
+                    args[i + 1].parse().context("--wait expects milliseconds")?,
+                ));
+                i += 1;
+            }
+            "--click" if i + 1 < args.len() => {
+                opts.actions.push(BrowserAction::Click(args[i + 1].clone()));
+                i += 1;
+            }
+            "--fill" if i + 1 < args.len() => {
+                let (sel, text) = args[i + 1]
+                    .split_once('=')
+                    .context("--fill expects selector=text")?;
+                opts.actions.push(BrowserAction::Fill(sel.to_string(), text.to_string()));
+                i += 1;
+            }
+            "--press" if i + 1 < args.len() => {
+                opts.actions.push(BrowserAction::Press(args[i + 1].clone()));
+                i += 1;
+            }
+            "--scroll" if i + 1 < args.len() => {
+                let (dx, dy) = args[i + 1]
+                    .split_once(',')
+                    .context("--scroll expects dx,dy (e.g. --scroll 0,600)")?;
+                opts.actions.push(BrowserAction::Scroll(
+                    dx.parse().context("--scroll dx must be a number")?,
+                    dy.parse().context("--scroll dy must be a number")?,
+                ));
+                i += 1;
+            }
+            "--no-bodies" => opts.no_bodies = true,
+            "--no-redact" => opts.no_redact = true,
+            "--out" if i + 1 < args.len() => {
+                opts.out = Some(args[i + 1].clone());
+                i += 1;
+            }
+            "--openapi" if i + 1 < args.len() => {
+                opts.openapi = Some(args[i + 1].clone());
+                i += 1;
+            }
+            "--json" => opts.json = true,
+            "--space" if i + 1 < args.len() => {
+                opts.space = args[i + 1].clone();
+                i += 1;
+            }
+            "--browser-path" if i + 1 < args.len() => {
+                opts.browser_path = Some(args[i + 1].clone());
+                i += 1;
+            }
+            "--timeout-ms" if i + 1 < args.len() => {
+                opts.timeout_ms = args[i + 1].parse().context("--timeout-ms expects a number")?;
+                i += 1;
+            }
+            "--headed" => opts.headless = false,
+            other if other.starts_with('-') => bail!("unknown api capture flag: {other}"),
+            other if url.is_none() => url = Some(other.to_string()),
+            other => bail!("unexpected api capture argument: {other}"),
+        }
+        i += 1;
+    }
+    Ok(url)
+}
+
+/// Launch a Space, run the interaction script under a network capture, and
+/// return the redacted capture file plus its derived endpoint catalog.
+fn api_capture_session(
+    url: &str,
+    opts: &ApiCaptureOptions,
+) -> Result<(xencode_browser::CaptureFile, xencode_browser::EndpointCatalog)> {
+    use xencode_browser::{
+        CaptureOptions, CaptureState, NetCapture, Selector, Space, SpaceKind, SpaceOptions,
+    };
+
+    let rt = tokio::runtime::Runtime::new().context("start tokio runtime")?;
+    rt.block_on(async move {
+        let kind = if let Some(profile) = opts.space.strip_prefix("inherit=") {
+            SpaceKind::Inherit { profile: profile.into() }
+        } else {
+            SpaceKind::CleanRoom
+        };
+        let space = Space::launch(SpaceOptions {
+            kind,
+            headless: opts.headless,
+            browser_path: opts.browser_path.clone().map(std::path::PathBuf::from),
+            ..Default::default()
+        })
+        .await
+        .context("launch browser space")?;
+
+        let capture = NetCapture::start(
+            &space,
+            CaptureOptions {
+                bodies: !opts.no_bodies,
+                ..Default::default()
+            },
+        )
+        .await
+        .context("start network capture")?;
+
+        let nav_timeout = std::time::Duration::from_millis(opts.timeout_ms.max(1_000));
+        let nav = tokio::time::timeout(nav_timeout, space.navigate(url))
+            .await
+            .map_err(|_| anyhow::anyhow!("navigate timed out after {}ms", opts.timeout_ms))?;
+        nav.with_context(|| format!("navigate to {url}"))?;
+
+        for action in &opts.actions {
+            match action {
+                BrowserAction::Click(sel) => {
+                    space.click(&Selector::parse(sel)).await.with_context(|| format!("click {sel}"))?;
+                }
+                BrowserAction::Fill(sel, text) => {
+                    space
+                        .fill(&Selector::parse(sel), text)
+                        .await
+                        .with_context(|| format!("fill {sel}"))?;
+                }
+                BrowserAction::Press(key) => {
+                    space.press(key).await.with_context(|| format!("press {key}"))?;
+                }
+                BrowserAction::Scroll(dx, dy) => {
+                    space.scroll(*dx, *dy).await.context("scroll")?;
+                }
+                BrowserAction::Wait(ms) => {
+                    tokio::time::sleep(std::time::Duration::from_millis(*ms)).await;
+                }
+            }
+        }
+
+        // Most apps fire their real API calls after the load event; always
+        // give the page a short settle window (a trailing --wait adds more).
+        tokio::time::sleep(std::time::Duration::from_millis(API_SETTLE_MS)).await;
+
+        let mut entries = capture.stop().await.context("stop network capture")?;
+        let redacted = !opts.no_redact;
+        if redacted {
+            for e in &mut entries {
+                xencode_browser::redact_entry(e);
+            }
+        }
+        let catalog = {
+            // feed the pure state machine result through the catalog builder
+            let _ = CaptureState::new(&CaptureOptions::default()); // (kept for parity with lib tests)
+            xencode_browser::build_catalog(&entries)
+        };
+        let file = xencode_browser::CaptureFile::new(url, redacted, entries);
+        Ok((file, catalog))
+    })
+}
+
+/// `xencode api capture <url>` — record traffic, print/save the catalog.
+fn run_api_capture(url: &str, opts: &ApiCaptureOptions) -> Result<()> {
+    let (file, catalog) = api_capture_session(url, opts)?;
+
+    if let Some(path) = &opts.out {
+        file.save(std::path::Path::new(path))
+            .with_context(|| format!("save capture {path}"))?;
+    }
+    if let Some(path) = &opts.openapi {
+        let doc = xencode_browser::to_openapi(&catalog, &openapi_title(catalog.sources.first()));
+        let json = serde_json::to_string_pretty(&doc)?;
+        if let Some(parent) = std::path::Path::new(path).parent() {
+            std::fs::create_dir_all(parent)?;
+        }
+        std::fs::write(path, json).with_context(|| format!("write openapi {path}"))?;
+    }
+
+    if opts.json {
+        println!(
+            "{}",
+            serde_json::json!({
+                "url": url,
+                "entries": file.entries.len(),
+                "redacted": file.redacted,
+                "capture": opts.out,
+                "openapi": opts.openapi,
+                "endpoints": catalog.endpoints,
+                "sources": catalog.sources,
+            })
+        );
+    } else {
+        print!("{}", xencode_browser::render_catalog_text(&catalog));
+        if let Some(path) = &opts.out {
+            eprintln!("· capture saved to {path} ({} entries)", file.entries.len());
+        }
+        if let Some(path) = &opts.openapi {
+            eprintln!("· OpenAPI written to {path}");
+        }
+        if !catalog.endpoints.is_empty() {
+            eprintln!("· replay: `xencode api copy <capture.json> <N> [--as curl|fetch|reqwest|quickjs]`");
+        }
+    }
+    Ok(())
+}
+
+fn openapi_title(first_source: Option<&String>) -> String {
+    match first_source {
+        Some(base) => format!("Observed API — {base}"),
+        None => "Observed API".to_string(),
+    }
+}
+
+/// `xencode api show <capture.json>` — catalog summary.
+fn run_api_show(file: &str, json: bool) -> Result<()> {
+    let capture = xencode_browser::CaptureFile::load(std::path::Path::new(file))?;
+    let catalog = xencode_browser::build_catalog(&capture.entries);
+    if json {
+        println!("{}", serde_json::to_string_pretty(&catalog)?);
+    } else {
+        print!("{}", xencode_browser::render_catalog_text(&catalog));
+    }
+    Ok(())
+}
+
+/// `xencode api openapi <capture.json>` — OpenAPI 3.1 export.
+fn run_api_openapi(file: &str, out: Option<&str>, title: Option<&str>) -> Result<()> {
+    let capture = xencode_browser::CaptureFile::load(std::path::Path::new(file))?;
+    let catalog = xencode_browser::build_catalog(&capture.entries);
+    let doc = xencode_browser::to_openapi(
+        &catalog,
+        title.unwrap_or(&openapi_title(catalog.sources.first())),
+    );
+    let json = serde_json::to_string_pretty(&doc)?;
+    match out {
+        Some(path) => {
+            if let Some(parent) = std::path::Path::new(path).parent() {
+                std::fs::create_dir_all(parent)?;
+            }
+            std::fs::write(path, json).with_context(|| format!("write openapi {path}"))?;
+            eprintln!("· OpenAPI written to {path}");
+        }
+        None => println!("{json}"),
+    }
+    Ok(())
+}
+
+/// `xencode api copy <capture.json> <N>` — replay snippet for endpoint N.
+fn run_api_copy(file: &str, index: usize, flavor: ApiCopyAs) -> Result<()> {
+    let capture = xencode_browser::CaptureFile::load(std::path::Path::new(file))?;
+    let catalog = xencode_browser::build_catalog(&capture.entries);
+    let ep = catalog.endpoints.get(index - 1).with_context(|| {
+        format!(
+            "endpoint {} of {} — pick an index from `xencode api show {}`",
+            index,
+            catalog.endpoints.len(),
+            file
+        )
+    })?;
+    println!("{}", xencode_browser::copy_as(ep, flavor.to_lib()));
+    Ok(())
+}
+
+/// `xencode api diff <old> <new>` — monitor report (exit 1 on changes).
+fn run_api_diff(old: &str, new: &str, json: bool) -> Result<bool> {
+    let a = xencode_browser::CaptureFile::load(std::path::Path::new(old))?;
+    let b = xencode_browser::CaptureFile::load(std::path::Path::new(new))?;
+    let old_cat = xencode_browser::build_catalog(&a.entries);
+    let new_cat = xencode_browser::build_catalog(&b.entries);
+    let diff = xencode_browser::diff_catalogs(&old_cat, &new_cat);
+    if json {
+        println!("{}", diff.alert_json());
+    } else {
+        print!("{}", diff.render_text());
+    }
+    Ok(diff.has_changes())
+}
+
+/// `xencode api monitor <url> --baseline FILE` — fresh capture → diff →
+/// alert. The baseline is a capture file; `--update-baseline` rewrites it
+/// with the fresh capture after comparing.
+fn run_api_monitor(
+    url: &str,
+    baseline: &str,
+    update: bool,
+    json: bool,
+    opts: &ApiCaptureOptions,
+) -> Result<bool> {
+    let baseline_path = std::path::Path::new(baseline);
+    let old = xencode_browser::CaptureFile::load(baseline_path)
+        .with_context(|| format!("load baseline {baseline} (create one with `xencode api capture {url} --out {baseline}`)"))?;
+    let (fresh, _) = api_capture_session(url, opts)?;
+    if old.redacted != fresh.redacted {
+        eprintln!(
+            "· warning: baseline redaction ({}) differs from this run ({}) — header/query values may not be comparable",
+            old.redacted,
+            fresh.redacted
+        );
+    }
+    let old_cat = xencode_browser::build_catalog(&old.entries);
+    let new_cat = xencode_browser::build_catalog(&fresh.entries);
+    let diff = xencode_browser::diff_catalogs(&old_cat, &new_cat);
+
+    if let Some(path) = &opts.out {
+        fresh
+            .save(std::path::Path::new(path))
+            .with_context(|| format!("save capture {path}"))?;
+        if !json {
+            eprintln!("· fresh capture saved to {path} ({} entries)", fresh.entries.len());
+        }
+    }
+
+    if json {
+        println!("{}", diff.alert_json());
+    } else {
+        print!("{}", diff.render_text());
+    }
+    if update {
+        fresh.save(baseline_path).with_context(|| format!("update baseline {baseline}"))?;
+        if !json {
+            eprintln!("· baseline updated: {baseline}");
+        }
+    }
+    Ok(diff.has_changes())
 }

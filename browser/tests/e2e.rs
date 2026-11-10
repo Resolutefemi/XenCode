@@ -175,3 +175,116 @@ async fn e2e_two_spaces_are_isolated() {
     assert_eq!(ca, "1 item");
     assert_eq!(cb, "0 items", "spaces must not share state");
 }
+
+/// Phase 8 e2e — network capture → endpoint catalog → copy-as → OpenAPI.
+/// A local CORS-enabled JSON API serves `GET /api/items?page=2`; the page
+/// fetch()es it from Chromium; the CDP Network pump must turn that into a
+/// redacted NetEntry, then into a catalog endpoint with an inferred
+/// response shape, a working curl snippet and an OpenAPI path.
+#[tokio::test]
+async fn e2e_network_capture_endpoint_catalog() {
+    use xencode_browser::{build_catalog, copy_as, diff_catalogs, to_openapi, CaptureOptions,
+        CaptureFile, CopyAs, NetCapture};
+
+    let _browser_slot = BROWSER_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+    let Some(browser) = have_browser() else {
+        eprintln!("skipping: no browser found");
+        return;
+    };
+    eprintln!("using browser: {}", browser.display());
+
+    // Local JSON API (single-shot connection server).
+    let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+    let port = listener.local_addr().unwrap().port();
+    std::thread::spawn(move || {
+        use std::io::{Read, Write};
+        for stream in listener.incoming() {
+            let Ok(mut s) = stream else { break };
+            let _ = s.set_read_timeout(Some(std::time::Duration::from_secs(2)));
+            let _ = Read::read(&mut s, &mut vec![0u8; 16 * 1024]);
+            let body = br#"{"ok":true,"items":[1,2,3],"name":"xen"}"#;
+            let head = format!(
+                "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nAccess-Control-Allow-Origin: *\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
+                body.len()
+            );
+            let _ = s.write_all(head.as_bytes());
+            let _ = s.write_all(body);
+        }
+    });
+
+    let dir = tempfile::tempdir().unwrap();
+    let page = dir.path().join("page.html");
+    std::fs::write(
+        &page,
+        format!(
+            r#"<!doctype html><html><head><title>XenCapture</title></head><body><script>
+              fetch('http://127.0.0.1:{port}/api/items?page=2').then(r => r.json()).catch(() => {{}});
+            </script></body></html>"#
+        ),
+    )
+    .unwrap();
+    let url = format!("file://{}", page.display());
+
+    let space = clean_space().await.expect("launch space");
+    let capture = NetCapture::start(&space, CaptureOptions::default())
+        .await
+        .expect("start capture");
+    space.navigate(&url).await.expect("navigate");
+
+    // Give the fetch time to fire and complete (auto-wait lives in the
+    // actions; here the page drives itself, so wait a fixed settle).
+    tokio::time::sleep(Duration::from_millis(2000)).await;
+
+    let entries = capture.stop().await.expect("stop capture");
+
+    let mut hit = None;
+    for e in &entries {
+        if e.url.contains("/api/items") {
+            hit = Some(e.clone());
+        }
+    }
+    let hit = hit.expect("fetch() to the local API must be captured");
+    assert_eq!(hit.method, "GET");
+    assert_eq!(hit.status, Some(200));
+    assert!(
+        hit.query.iter().any(|(k, v)| k == "page" && v == "2"),
+        "query pairs: {:?}",
+        hit.query
+    );
+    let body = hit.body.as_deref().unwrap_or("");
+    assert!(body.contains("\"ok\":true") || body.contains("\"ok\": true"), "body: {body}");
+    // Secret redaction: no such header here, but the mechanism is unit-tested.
+
+    // Catalog: templated endpoint with an inferred response shape.
+    let cat = build_catalog(&entries);
+    let ep = cat
+        .endpoints
+        .iter()
+        .find(|e| e.path == "/api/items")
+        .expect("endpoint in catalog");
+    assert_eq!(ep.method, "GET");
+    assert!(ep.response_schema.is_some());
+    let brief = xencode_browser::schema_brief(ep.response_schema.as_ref().unwrap());
+    assert!(brief.contains("ok: boolean"), "brief: {brief}");
+
+    // Copy-as curl replays the concrete URL.
+    let curl = copy_as(ep, CopyAs::Curl);
+    assert!(curl.contains(&format!("'http://127.0.0.1:{port}/api/items?page=2'")), "{curl}");
+
+    // OpenAPI export carries the path + operation.
+    let doc = to_openapi(&cat, "e2e observed");
+    assert!(doc["paths"]["/api/items"]["get"].is_object());
+
+    // Monitor: same traffic again → no changes.
+    let cat2 = build_catalog(&entries);
+    let d = diff_catalogs(&cat, &cat2);
+    assert!(!d.has_changes());
+
+    // Capture artifact round-trip.
+    let out = dir.path().join("capture.json");
+    let file = CaptureFile::new(&url, true, entries);
+    file.save(&out).unwrap();
+    let loaded = CaptureFile::load(&out).unwrap();
+    assert!(loaded.redacted);
+    assert!(loaded.entries.iter().any(|e| e.url.contains("/api/items")));
+}
