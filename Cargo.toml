@@ -1,0 +1,11 @@
+# XenCode workspace — one static binary, 100% Rust.
+[workspace]
+resolver = "2"
+members = ["app", "script"]
+
+# release profile applies workspace-wide (moved from app/Cargo.toml)
+[profile.release]
+opt-level = "z"
+lto = true
+codegen-units = 1
+strip = true

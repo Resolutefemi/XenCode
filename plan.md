@@ -71,6 +71,41 @@ Execution order: 0 → 1 → 2 → 6.1–6.2 → 3 → 4 → 8 → 7 → 5. Phas
   3. TypeScript stripped in-process via oxc — users write TS, we transpile in microseconds.
 - Permissions (Deno-style) in `xen.toml`: `net` scopes, `fs` scopes, `proc`, `env` — GUI consent on first use.
 - Triggers: cron schedules, file-watch, webhooks, lifecycle hooks — one engine, four triggers.
+- Status: **DONE**.
+  - Runtime (`script/src/runtime.rs`): `ScriptRuntime` — isolated `AsyncRuntime` + context per script, 64 MiB heap limit,
+    1 MiB stack, interrupt guard (deadline + manual cancel), custom `XenResolver`/`XenFileLoader` (relative + npm +
+    `node:` specifier mapping, `.ts/.tsx/.mts/.cts` stripped in-process, `.json` modules), global `xen` aggregate object
+    beside the ESM `xen/*` modules, and the rquickjs `rt.drive()` pump on a `LocalSet` (QuickJS values never cross a
+    thread — script execution runs on a dedicated blocking thread per run).
+  - Host bridge: `xen.http` (fetch with WHATWG-style Response: status/headers/text()/json()/arrayBuffer()/bytes()),
+    `xen.fs` (readFile/readText/writeFile/appendFile/remove/mkdir/rename/copy/stat/glob + debounced `watch` handles),
+    `xen.proc` (spawn/run with cwd/env/stdin, stdout/stderr/exit capture), `xen.agent` (hook registry + inbox +
+    onMessage delivery through `AgentBridge`), `xen.ui` (toast/progress events + text prompts through `UiBridge`).
+    Shared state rides context userdata; every op passes the Deno-style permission gates.
+  - Shims: console (log/info/warn/error/debug/trace/assert as UI events), setTimeout/setInterval/clear*/queueMicrotask
+    (tokio-driven schedular futures with a cancel-flag registry), URL/URLSearchParams, TextEncoder/TextDecoder,
+    atob/btoa, crypto.getRandomValues/randomUUID, performance.now.
+  - Tier 1 built-ins: `xen/path` (node:path-compatible), `xen/glob`, `xen/yaml`, `xen/toml`, `xen/csv`, `xen/zip`,
+    `xen/sqlite` (rusqlite bundled, positional + named params), `xen/dotenv` (+ env injection), `xen/env`
+    (permission-gated env access), `xen/semver`, `xen/ansi`, `xen/markdown` — all native ESM, also reachable via
+    npm-style bare specifiers (`import { parse } from "yaml"`).
+  - Tier 2 vendor cache (`script/src/npm.rs`): registry metadata → tarball download → sha512/sha256 SRI verification →
+    gzip/tar extraction into `~/.cache/xencode/npm`, `package.json` ESM entry resolution (module → exports.import →
+    main → index.js), transitive pure-JS prefetch (depth 8, 64 packages), `xen.lock` pinning for offline reruns,
+    `xen-script cache ls|clean`.
+  - Tier 3 TS strip (`script/src/ts.rs`): oxc parser + TypeScript transformer (annotations/interfaces/enums/namespaces
+    erased) + codegen, microseconds for typical scripts.
+  - Permissions: `[permissions]` net/fs/proc/env grants in `xen.toml` ($PROJECT-relative scopes, host allowlists with
+    `*.domain` matching), session-cached consent through the `PromptBridge` (stdin y/n/a in the CLI, GUI consent card
+    ready), `--yes` / `--read-only` CLI flags.
+  - Triggers (`script/src/triggers.rs`): one engine, four kinds — cron (`cron` crate + `@daily`-style shorthands),
+    file-watch (notify recursive + glob filter + 1 s debounce), webhooks (built-in 127.0.0.1 HTTP server, path-routed
+    POST/GET), lifecycle (onStart/onStop/onError) — each run through a fresh isolated runtime via the injected
+    `RunFactory`, run history surfaced as `RunSummary`.
+  - CLI (`xen-script`): `run <script.ts|js>` with `--arg/--yes/--read-only/--timeout-ms/--memory-mb/--json`,
+    `triggers` daemon (Ctrl-C → onStop), `info`, `cache ls|clean`; UI events stream to stderr.
+  - Verified end-to-end: TS demo exercising path/yaml/toml/semver/markdown/ansi + `xen.proc` + `xen.fs` roundtrip +
+    timers + top-level await + default export; trigger daemon firing cron/webhook/lifecycle. 52 unit tests green.
 
 ## Phase 3 — Harness ports, wave 1 (S each)
 

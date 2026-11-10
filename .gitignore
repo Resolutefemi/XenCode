@@ -80,3 +80,9 @@ __pycache__/
 app/target/
 app/Cargo.lock
 .xencode/
+
+# Rust workspace build artifacts
+target/
+**/target/
+
+# xen.lock is generated per-project by the vendor cache (user-side artifact)
