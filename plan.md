@@ -32,7 +32,13 @@ Execution order: 0 → 1 → 2 → 6.1–6.2 → 3 → 4 → 8 → 7 → 5. Phas
 - Apply the two queued fidelity fixes (home watermark glow underlay, string audit on settings/chat/git/terminal pages).
 - Re-render all 6 pages (`--screenshot --out`) → side-by-side acceptance vs ZCode → push.
 - Status: **DONE** — all six pages rendered, QA'd and committed under `screenshots/` (also embedded in the README).
-  Re-verified pixel-identical (max channel diff 0) after the Phase-1 completion work.
+  Re-verified after the Phase-1 completion work, and again after the **global alignment audit**: `fonts::draw_mid`
+  now derives its optical centering from the real font metrics (cap-height band centered on the row centerline)
+  instead of a hardcoded constant, so leading icons, status dots and avatars share the exact centerline with their
+  labels across every surface (sidebar rows, task dots, folder headers, composer mode row, chips, settings nav,
+  git pane, footer). Icons that sat off-center inside their rows (settings nav 29px rows, select triggers, code
+  preview header, git-pane refresh) were re-centered; the two-line footer/settings text blocks are block-centered
+  on their avatar row. Screenshots re-rendered from the fixed renderer.
 
 ## Phase 1 — Agent core backend (M)
 

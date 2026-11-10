@@ -109,8 +109,10 @@ pub fn draw_sidebar_footer(c: &mut Canvas) {
     c.stroke_circle(x + 14.0, y + h / 2.0, 14.0, 1.0, T::BORDER());
     c.icon("user", x + 7.0, y + h / 2.0 - 7.0, 14.0, T::FG_SUBTLE());
     let tx = x + 34.0;
-    fonts::draw_mid(c, tx, y + 20.0, "Resolute Femi", 13.0, T::FG(), Weight::Normal, false);
-    fonts::draw_mid(c, tx, y + 36.0, "Individual plan", 11.0, T::FG_SUBTLEST(), Weight::Normal, false);
+    // two-line text block centered on the avatar's centerline (y + h/2):
+    // line boxes 13px→18.85 + 11px→15.95 centered at h/2
+    fonts::draw_mid(c, tx, y + 18.0, "Resolute Femi", 13.0, T::FG(), Weight::Normal, false);
+    fonts::draw_mid(c, tx, y + 35.4, "Individual plan", 11.0, T::FG_SUBTLEST(), Weight::Normal, false);
     // settings trigger
     let bx = 264.0 - 8.0 - 28.0;
     draw_icon_button(c, bx, y + (h - 28.0) / 2.0, 28.0, "settings", T::FG_SUBTLE(), false);

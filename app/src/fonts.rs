@@ -21,6 +21,12 @@ struct Fonts {
     ui: [FontVec; 4],       // [400, 500, 600, 700]
     mono: [FontVec; 2],     // [400, 700]
     ui_cjk: Option<FontVec>, // runtime fallback for CJK glyphs
+    // 'H' ink-height per font, as a ratio of the font pixel size. This is the
+    // optical band the vertical centering of [`draw_mid`] aligns with icons,
+    // status dots and avatars (which are geometrically centered).
+    ui_cap: [f32; 4],
+    mono_cap: [f32; 2],
+    cjk_cap: f32,
 }
 
 static FONTS: OnceLock<Fonts> = OnceLock::new();
@@ -43,6 +49,26 @@ fn load(paths: &[&str]) -> Option<FontVec> {
         }
     }
     None
+}
+
+/// 'H' ink height at a 100px reference scale → ratio of px per font px.
+/// (cap-height band; robust across fonts without reading OS/2 sCapHeight).
+fn cap_ratio(font: &FontVec) -> f32 {
+    let id = font.glyph_id('H');
+    if id.0 != 0 {
+        let glyph = Glyph {
+            id,
+            scale: PxScale::from(100.0),
+            position: ab_glyph::Point { x: 0.0, y: 0.0 },
+        };
+        if let Some(outlined) = font.outline_glyph(glyph) {
+            let h = outlined.px_bounds().height();
+            if h > 0.0 {
+                return h / 100.0;
+            }
+        }
+    }
+    0.72
 }
 
 fn build_fonts() -> Fonts {
@@ -70,7 +96,14 @@ fn build_fonts() -> Fonts {
         "/usr/share/fonts/truetype/chinese/NotoSansSC-Regular.ttf",
         "/usr/share/fonts/truetype/noto-serif-sc/NotoSerifSC-Regular.ttf",
     ]);
-    Fonts { ui, mono, ui_cjk }
+    Fonts {
+        ui_cap: [cap_ratio(&ui[0]), cap_ratio(&ui[1]), cap_ratio(&ui[2]), cap_ratio(&ui[3])],
+        mono_cap: [cap_ratio(&mono[0]), cap_ratio(&mono[1])],
+        cjk_cap: ui_cjk.as_ref().map(|f| cap_ratio(f)).unwrap_or(0.72),
+        ui,
+        mono,
+        ui_cjk,
+    }
 }
 
 fn fonts() -> &'static Fonts {
@@ -86,24 +119,39 @@ fn ui_index(weight: Weight) -> usize {
     }
 }
 
-/// Resolve the font + glyph id for a char, with CJK fallback for the UI face.
-fn resolve(mono: bool, weight: Weight, ch: char) -> (&'static FontVec, ab_glyph::GlyphId) {
+/// The font face [`draw`] will use for a char (CJK fallback resolved) plus its
+/// cap-height ratio — so optical centering and shaping always agree.
+struct Face {
+    font: &'static FontVec,
+    cap: f32,
+}
+
+fn face(mono: bool, weight: Weight, ch: char) -> Face {
     let f = fonts();
-    let font: &FontVec = if mono {
-        &f.mono[if weight == Weight::Bold { 1 } else { 0 }]
+    let (font, cap) = if mono {
+        let i = if weight == Weight::Bold { 1 } else { 0 };
+        (&f.mono[i], f.mono_cap[i])
     } else {
-        &f.ui[ui_index(weight)]
+        let i = ui_index(weight);
+        (&f.ui[i], f.ui_cap[i])
     };
     let id = font.glyph_id(ch);
     if id.0 == 0 && !mono && !ch.is_control() && ch != ' ' {
         if let Some(cjk) = &f.ui_cjk {
             let cid = cjk.glyph_id(ch);
             if cid.0 != 0 {
-                return (cjk, cid);
+                return Face { font: cjk, cap: f.cjk_cap };
             }
         }
     }
-    (font, id)
+    Face { font, cap }
+}
+
+/// Resolve the font + glyph id for a char, with CJK fallback for the UI face.
+fn resolve(mono: bool, weight: Weight, ch: char) -> (&'static FontVec, ab_glyph::GlyphId) {
+    let fc = face(mono, weight, ch);
+    let id = fc.font.glyph_id(ch);
+    (fc.font, id)
 }
 
 struct Metrics {
@@ -245,7 +293,10 @@ pub fn draw(
     w_dev / s
 }
 
-/// Draw text vertically centered on `cy` (optical centering).
+/// Draw text vertically centered on `cy` — **optical centering**: the text's
+/// cap-height band is centered on `cy`, so a label shares the exact centerline
+/// with geometrically centered leading icons, status dots and avatars
+/// (strict cross-axis alignment, matching `items-center` in the reference UI).
 pub fn draw_mid(
     c: &mut Canvas,
     x: f32,
@@ -256,8 +307,18 @@ pub fn draw_mid(
     weight: Weight,
     mono: bool,
 ) -> f32 {
-    let top = cy - px * 0.72;
-    draw(c, x, top, text, px, color, weight, mono)
+    if text.is_empty() {
+        return 0.0;
+    }
+    // same face draw() will shape the run with (CJK fallback included)
+    let first = text.chars().next().unwrap_or('a');
+    let fc = face(mono, weight, first);
+    let px_dev = px * c.s;
+    let ascent = fc.font.ascent_unscaled() * (px_dev / fc.font.height_unscaled());
+    let cap = fc.cap * px_dev;
+    // baseline = cy + cap/2 puts the cap-height band exactly on `cy`
+    let top_dev = cy * c.s + cap / 2.0 - ascent;
+    draw(c, x, top_dev / c.s, text, px, color, weight, mono)
 }
 
 /// Draw text centered horizontally in [x, x+w], vertically centered on cy.

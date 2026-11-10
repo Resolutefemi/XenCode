@@ -37,7 +37,7 @@ pub fn draw(c: &mut Canvas, area: Rect) {
     let mut rx = col_x + 24.0;
     rx += fonts::draw_mid(c, rx, y + 8.0, "Thought", 13.0, T::FG_SUBTLE(), Weight::Normal, false) + 6.0;
     rx += fonts::draw_mid(c, rx, y + 8.0, "· a few seconds", 13.0, T::FG_SUBTLEST(), Weight::Normal, false) + 6.0;
-    c.icon("chevron-right", rx, y, 14.0, T::FG_SUBTLEST());
+    c.icon("chevron-right", rx, y + 1.0, 14.0, T::FG_SUBTLEST()); // center on the row centerline (y+8)
     y += 32.0;
 
     // ---- assistant markdown text ---------------------------------------
@@ -226,9 +226,9 @@ fn draw_permission_card(
             let deny_r = Rect::new(allow_r.x - 8.0 - bw, ay, bw, bh);
             c.fill_rrect(deny_r, 8.0, T::SURFACE());
             c.stroke_rrect(deny_r, 8.0, 1.0, T::BORDER());
-            fonts::draw_center(c, deny_r.x, deny_r.w, deny_r.cy() + 1.0, "Deny", 13.0, T::FG(), Weight::Normal, false);
+            fonts::draw_center(c, deny_r.x, deny_r.w, deny_r.cy(), "Deny", 13.0, T::FG(), Weight::Normal, false);
             c.fill_rrect(allow_r, 8.0, T::WHITE());
-            fonts::draw_center(c, allow_r.x, allow_r.w, allow_r.cy() + 1.0, "Allow", 13.0, T::BLACK(), Weight::Normal, false);
+            fonts::draw_center(c, allow_r.x, allow_r.w, allow_r.cy(), "Allow", 13.0, T::BLACK(), Weight::Normal, false);
         }
     }
 }

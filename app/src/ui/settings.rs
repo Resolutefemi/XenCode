@@ -74,7 +74,7 @@ pub fn draw(c: &mut Canvas) {
                 c.fill_rrect(row, 8.0, T::SELECTED());
             }
             let color = if item.active { T::FG() } else { T::FG_SUBTLE() };
-            c.icon(item.icon, row.x + 10.0, y + 8.0, 16.0, color);
+            c.icon(item.icon, row.x + 10.0, y + 6.5, 16.0, color); // (29-16)/2: dead-center on the row
             let mut x = row.x + 34.0;
             x += fonts::draw_mid(c, x, row.cy(), item.label, 14.0, color, Weight::Normal, false);
             if item.beta {
@@ -116,13 +116,13 @@ pub fn draw(c: &mut Canvas) {
     let card = Rect::new(cx, y, cw, 64.0 + 1.0 + 64.0);
     c.card(card, 12.0, T::CARD(), T::DIVIDER(), 1.0);
     let row1 = Rect::new(cx, y, cw, 64.0);
-    draw_setting_row(c, row1.x + 16.0, row1.y + 24.0, "App theme");
-    draw_setting_desc(c, row1.x + 16.0, row1.y + 43.0, "Choose light, dark, or follow the system theme.");
+    draw_setting_row(c, row1.x + 16.0, row1.y + 23.5, "App theme");
+    draw_setting_desc(c, row1.x + 16.0, row1.y + 42.0, "Choose light, dark, or follow the system theme.");
     select_trigger(c, row1.right() - 200.0 - 16.0, row1.cy() - 18.0, 200.0, "moon", "Dark");
     c.line(cx + 16.0, y + 64.0, cx + cw - 16.0, y + 64.0, 1.0, T::DIVIDER());
     let row2 = Rect::new(cx, y + 65.0, cw, 63.0);
-    draw_setting_row(c, row2.x + 16.0, row2.y + 24.0, "UI font size");
-    draw_setting_desc(c, row2.x + 16.0, row2.y + 43.0, "Set the base interface text size (12-20 px).");
+    draw_setting_row(c, row2.x + 16.0, row2.y + 23.5, "UI font size");
+    draw_setting_desc(c, row2.x + 16.0, row2.y + 42.0, "Set the base interface text size (12-20 px).");
     number_input(c, row2.right() - 100.0 - 16.0, row2.cy() - 18.0, 100.0, "14", "px");
     y += card.h + 28.0;
 
@@ -162,9 +162,9 @@ pub fn draw(c: &mut Canvas) {
     y += 22.0;
     let pv = Rect::new(cx, y, cw, 110.0);
     c.card(pv, 12.0, T::BG(), T::BORDER(), 0.5);
-    c.icon("file-code", pv.x + 12.0, y + 8.0, 13.0, T::FG_SUBTLEST());
+    c.icon("file-code", pv.x + 12.0, y + 8.5, 13.0, T::FG_SUBTLEST()); // center on the 15px label line
     fonts::draw_mid(c, pv.x + 31.0, y + 15.0, "main.rs", 11.0, T::FG_SUBTLEST(), Weight::Normal, true);
-    c.icon("copy", pv.right() - 20.0, y + 9.0, 13.0, T::FG_SUBTLEST());
+    c.icon("copy", pv.right() - 20.0, y + 8.5, 13.0, T::FG_SUBTLEST());
     c.line(pv.x + 0.5, y + 28.0, pv.right() - 0.5, y + 28.0, 1.0, T::DIVIDER());
     let kw = T::CODE_KW();
     let fn_c = T::CODE_FN();
@@ -196,7 +196,7 @@ fn draw_setting_desc(c: &mut Canvas, x: f32, y: f32, desc: &str) {
 fn select_trigger(c: &mut Canvas, x: f32, y: f32, w: f32, icon: &str, value: &str) {
     let r = Rect::new(x, y, w, 36.0);
     c.card(r, 8.0, T::BG(), T::BORDER(), 1.0);
-    c.icon(icon, x + 10.0, y + 10.0, 14.0, T::FG_SUBTLE());
+    c.icon(icon, x + 10.0, y + 11.0, 14.0, T::FG_SUBTLE()); // (36-14)/2: centered on the trigger
     fonts::draw_mid(c, x + 32.0, r.cy(), value, 13.0, T::FG(), Weight::Normal, false);
     c.icon("chevron-down", x + w - 22.0, r.cy() - 6.0, 12.0, T::FG_SUBTLEST());
 }

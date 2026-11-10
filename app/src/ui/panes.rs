@@ -66,7 +66,7 @@ pub fn draw_git_pane(c: &mut Canvas, r: Rect) {
     c.icon("chevron-down", sel.right() - 20.0, sel.cy() - 6.0, 12.0, T::FG_SUBTLEST());
     // refresh button
     let ref_x = sel.right() + 8.0;
-    c.icon("refresh-cw", ref_x, hy + 8.0, 14.0, T::FG_SUBTLE());
+    c.icon("refresh-cw", ref_x, hy + 9.0, 14.0, T::FG_SUBTLE()); // centered on the Refresh label line
     fonts::draw_mid(c, ref_x + 20.0, hy + 16.0, "Refresh", 13.0, T::FG_SUBTLE(), Weight::Normal, false);
 
     // change cards
