@@ -137,6 +137,9 @@ pub fn draw(c: &mut Canvas, area: Rect) {
 // ---------------------------------------------------------------------------
 
 fn tool_verb(name: &str) -> &'static str {
+    if name.starts_with("mcp__") {
+        return "Ran"; // Phase 4: MCP server tool
+    }
     match name {
         "read_file" => "Read",
         "write_file" => "Wrote",
@@ -145,6 +148,7 @@ fn tool_verb(name: &str) -> &'static str {
         "grep" => "Searched",
         "bash" => "Ran",
         "todo_write" => "Planned",
+        "task" => "Agent", // Phase 4: subagent dispatch
         _ => "Ran",
     }
 }
@@ -270,6 +274,28 @@ pub fn draw_state(c: &mut Canvas, area: Rect, page: &ChatPage) {
             Entry::Tool { name, summary, ok } => {
                 draw_tool_row(c, col_x, y, col_w, name, summary, *ok);
                 y += 40.0 + 12.0;
+            }
+            // Phase 4: subagent cards reuse the tool-row visual language
+            // (bot icon, "Agent" verb) with the agent name + live status.
+            Entry::Subagent { name, status, ok } => {
+                let summary = format!("{name} · {status}");
+                draw_tool_row(c, col_x, y, col_w, "task", &summary, *ok);
+                y += 40.0 + 12.0;
+            }
+            // Phase 4: checkpoint timeline row — subtle, like compaction.
+            Entry::Checkpoint { tool, detail } => {
+                c.icon("git-branch", col_x, y, 14.0, T::FG_SUBTLEST());
+                fonts::draw_mid(
+                    c,
+                    col_x + 22.0,
+                    y + 7.0,
+                    &format!("Checkpoint · before {tool} {detail}"),
+                    12.0,
+                    T::FG_SUBTLEST(),
+                    Weight::Normal,
+                    false,
+                );
+                y += 30.0;
             }
             Entry::Permission { tool, detail, allowed } => {
                 draw_permission_card(c, col_x, y, col_w, tool, detail, *allowed);

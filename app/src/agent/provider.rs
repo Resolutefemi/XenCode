@@ -63,16 +63,30 @@ pub struct ToolDef {
 /// Sink for streaming text deltas.
 pub type DeltaTx = tokio::sync::mpsc::UnboundedSender<String>;
 
-/// A chat-completions backend.
+/// A chat-completions backend. Dyn-compatible (`Arc<dyn Provider>`) so the
+/// agent loop can share one provider across parallel subagent loops.
 pub trait Provider: Send + Sync {
     /// Run one model turn: stream text deltas through `tx` and return the
     /// complete assistant message (possibly carrying tool calls).
-    async fn complete(
-        &self,
-        messages: &[Message],
-        tools: &[ToolDef],
-        tx: Option<&DeltaTx>,
-    ) -> Result<Message>;
+    fn complete<'a>(
+        &'a self,
+        messages: &'a [Message],
+        tools: &'a [ToolDef],
+        tx: Option<&'a DeltaTx>,
+    ) -> std::pin::Pin<Box<dyn std::future::Future<Output = Result<Message>> + Send + 'a>>;
+}
+
+/// `Arc<P>` forwards to `P` — lets generic helpers (compaction) take the
+/// shared provider the loop already holds.
+impl<T: Provider + ?Sized> Provider for std::sync::Arc<T> {
+    fn complete<'a>(
+        &'a self,
+        messages: &'a [Message],
+        tools: &'a [ToolDef],
+        tx: Option<&'a DeltaTx>,
+    ) -> std::pin::Pin<Box<dyn std::future::Future<Output = Result<Message>> + Send + 'a>> {
+        (**self).complete(messages, tools, tx)
+    }
 }
 
 // ---------- GLM (z.ai, OpenAI-compatible) ----------
@@ -131,12 +145,13 @@ impl GlmProvider {
 }
 
 impl Provider for GlmProvider {
-    async fn complete(
-        &self,
-        messages: &[Message],
-        tools: &[ToolDef],
-        tx: Option<&DeltaTx>,
-    ) -> Result<Message> {
+    fn complete<'a>(
+        &'a self,
+        messages: &'a [Message],
+        tools: &'a [ToolDef],
+        tx: Option<&'a DeltaTx>,
+    ) -> std::pin::Pin<Box<dyn std::future::Future<Output = Result<Message>> + Send + 'a>> {
+        Box::pin(async move {
         let mut body = json!({
             "model": self.model,
             "messages": Self::wire_messages(messages),
@@ -218,6 +233,7 @@ impl Provider for GlmProvider {
             .collect();
 
         Ok(Message { role: Role::Assistant, content, tool_calls, tool_call_id: None })
+        })
     }
 }
 
@@ -298,25 +314,27 @@ impl MockProvider {
 }
 
 impl Provider for MockProvider {
-    async fn complete(
-        &self,
-        _messages: &[Message],
-        _tools: &[ToolDef],
-        tx: Option<&DeltaTx>,
-    ) -> Result<Message> {
-        let msg = {
-            let mut q = self.turns.lock().expect("mock lock");
-            q.pop_front().context("mock provider: no scripted turns left")?
-        };
-        if let Some(tx) = tx {
-            let chars: Vec<char> = msg.content.chars().collect();
-            for chunk in chars.chunks(16) {
-                let s: String = chunk.iter().collect();
-                let _ = tx.send(s);
-                tokio::time::sleep(std::time::Duration::from_millis(1)).await;
+    fn complete<'a>(
+        &'a self,
+        _messages: &'a [Message],
+        _tools: &'a [ToolDef],
+        tx: Option<&'a DeltaTx>,
+    ) -> std::pin::Pin<Box<dyn std::future::Future<Output = Result<Message>> + Send + 'a>> {
+        Box::pin(async move {
+            let msg = {
+                let mut q = self.turns.lock().expect("mock lock");
+                q.pop_front().context("mock provider: no scripted turns left")?
+            };
+            if let Some(tx) = tx {
+                let chars: Vec<char> = msg.content.chars().collect();
+                for chunk in chars.chunks(16) {
+                    let s: String = chunk.iter().collect();
+                    let _ = tx.send(s);
+                    tokio::time::sleep(std::time::Duration::from_millis(1)).await;
+                }
             }
-        }
-        Ok(msg)
+            Ok(msg)
+        })
     }
 }
 

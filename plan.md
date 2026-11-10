@@ -151,6 +151,48 @@ Execution order: 0 → 1 → 2 → 6.1–6.2 → 3 → 4 → 8 → 7 → 5. Phas
 - **Subagents** — tokio-parallel child agent loops with scoped prompts and tool allowlists; custom agents in `.xencode/agents/*.md`; ZCode-faithful UI cards (audit the reference components first).
 - **Checkpoints** — shadow-git snapshot before each edit; rewind timeline in the GUI.
 - **`xen exec`** — headless mode for CI + session resume/fork.
+- Status: **DONE**.
+  - MCP client (`app/src/agent/mcp.rs`): JSON-RPC 2.0 over newline-delimited stdio, the
+    MCP-spec transport. Servers declared in `.xencode/mcp.json` (project) + `~/.xencode/mcp.json`
+    (user), project wins per name; connect spawns each server once per run (initialize handshake +
+    `notifications/initialized` + paginated `tools/list` under a 10 s timeout — a failing server is
+    skipped with a warning, never fatal), tools join the registry as `mcp__<server>__<tool>` with
+    `[mcp:<server>]` descriptions, calls route through `tools/call` (30 s timeout, text content
+    flattening, `isError` → tool error) behind a per-server mutex. Transport is a trait
+    (`McpIo`) — `StdioIo` (tokio child, `kill_on_drop`) in production, a scripted fake in tests.
+    Gate policy: every `mcp__*` tool counts as a mutation (Ask / read-only-deny).
+  - Subagents (`app/src/agent/subagent.rs`): custom agents in `.xencode/agents/*.md` (project) +
+    `~/.xencode/agents/*.md` (user) — `name`/`description`/`tools`/`model` frontmatter, body is the
+    system prompt, project shadows user by name, plus the built-in `general-purpose`. The registry
+    exposes one `task` tool; consecutive `task` calls in a turn are fanned out across tokio tasks
+    (`run.rs::dispatch_subagents`) and run in parallel — gate/ask/hook verdicts resolve sequentially
+    first, approved child loops then race. Children: allowlist gate (out-of-list tools hard-denied),
+    no re-prompting (parent consented to the agent as a whole), no session persistence, no hooks,
+    no nested `task` (recursion cut off via `allow_subagents: false`), identity prompt appended to
+    the system prompt (`system_extra`), their mutations still hit the checkpoint store. Child events
+    stream to the UI wrapped as `AgentEvent::Subagent`; the child's final report is the tool result.
+  - Checkpoints (`app/src/agent/checkpoint.rs`): shadow git repo (`.xencode/checkpoints/repo.git`,
+    bare, dedicated index file) tracks the worktree; a snapshot commits before every mutating tool
+    (`write_file` / `edit_file` / `bash`) — `add -A` with `.git`/`.xencode`/build-dir pathspec
+    excludes, `-c` identity flags, unchanged worktrees produce no checkpoint, snapshots serialize
+    behind a mutex (parallel subagents). Timeline in `meta.jsonl` (`ck_<unix_ms>_<seq>` ids, tool,
+    detail, hash); rewind = `read-tree` + `checkout-index -a -f` + deletion of newer files + empty-dir
+    pruning, resolved by id / hash prefix / `latest`. CLI: `--checkpoints` prints the timeline,
+    `--rewind <target>` restores; `--agent`/`exec`/`--agent-ui` record by default (`--no-checkpoints`
+    opts out); `AgentEvent::Checkpoint` renders as timeline rows in the chat pane.
+  - `xencode exec` (`agent/mod.rs::run_exec`): the headless/CI contract — never interactive
+    (Yolo gate by default, `--read-only`/`--permission-mode` override), `--json` envelope
+    (`{answer, session_id, iterations}`), `--max-turns`, `--no-session`, session
+    `--continue`/`--resume`/`--fork` reuse, slash commands still expand, hooks/MCP/checkpoints active.
+  - Test fixture: `xencode --mcp-test-server` — a real MCP server over stdio (echo/add tools) used
+    by the client's end-to-end test through the production transport.
+  - GUI: `Entry::Subagent` cards (bot icon, agent name + live status, check/x) and
+    `Entry::Checkpoint` timeline rows render through the same ZCode-derived visual language; the
+    `--agent-ui` demo script now exercises a subagent dispatch and a checkpointed write.
+  - Verified: unit tests for MCP framing/id matching/pagination/error surfaces + a real-stdio
+    end-to-end roundtrip against `--mcp-test-server`; agent-file parsing/shadowing, allowlist gate,
+    parallel task fan-out with a shared scripted provider; snapshot/rewind/exclusion/serialization;
+    `task`+`mcp__*` gate classification; collector lifecycle for cards and rows.
 
 ## Phase 5 — Harness ports, wave 3 (M each)
 

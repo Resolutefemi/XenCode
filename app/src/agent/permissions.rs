@@ -69,8 +69,16 @@ impl PermissionGate for AllowAll {
 /// Read-only policy: mutating tools are hard-denied (no prompt).
 pub struct ReadOnly;
 
+/// Read-only tools pass every gate untouched. Mutating: the three file/process
+/// built-ins, `task` (a subagent may mutate inside the same worktree), and
+/// every MCP tool (the loop cannot know what a server tool does — treat all
+/// of them as mutations).
 fn is_read_only_tool(tool: &str) -> bool {
-    !matches!(tool, "write_file" | "edit_file" | "bash")
+    match tool {
+        "write_file" | "edit_file" | "bash" | "task" => false,
+        t if t.starts_with("mcp__") => false,
+        _ => true,
+    }
 }
 
 impl PermissionGate for ReadOnly {
@@ -294,5 +302,29 @@ mod tests {
         assert!(PermissionMode::parse("bogus").is_none());
         assert!(PermissionMode::parse("bypass-permissions").is_some());
         assert_eq!(PermissionMode::parse("plan"), Some(PermissionMode::Plan));
+    }
+}
+
+/// Phase 4: `task` and every `mcp__*` tool count as a mutation, so read-only
+/// policies (and consent prompts) cover them like file edits.
+#[cfg(test)]
+mod mcp_and_task_gate_tests {
+    use super::*;
+
+    #[test]
+    fn task_and_mcp_tools_are_treated_as_mutations() {
+        let g = AskGate::new();
+        assert_eq!(g.review("task", &serde_json::json!({})), Decision::Ask);
+        assert_eq!(g.review("mcp__fs__read", &serde_json::json!({})), Decision::Ask);
+        assert_eq!(g.review("read_file", &serde_json::json!({})), Decision::Allow);
+
+        let ro = ReadOnly;
+        assert_eq!(ro.review("task", &serde_json::json!({})), Decision::Deny);
+        assert_eq!(ro.review("mcp__git__log", &serde_json::json!({})), Decision::Deny);
+
+        let ae = AcceptEdits::new();
+        assert_eq!(ae.review("task", &serde_json::json!({})), Decision::Ask);
+        g.allow_always("task");
+        assert_eq!(g.review("task", &serde_json::json!({})), Decision::Allow);
     }
 }

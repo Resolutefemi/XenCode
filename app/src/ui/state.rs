@@ -10,6 +10,8 @@
 
 use std::collections::HashMap;
 
+use serde_json::Value;
+
 use crate::agent::provider::{Message, Role};
 use crate::agent::run::{summarize, AgentEvent};
 
@@ -24,6 +26,12 @@ pub enum Entry {
     Tool { name: String, summary: String, ok: bool },
     /// Consent card — `allowed` is `None` while the prompt is pending.
     Permission { tool: String, detail: String, allowed: Option<bool> },
+    /// Subagent card (Phase 4) — `status` is free-form (running / the tool
+    /// it is on / done / failed), `ok` flips when the child loop returns.
+    Subagent { name: String, status: String, ok: bool },
+    /// Checkpoint notice (Phase 4) — a shadow-git snapshot taken before a
+    /// mutating tool ran.
+    Checkpoint { tool: String, detail: String },
     /// Context compaction notice.
     Compaction { note: String },
 }
@@ -40,6 +48,9 @@ pub struct ChatPage {
 
 /// Lucide icon used in the tool row for each tool name.
 pub fn tool_icon(name: &str) -> &'static str {
+    if name.starts_with("mcp__") {
+        return "cable"; // Phase 4: MCP server tool
+    }
     match name {
         "read_file" => "file-text",
         "write_file" => "pencil-ruler",
@@ -48,6 +59,7 @@ pub fn tool_icon(name: &str) -> &'static str {
         "grep" => "search",
         "list_dir" => "folder-open",
         "todo_write" => "list-filter",
+        "task" => "bot", // Phase 4: subagent dispatch
         _ => "bot",
     }
 }
@@ -80,11 +92,26 @@ impl ChatPage {
                 }
                 Role::Assistant => {
                     for tc in &m.tool_calls {
-                        entries.push(Entry::Tool {
-                            name: tc.name.clone(),
-                            summary: summarize(&tc.arguments),
-                            ok: outcome.get(tc.id.as_str()).copied().unwrap_or(true),
-                        });
+                        let ok = outcome.get(tc.id.as_str()).copied().unwrap_or(true);
+                        if tc.name == "task" {
+                            // Phase 4: subagent dispatches render as agent cards.
+                            let agent = tc
+                                .arguments
+                                .get("agent")
+                                .and_then(Value::as_str)
+                                .unwrap_or("general-purpose");
+                            entries.push(Entry::Subagent {
+                                name: agent.to_string(),
+                                status: "report".into(),
+                                ok,
+                            });
+                        } else {
+                            entries.push(Entry::Tool {
+                                name: tc.name.clone(),
+                                summary: summarize(&tc.arguments),
+                                ok,
+                            });
+                        }
                     }
                     if !m.content.is_empty() {
                         entries.push(Entry::Assistant { text: m.content.clone() });
@@ -144,13 +171,38 @@ impl Collector {
             }
             AgentEvent::ToolStart { name, summary } => {
                 self.streaming_idx = None;
-                self.page.entries.push(Entry::Tool {
-                    name: name.clone(),
-                    summary: summary.clone(),
-                    ok: false,
-                });
+                if name == "task" {
+                    // Phase 4: one agent card per task call; summary is
+                    // `agent — prompt head` (subagent::describe).
+                    let agent = summary.split(" — ").next().unwrap_or("general-purpose").to_string();
+                    self.page.entries.push(Entry::Subagent {
+                        name: agent,
+                        status: "running".into(),
+                        ok: false,
+                    });
+                } else {
+                    self.page.entries.push(Entry::Tool {
+                        name: name.clone(),
+                        summary: summary.clone(),
+                        ok: false,
+                    });
+                }
             }
             AgentEvent::ToolEnd { name, ok, .. } => {
+                if name == "task" {
+                    // End events arrive in call order — close the oldest
+                    // pending agent card first.
+                    for e in self.page.entries.iter_mut() {
+                        if let Entry::Subagent { status, ok: o, .. } = e {
+                            if !*o {
+                                *o = *ok;
+                                *status = if *ok { "done".into() } else { "failed".into() };
+                                break;
+                            }
+                        }
+                    }
+                    return;
+                }
                 for e in self.page.entries.iter_mut().rev() {
                     if let Entry::Tool { name: n, ok: o, .. } = e {
                         if n == name && !*o {
@@ -159,6 +211,31 @@ impl Collector {
                         }
                     }
                 }
+            }
+            AgentEvent::Subagent { name, event } => {
+                // Child-loop activity updates the matching pending card's
+                // status line; the card itself stays one row.
+                let status = match &**event {
+                    AgentEvent::ToolStart { name: tool, .. } => format!("running · {tool}"),
+                    AgentEvent::ToolEnd { ok: true, .. } => "working".to_string(),
+                    AgentEvent::Iteration(n) => format!("iteration {n}"),
+                    _ => return,
+                };
+                for e in self.page.entries.iter_mut().rev() {
+                    if let Entry::Subagent { name: n, status: s, ok } = e {
+                        if n == name && !*ok {
+                            *s = status;
+                            break;
+                        }
+                    }
+                }
+            }
+            AgentEvent::Checkpoint { tool, detail } => {
+                self.streaming_idx = None;
+                self.page.entries.push(Entry::Checkpoint {
+                    tool: tool.clone(),
+                    detail: detail.clone(),
+                });
             }
             AgentEvent::Ask { tool, detail, allowed } => {
                 self.streaming_idx = None;
@@ -289,5 +366,87 @@ mod tests {
         let page = ChatPage::from_conversation(&msgs);
         assert!(matches!(&page.entries[0], Entry::Compaction { .. }));
         assert!(matches!(&page.entries[1], Entry::User { .. }));
+    }
+
+    // ------------------------------------------------------------------
+    // Phase 4: subagent cards, checkpoint rows, MCP icons
+    // ------------------------------------------------------------------
+
+    #[test]
+    fn subagent_cards_follow_the_task_lifecycle() {
+        let mut col = Collector::new("review it", "Agent run");
+        col.on(&AgentEvent::ToolStart {
+            name: "task".into(),
+            summary: "code-reviewer — review the auth diff".into(),
+        });
+        assert!(matches!(&col.page.entries[1],
+            Entry::Subagent { name, status, ok: false }
+                if name == "code-reviewer" && status == "running"),
+            "task ToolStart opens an agent card"
+        );
+
+        // Child activity updates the card status without adding rows.
+        col.on(&AgentEvent::Subagent {
+            name: "code-reviewer".into(),
+            event: Box::new(AgentEvent::ToolStart { name: "grep".into(), summary: "TODO".into() }),
+        });
+        assert!(matches!(&col.page.entries[1],
+            Entry::Subagent { status, .. } if status.contains("grep")));
+
+        // The parent ToolEnd closes the card.
+        col.on(&AgentEvent::ToolEnd { name: "task".into(), ok: true, ms: 10 });
+        assert!(matches!(&col.page.entries[1],
+            Entry::Subagent { ok: true, status, .. } if status == "done"));
+    }
+
+    #[test]
+    fn parallel_task_cards_close_lifo() {
+        let mut col = Collector::new("two agents", "Agent run");
+        col.on(&AgentEvent::ToolStart { name: "task".into(), summary: "a — first".into() });
+        col.on(&AgentEvent::ToolStart { name: "task".into(), summary: "b — second".into() });
+        col.on(&AgentEvent::ToolEnd { name: "task".into(), ok: true, ms: 5 });
+        col.on(&AgentEvent::ToolEnd { name: "task".into(), ok: false, ms: 5 });
+        assert!(matches!(&col.page.entries[1], Entry::Subagent { name, ok: true, .. } if name == "a"));
+        assert!(matches!(&col.page.entries[2], Entry::Subagent { name, ok: false, .. } if name == "b"));
+    }
+
+    #[test]
+    fn checkpoint_events_render_as_rows() {
+        let mut col = Collector::new("edit", "Agent run");
+        col.on(&AgentEvent::Checkpoint {
+            tool: "edit_file".into(),
+            detail: "src/main.rs".into(),
+        });
+        assert!(matches!(&col.page.entries[1],
+            Entry::Checkpoint { tool, detail } if tool == "edit_file" && detail == "src/main.rs"));
+    }
+
+    #[test]
+    fn mcp_tools_get_the_cable_icon_and_task_gets_bot() {
+        assert_eq!(tool_icon("mcp__fs__read"), "cable");
+        assert_eq!(tool_icon("task"), "bot");
+        assert_eq!(tool_icon("read_file"), "file-text");
+    }
+
+    #[test]
+    fn restored_transcripts_map_task_calls_to_agent_cards() {
+        let msgs = vec![
+            Message::system("sys"),
+            Message::user("go"),
+            Message {
+                role: Role::Assistant,
+                content: String::new(),
+                tool_calls: vec![crate::agent::provider::ToolCall {
+                    id: "t1".into(),
+                    name: "task".into(),
+                    arguments: serde_json::json!({"agent": "scout", "prompt": "look around"}),
+                }],
+                tool_call_id: None,
+            },
+            Message::tool_result("t1", "the report"),
+        ];
+        let page = ChatPage::from_conversation(&msgs);
+        assert!(matches!(&page.entries[1],
+            Entry::Subagent { name, ok: true, .. } if name == "scout"));
     }
 }

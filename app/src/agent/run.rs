@@ -1,6 +1,7 @@
 //! The agent loop: prompt → model → tools → model → … → final answer.
 
 use std::path::{Path, PathBuf};
+use std::pin::Pin;
 use std::sync::Arc;
 use std::time::Instant;
 
@@ -10,8 +11,8 @@ use tokio::sync::mpsc::UnboundedSender;
 
 use super::compact;
 use super::permissions::{Decision, PermissionGate, Request, Response};
-use super::provider::{Message, Provider, Role, ToolDef};
-use super::{session, tools};
+use super::provider::{Message, Provider, Role, ToolCall, ToolDef};
+use super::{checkpoint, mcp, session, subagent, tools};
 use xencode_script::hooks::{HookKind, HookRunner};
 
 /// Progress events for a UI or CLI printer.
@@ -29,6 +30,11 @@ pub enum AgentEvent {
     HookLog(String),
     /// Older turns were folded into a summary (chars before → after).
     Compacted { before: usize, after: usize },
+    /// A subagent run nested under this loop (`name` = the agent's name);
+    /// `event` is the child-loop event it emitted.
+    Subagent { name: String, event: Box<AgentEvent> },
+    /// A shadow-git checkpoint was recorded before a mutating tool ran.
+    Checkpoint { tool: String, detail: String },
     /// The final message list — what a session store / GUI transcript renders.
     Transcript(Arc<Vec<Message>>),
     Done,
@@ -69,6 +75,17 @@ pub struct AgentOptions {
     /// Plan mode: the system prompt instructs research-only behavior and
     /// mutations are blocked until the plan is approved (Phase 3).
     pub plan_mode: bool,
+    /// MCP servers (Phase 4): their tools join the registry as
+    /// `mcp__<server>__<tool>` and calls are routed over JSON-RPC stdio.
+    pub mcp: Option<Arc<mcp::McpManager>>,
+    /// Shadow-git checkpoint store (Phase 4): a snapshot is committed before
+    /// every mutating tool so any edit can be rewound.
+    pub checkpoints: Option<Arc<checkpoint::CheckpointStore>>,
+    /// Extra system-prompt text appended after the base rules (the subagent
+    /// definition prompt).
+    pub system_extra: Option<String>,
+    /// Whether the `task` tool is registered (children cut off recursion).
+    pub allow_subagents: bool,
 }
 
 impl Default for AgentOptions {
@@ -83,13 +100,32 @@ impl Default for AgentOptions {
             compact_chars: Some(compact::DEFAULT_BUDGET_CHARS),
             hooks: None,
             plan_mode: false,
+            mcp: None,
+            checkpoints: None,
+            system_extra: None,
+            allow_subagents: true,
         }
     }
 }
 
 /// Drive the agent to completion. Returns the assistant's final text answer.
-pub async fn run_agent<P: Provider>(
-    provider: &P,
+/// The provider is shared (`Arc<dyn>`) so `task` calls can fan child loops
+/// out across tokio tasks in parallel.
+///
+/// The future is boxed: child loops recurse into this entry, and the boxed
+/// `+ Send` bound terminates the auto-trait cycle (a recursive async fn's
+/// future can never prove `Send` on its own).
+pub fn run_agent<'a>(
+    provider: Arc<dyn Provider>,
+    prompt: &'a str,
+    opts: AgentOptions,
+    tx: UnboundedSender<AgentEvent>,
+) -> Pin<Box<dyn std::future::Future<Output = Result<String>> + Send + 'a>> {
+    Box::pin(run_agent_inner(provider, prompt, opts, tx))
+}
+
+async fn run_agent_inner(
+    provider: Arc<dyn Provider>,
     prompt: &str,
     opts: AgentOptions,
     tx: UnboundedSender<AgentEvent>,
@@ -104,8 +140,22 @@ pub async fn run_agent<P: Provider>(
         compact_chars,
         ref hooks,
         plan_mode,
+        ref mcp,
+        ref checkpoints,
+        ref system_extra,
+        allow_subagents,
     } = opts;
-    let tool_defs: Vec<ToolDef> = tools::tool_defs();
+    let mut tool_defs: Vec<ToolDef> = tools::tool_defs();
+    // Subagents (Phase 4): the `task` tool is always available — at least the
+    // built-in `general-purpose` agent exists even with no `agents/` files.
+    // Child loops run with `allow_subagents: false` (no recursion).
+    if allow_subagents {
+        tool_defs.push(subagent::task_tool_def());
+    }
+    // MCP tools (Phase 4): `mcp__<server>__<tool>`, discovered at connect time.
+    if let Some(m) = mcp {
+        tool_defs.extend(m.tool_defs());
+    }
     let ctx = tools::ToolCtx { cwd: cwd.clone() };
 
     // Hook scripts' console output flows through its own channel; a drainer
@@ -122,11 +172,11 @@ pub async fn run_agent<P: Provider>(
 
     // Seed the loop: fresh sessions get system+prompt; resumes append to history.
     let mut messages = if history.is_empty() {
-        vec![Message::system(system_prompt(&cwd, plan_mode)), Message::user(prompt)]
+        vec![Message::system(system_prompt(&cwd, plan_mode, system_extra.as_deref())), Message::user(prompt)]
     } else {
         let mut h = history;
         if !h.iter().any(|m| m.role == Role::System) {
-            h.insert(0, Message::system(system_prompt(&cwd, plan_mode)));
+            h.insert(0, Message::system(system_prompt(&cwd, plan_mode, system_extra.as_deref())));
         }
         h.push(Message::user(prompt));
         h
@@ -137,7 +187,7 @@ pub async fn run_agent<P: Provider>(
         if let Some(budget) = compact_chars {
             let size = compact::estimate_chars(&messages);
             if size > budget && messages.len() >= 6 {
-                match compact::compact(provider, &messages, budget / 2).await {
+                match compact::compact(&provider, &messages, budget / 2).await {
                     Ok(next) if compact::estimate_chars(&next) < size => {
                         let after = compact::estimate_chars(&next);
                         messages = next;
@@ -189,80 +239,241 @@ pub async fn run_agent<P: Provider>(
         let calls = assistant.tool_calls.clone();
         messages.push(assistant);
 
+        // Phase 4: consecutive `task` calls in one turn form a parallel group
+        // (subagents fan out across tokio tasks); everything else stays
+        // strictly sequential, preserving the existing ordering guarantees.
+        let mut groups: Vec<Vec<ToolCall>> = Vec::new();
         for call in calls {
-            let detail = summarize(&call.arguments);
-            let mut decision = gate.review(&call.name, &call.arguments);
-            let mut prompted = false;
-            if decision == Decision::Ask {
-                prompted = true;
-                decision = match asker.as_mut() {
-                    Some(a) => match a.ask(&Request { tool: call.name.clone(), detail: detail.clone() }) {
-                        Response::Allow => Decision::Allow,
-                        Response::AllowAlways => {
-                            gate.allow_always(&call.name);
-                            Decision::Allow
+            match groups.last_mut() {
+                Some(g) if g[0].name == "task" && call.name == "task" => g.push(call),
+                _ => groups.push(vec![call]),
+            }
+        }
+
+        for group in groups {
+            if group[0].name == "task" {
+                dispatch_subagents(
+                    group,
+                    &provider,
+                    &cwd,
+                    checkpoints.as_ref(),
+                    &gate,
+                    &mut asker,
+                    hooks.as_ref(),
+                    hook_tx.clone(),
+                    &tx,
+                    &mut messages,
+                )
+                .await;
+            } else {
+                for call in group {
+                    let detail = summarize(&call.arguments);
+                    let mut decision = gate.review(&call.name, &call.arguments);
+                    let mut prompted = false;
+                    if decision == Decision::Ask {
+                        prompted = true;
+                        decision = match asker.as_mut() {
+                            Some(a) => match a.ask(&Request { tool: call.name.clone(), detail: detail.clone() }) {
+                                Response::Allow => Decision::Allow,
+                                Response::AllowAlways => {
+                                    gate.allow_always(&call.name);
+                                    Decision::Allow
+                                }
+                                Response::Deny => Decision::Deny,
+                            },
+                            // No way to ask a human — fail closed.
+                            None => Decision::Deny,
+                        };
+                    }
+                    // Only real prompts (and their outcomes) reach the UI as cards;
+                    // policy allow/deny never surfaces a consent card.
+                    if prompted {
+                        let _ = tx.send(AgentEvent::Ask {
+                            tool: call.name.clone(),
+                            detail: detail.clone(),
+                            allowed: decision == Decision::Allow,
+                        });
+                    }
+
+                    if decision == Decision::Deny {
+                        let _ = tx.send(AgentEvent::ToolStart {
+                            name: call.name.clone(),
+                            summary: "(denied by permission gate)".into(),
+                        });
+                        let _ = tx.send(AgentEvent::ToolEnd { name: call.name.clone(), ok: false, ms: 0 });
+                        messages.push(Message::tool_result(&call.id, gate.denial_message()));
+                        continue;
+                    }
+
+                    // PreToolUse hooks run after the permission gate and can still
+                    // block the call with an explicit `{ decision: "deny" }` verdict.
+                    if let Some(block) = pre_tool_hook(hooks.as_ref(), &call.name, &call.arguments, &cwd, hook_tx.clone(), &tx).await {
+                        let _ = tx.send(AgentEvent::ToolStart {
+                            name: call.name.clone(),
+                            summary: "(blocked by PreToolUse hook)".into(),
+                        });
+                        let _ = tx.send(AgentEvent::ToolEnd { name: call.name.clone(), ok: false, ms: 0 });
+                        messages.push(Message::tool_result(&call.id, block));
+                        continue;
+                    }
+
+                    // Phase 4: commit a shadow-git checkpoint before every
+                    // mutation so the edit can be rewound from the timeline.
+                    if matches!(call.name.as_str(), "write_file" | "edit_file" | "bash") {
+                        if let Some(cp) = checkpoints {
+                            if let Some(c) = cp.snapshot(&call.name, &detail).await {
+                                let _ = tx.send(AgentEvent::Checkpoint {
+                                    tool: call.name.clone(),
+                                    detail: c.detail,
+                                });
+                            }
                         }
-                        Response::Deny => Decision::Deny,
-                    },
-                    // No way to ask a human — fail closed.
-                    None => Decision::Deny,
-                };
+                    }
+
+                    let _ = tx.send(AgentEvent::ToolStart {
+                        name: call.name.clone(),
+                        summary: detail,
+                    });
+                    let t0 = Instant::now();
+                    // MCP tools (Phase 4) route over JSON-RPC stdio; built-ins
+                    // run through the deterministic tool set.
+                    let result: Result<String> = match call.name.strip_prefix("mcp__") {
+                        Some(rest) => match mcp {
+                            Some(m) => m.call(rest, &call.arguments).await,
+                            None => Err(anyhow::anyhow!("mcp tool used but no servers are connected: {}", call.name)),
+                        },
+                        None => tools::execute(&call.name, &call.arguments, &ctx).await,
+                    };
+                    let ms = t0.elapsed().as_millis();
+                    let ok = result.is_ok();
+                    let mut text = result.unwrap_or_else(|e| format!("Error: {e:#}"));
+                    let _ = tx.send(AgentEvent::ToolEnd { name: call.name.clone(), ok, ms });
+
+                    // PostToolUse hooks may attach feedback that joins the result
+                    // the model sees for this tool call.
+                    post_tool_hook(hooks.as_ref(), &call.name, &call.arguments, &mut text, ok, ms, hook_tx.clone(), &tx).await;
+
+                    messages.push(Message::tool_result(&call.id, text));
+                }
             }
-            // Only real prompts (and their outcomes) reach the UI as cards;
-            // policy allow/deny never surfaces a consent card.
-            if prompted {
-                let _ = tx.send(AgentEvent::Ask {
-                    tool: call.name.clone(),
-                    detail: detail.clone(),
-                    allowed: decision == Decision::Allow,
-                });
-            }
-
-            if decision == Decision::Deny {
-                let _ = tx.send(AgentEvent::ToolStart {
-                    name: call.name.clone(),
-                    summary: "(denied by permission gate)".into(),
-                });
-                let _ = tx.send(AgentEvent::ToolEnd { name: call.name.clone(), ok: false, ms: 0 });
-                messages.push(Message::tool_result(&call.id, gate.denial_message()));
-                continue;
-            }
-
-            // PreToolUse hooks run after the permission gate and can still
-            // block the call with an explicit `{ decision: "deny" }` verdict.
-            if let Some(block) = pre_tool_hook(hooks.as_ref(), &call.name, &call.arguments, &cwd, hook_tx.clone(), &tx).await {
-                let _ = tx.send(AgentEvent::ToolStart {
-                    name: call.name.clone(),
-                    summary: "(blocked by PreToolUse hook)".into(),
-                });
-                let _ = tx.send(AgentEvent::ToolEnd { name: call.name.clone(), ok: false, ms: 0 });
-                messages.push(Message::tool_result(&call.id, block));
-                continue;
-            }
-
-            let _ = tx.send(AgentEvent::ToolStart {
-                name: call.name.clone(),
-                summary: detail,
-            });
-            let t0 = Instant::now();
-            let result = tools::execute(&call.name, &call.arguments, &ctx).await;
-            let ms = t0.elapsed().as_millis();
-            let ok = result.is_ok();
-            let mut text = result.unwrap_or_else(|e| format!("Error: {e:#}"));
-            let _ = tx.send(AgentEvent::ToolEnd { name: call.name.clone(), ok, ms });
-
-            // PostToolUse hooks may attach feedback that joins the result
-            // the model sees for this tool call.
-            post_tool_hook(hooks.as_ref(), &call.name, &call.arguments, &mut text, ok, ms, hook_tx.clone(), &tx).await;
-
-            messages.push(Message::tool_result(&call.id, text));
         }
     }
 
     bail!("agent stopped: reached max iterations ({})", max_iterations)
 }
 
-fn system_prompt(cwd: &Path, plan_mode: bool) -> String {
+/// Execute a parallel group of `task` calls (Phase 4 subagents).
+///
+/// Gate/ask/hook verdicts are resolved sequentially (a human prompt must not
+/// race), then every approved child agent loop fans out across tokio tasks —
+/// child events stream to the UI wrapped as [`AgentEvent::Subagent`], and the
+/// child's final report becomes the tool result the model sees.
+#[allow(clippy::too_many_arguments)]
+async fn dispatch_subagents(
+    group: Vec<ToolCall>,
+    provider: &Arc<dyn Provider>,
+    cwd: &Path,
+    checkpoints: Option<&Arc<checkpoint::CheckpointStore>>,
+    gate: &Box<dyn PermissionGate>,
+    asker: &mut Option<Box<dyn Asker>>,
+    hooks: Option<&Arc<HookRunner>>,
+    hook_tx: xencode_script::events::UiEventTx,
+    tx: &tokio::sync::mpsc::UnboundedSender<AgentEvent>,
+    messages: &mut Vec<Message>,
+) {
+    let mut approved: Vec<(ToolCall, String)> = Vec::new();
+    for call in group {
+        let detail = subagent::describe(&call.arguments);
+        let mut decision = gate.review(&call.name, &call.arguments);
+        let mut prompted = false;
+        if decision == Decision::Ask {
+            prompted = true;
+            decision = match asker.as_mut() {
+                Some(a) => match a.ask(&Request { tool: call.name.clone(), detail: detail.clone() }) {
+                    Response::Allow => Decision::Allow,
+                    Response::AllowAlways => {
+                        gate.allow_always(&call.name);
+                        Decision::Allow
+                    }
+                    Response::Deny => Decision::Deny,
+                },
+                None => Decision::Deny, // fail closed
+            };
+        }
+        if prompted {
+            let _ = tx.send(AgentEvent::Ask {
+                tool: call.name.clone(),
+                detail: detail.clone(),
+                allowed: decision == Decision::Allow,
+            });
+        }
+        if decision == Decision::Deny {
+            let _ = tx.send(AgentEvent::ToolStart {
+                name: call.name.clone(),
+                summary: "(denied by permission gate)".into(),
+            });
+            let _ = tx.send(AgentEvent::ToolEnd { name: call.name.clone(), ok: false, ms: 0 });
+            messages.push(Message::tool_result(&call.id, gate.denial_message()));
+            continue;
+        }
+        if let Some(block) = pre_tool_hook(hooks, &call.name, &call.arguments, cwd, hook_tx.clone(), tx).await {
+            let _ = tx.send(AgentEvent::ToolStart {
+                name: call.name.clone(),
+                summary: "(blocked by PreToolUse hook)".into(),
+            });
+            let _ = tx.send(AgentEvent::ToolEnd { name: call.name.clone(), ok: false, ms: 0 });
+            messages.push(Message::tool_result(&call.id, block));
+            continue;
+        }
+        approved.push((call, detail));
+    }
+    if approved.is_empty() {
+        return;
+    }
+
+    // Announce every start up front (one card per child, in call order).
+    for (call, detail) in &approved {
+        let _ = tx.send(AgentEvent::ToolStart {
+            name: call.name.clone(),
+            summary: detail.clone(),
+        });
+    }
+    let t0 = Instant::now();
+    let mut set = tokio::task::JoinSet::new();
+    for (call, _) in &approved {
+        let provider = provider.clone();
+        let cwd = cwd.to_path_buf();
+        let checkpoints = checkpoints.cloned();
+        let tx = tx.clone();
+        let call = call.clone();
+        set.spawn(async move {
+            let report = subagent::run_child(&call, provider, &cwd, checkpoints, tx).await;
+            (call.id, report)
+        });
+    }
+    let mut outcomes: std::collections::HashMap<String, anyhow::Result<String>> =
+        std::collections::HashMap::new();
+    while let Some(res) = set.join_next().await {
+        if let Ok((id, report)) = res {
+            outcomes.insert(id, report);
+        }
+    }
+
+    // Attach results in the original call order; post-tool hooks still see
+    // every child report.
+    let ms = t0.elapsed().as_millis();
+    for (call, _) in &approved {
+        let report = outcomes.remove(&call.id)
+            .unwrap_or_else(|| Err(anyhow::anyhow!("subagent vanished")));
+        let ok = report.is_ok();
+        let mut text = report.unwrap_or_else(|e| format!("Error: {e:#}"));
+        let _ = tx.send(AgentEvent::ToolEnd { name: call.name.clone(), ok, ms });
+        post_tool_hook(hooks, &call.name, &call.arguments, &mut text, ok, ms, hook_tx.clone(), tx).await;
+        messages.push(Message::tool_result(&call.id, text));
+    }
+}
+
+fn system_prompt(cwd: &Path, plan_mode: bool, extra: Option<&str>) -> String {
     let mut p = format!(
         "You are XenCode, a coding agent working inside the user's project at {}.\n\n\
          Rules:\n\
@@ -276,6 +487,12 @@ fn system_prompt(cwd: &Path, plan_mode: bool) -> String {
     // Phase 3: memory files auto-loaded into context (XENCODE.md / AGENTS.md).
     if let Some(memory) = super::memory::system_memory_section(cwd) {
         p.push_str(&memory);
+    }
+
+    // Phase 4: subagent identity prompt appended after the base rules.
+    if let Some(extra) = extra {
+        p.push_str("\n\n# Your role\n\n");
+        p.push_str(extra);
     }
 
     if plan_mode {
@@ -393,7 +610,7 @@ async fn stop_hook_block(
 }
 
 pub(crate) fn summarize(args: &Value) -> String {
-    let value = ["path", "command", "pattern", "todos"]
+    let value = ["path", "command", "pattern", "todos", "agent"]
         .iter()
         .find_map(|k| args.get(*k))
         .cloned()
@@ -456,7 +673,7 @@ mod tests {
             ..Default::default()
         };
 
-        let answer = run_agent(&mock, "what does hello.txt say", opts, tx).await.unwrap();
+        let answer = run_agent(Arc::new(mock), "what does hello.txt say", opts, tx).await.unwrap();
         assert!(answer.contains("hello from xencode"));
 
         let mut saw_tool_end = false;
@@ -486,7 +703,7 @@ mod tests {
             ..Default::default()
         };
 
-        let answer = run_agent(&mock, "write evil.txt", opts, tx).await.unwrap();
+        let answer = run_agent(Arc::new(mock), "write evil.txt", opts, tx).await.unwrap();
         assert!(answer.contains("blocked"));
         assert!(!dir.join("evil.txt").exists(), "denied tool must not run");
         let _ = std::fs::remove_dir_all(&dir);
@@ -522,7 +739,7 @@ mod tests {
             ..Default::default()
         };
 
-        let answer = run_agent(&mock, "write two files", opts, tx).await.unwrap();
+        let answer = run_agent(Arc::new(mock), "write two files", opts, tx).await.unwrap();
         assert_eq!(answer, "done");
         assert!(!dir.join("denied.txt").exists(), "denied prompt must not run");
         assert!(dir.join("allowed.txt").exists(), "approved prompt must run");
@@ -553,7 +770,7 @@ mod tests {
             asker: None, // cannot ask → deny
             ..Default::default()
         };
-        run_agent(&mock, "run echo", opts, tx).await.unwrap();
+        run_agent(Arc::new(mock), "run echo", opts, tx).await.unwrap();
         let _ = std::fs::remove_dir_all(&dir);
     }
 
@@ -580,7 +797,7 @@ mod tests {
             history,
             ..Default::default()
         };
-        let answer = run_agent(&mock, "now continue", opts, tx).await.unwrap();
+        let answer = run_agent(Arc::new(mock), "now continue", opts, tx).await.unwrap();
         assert_eq!(answer, "continued fine");
 
         let id = session::Session::latest(&session_dir).unwrap().unwrap();
@@ -622,7 +839,7 @@ mod tests {
             compact_chars: Some(1_000), // force the trigger
             ..Default::default()
         };
-        let answer = run_agent(&mock, "finish it", opts, tx).await.unwrap();
+        let answer = run_agent(Arc::new(mock), "finish it", opts, tx).await.unwrap();
         assert_eq!(answer, "all done");
 
         let mut compacted = false;
@@ -693,7 +910,7 @@ mod tests {
             cwd: dir.clone(),
             ..Default::default()
         };
-        run_agent(&mock, "hello", opts, tx).await.unwrap();
+        run_agent(Arc::new(mock), "hello", opts, tx).await.unwrap();
 
         let mut system = None;
         while let Ok(ev) = rx.try_recv() {
@@ -734,7 +951,7 @@ mod tests {
             hooks: Some(hooks),
             ..Default::default()
         };
-        run_agent(&mock, "write it", opts, tx).await.unwrap();
+        run_agent(Arc::new(mock), "write it", opts, tx).await.unwrap();
 
         let mut blocked_text = None;
         let mut saw_hook_event = false;
@@ -789,7 +1006,7 @@ mod tests {
             hooks: Some(hooks),
             ..Default::default()
         };
-        run_agent(&mock, "write it", opts, tx).await.unwrap();
+        run_agent(Arc::new(mock), "write it", opts, tx).await.unwrap();
 
         let mut tool_text = None;
         while let Ok(ev) = rx.try_recv() {
@@ -836,7 +1053,7 @@ mod tests {
             hooks: Some(hooks),
             ..Default::default()
         };
-        let answer = run_agent(&mock, "finish", opts, tx).await.unwrap();
+        let answer = run_agent(Arc::new(mock), "finish", opts, tx).await.unwrap();
         assert_eq!(answer, "done — tests pass", "blocked stop must continue the loop");
 
         let mut saw_stop_note = false;
@@ -868,7 +1085,7 @@ mod tests {
             plan_mode: true,
             ..Default::default()
         };
-        let answer = run_agent(&mock, "plan it", opts, tx).await.unwrap();
+        let answer = run_agent(Arc::new(mock), "plan it", opts, tx).await.unwrap();
         assert!(answer.contains("Here is my plan"));
         assert!(!dir.join("plan.txt").exists(), "plan mode must block writes");
 
@@ -898,7 +1115,7 @@ mod tests {
             plan_mode: false,
             ..Default::default()
         };
-        run_agent(&mock2, "implement", opts2, tx2).await.unwrap();
+        run_agent(Arc::new(mock2), "implement", opts2, tx2).await.unwrap();
         assert!(dir.join("plan.txt").exists(), "approved run writes");
         let _ = std::fs::remove_dir_all(&dir);
     }
@@ -913,7 +1130,7 @@ mod tests {
             plan_mode: true,
             ..Default::default()
         };
-        run_agent(&mock, "plan it", opts, tx).await.unwrap();
+        run_agent(Arc::new(mock), "plan it", opts, tx).await.unwrap();
         let mut system = None;
         while let Ok(ev) = rx.try_recv() {
             if let AgentEvent::Transcript(msgs) = ev {

@@ -130,6 +130,66 @@ xencode --agent "..." --permission-mode yolo          # never ask (bypass)
 Approved plans carry the whole research transcript into the execution run
 under the regular permission mode.
 
+**Subagents** — the loop always carries a `task` tool; several `task` calls
+in one turn run as parallel child agent loops (tokio fan-out). Custom agents
+live in `.xencode/agents/*.md` (project) and `~/.xencode/agents/*.md` (user):
+
+```markdown
+<!-- .xencode/agents/code-reviewer.md -->
+---
+name: code-reviewer
+description: Reviews code changes for quality and correctness
+tools: read_file, grep, list_dir
+---
+You are a meticulous code reviewer. Report findings as a numbered list.
+```
+
+The allowlist hard-denies every tool outside the list; children never
+re-prompt (the parent consented to the agent as a whole), never persist
+sessions, run no hooks, and cannot recurse into further subagents. Child
+activity renders as live agent cards in the chat pane.
+
+**MCP tools** — any stdio MCP server plugs in from `.xencode/mcp.json`
+(project) or `~/.xencode/mcp.json` (user); project entries win per name:
+
+```json
+{
+  "mcpServers": {
+    "fs": { "command": "npx", "args": ["-y", "@modelcontextprotocol/server-filesystem", "."] }
+  }
+}
+```
+
+Server tools surface as `mcp__<server>__<tool>` and count as mutations for
+the permission gates. A failing server is skipped with a warning — never
+fatal for the run.
+
+**Checkpoints & rewind** — every `write_file` / `edit_file` / `bash` commits
+a shadow-git snapshot first (`.xencode/checkpoints/` — your own `.git` is
+never touched; `.git`, `.xencode` and build dirs are excluded):
+
+```bash
+xencode --checkpoints                    # the rewind timeline
+xencode --rewind latest                  # undo the last mutation
+xencode --rewind ck_1730000000_1         # restore by id (or hash prefix)
+xencode --agent "..." --no-checkpoints   # opt out
+```
+
+Rewind restores the snapshot's files, deletes files added after it, and
+leaves `.xencode/` (sessions, hooks, the store itself) untouched. Checkpoint
+rows render inline in the chat-pane timeline.
+
+**Headless `exec`** — the CI contract: never interactive, plain or JSON
+output, clean exit codes:
+
+```bash
+xencode exec "add integration tests for the parser" --json --max-turns 15
+# {"answer":"…","session_id":"1730000000123","iterations":4}
+
+xencode exec --continue "now make them pass"         # session reuse
+xencode exec --read-only "what's broken?" --no-session
+```
+
 **Render an agent run** into the native chat pane (no API key needed with
 `XENCODE_DEMO=1`):
 
@@ -144,7 +204,8 @@ xencode --render-session <id> --out transcript.png
 ```
 app/          the entire Rust application (GUI + agent core)
   src/ui/     native renderer pages (shell, sidebar, splash, chat, settings…)
-  src/agent/  provider clients, tools, agent loop, sessions, permission gates
+  src/agent/  provider clients, tools, agent loop, sessions, permission gates,
+              subagents, MCP client, shadow-git checkpoints
 public/       brand assets
 screenshots/  rendered GUI pages (visual ground truth)
 plan.md       master build plan — phases 0–8

@@ -4,13 +4,19 @@
 //!                  through the same renderer the live window uses (tiny-skia
 //!                  software rasterizer) and writes PNGs — visual ground truth.
 //! Agent mode:      `xencode --agent "prompt"` runs the Phase-1 agent core
-//!                  headlessly against the GLM API (XENCODE_API_KEY).
+//!                  headlessly against the GLM API (XENCODE_API_KEY) with
+//!                  subagents, MCP tools and shadow-git checkpoints (Phase 4).
+//! Exec mode:       `xencode exec "prompt" --json` is the Phase-4 headless/CI
+//!                  contract: never interactive, JSON envelope, --max-turns,
+//!                  session --continue/--resume/--fork, --no-session.
+//! Checkpoints:     `xencode --checkpoints` lists the rewind timeline;
+//!                  `xencode --rewind <id|hash|latest>` restores it.
 //! Agent-UI mode:   `xencode --agent-ui "prompt" --out FILE.png` runs the
 //!                  agent and renders the live conversation (tool rows,
-//!                  permission consent cards, streamed answer) into the chat
-//!                  pane — the composer → loop wiring made visible.
-//!                  `XENCODE_DEMO=1` substitutes a scripted provider so the
-//!                  wiring renders without an API key.
+//!                  subagent cards, checkpoints, consent cards, streamed
+//!                  answer) into the chat pane — the composer → loop wiring
+//!                  made visible. `XENCODE_DEMO=1` substitutes a scripted
+//!                  provider so the wiring renders without an API key.
 //! Transcript mode: `xencode --render-session <id> --out FILE.png` renders a
 //!                  saved session from `.xencode/sessions/`.
 //! Commands mode:   `xencode --commands` lists the markdown slash commands
@@ -19,6 +25,8 @@
 //! Plan mode:       `xencode --plan "task"` (or `--permission-mode plan`)
 //!                  researches read-only, prints the plan, and — in a TTY —
 //!                  asks for approval before implementing.
+//! Test fixture:    `xencode --mcp-test-server` speaks the MCP protocol over
+//!                  stdio — the integration-test target for the MCP client.
 
 mod agent;
 mod fonts;
@@ -31,7 +39,7 @@ mod ui;
 use agent::permissions::PermissionMode;
 use agent::run::{run_agent, AgentEvent, AgentOptions, Asker, AskFn};
 use agent::session::Session;
-use agent::{commands, permissions, CliOptions, Resume};
+use agent::{commands, permissions, CliOptions, ExecOptions, Resume};
 use anyhow::{bail, Context, Result};
 use gfx::{Canvas, Rect};
 use ui::shell::{draw_backdrop, draw_header, draw_panel, draw_sidebar_footer, draw_top_overlay, HeaderTitle, HEADER_H, WIN_H, WIN_W, panel_rect};
@@ -46,6 +54,11 @@ enum Mode {
     AgentUi { prompt: String, out: String },
     RenderSession { id: String, out: String },
     Commands,
+    // Phase 4 -------------------------------------------------------------
+    Exec { prompt: String, ex: ExecOptions },
+    Checkpoints,
+    Rewind { target: String },
+    McpTestServer,
 }
 
 fn main() {
@@ -66,6 +79,10 @@ fn main() {
         Mode::AgentUi { prompt, out } => agent_ui(&prompt, &out),
         Mode::RenderSession { id, out } => render_session(&id, &out),
         Mode::Commands => list_commands(),
+        Mode::Exec { prompt, ex } => agent::run_exec(&prompt, ex),
+        Mode::Checkpoints => list_checkpoints(),
+        Mode::Rewind { target } => rewind(&target),
+        Mode::McpTestServer => mcp_test_server(),
     };
 
     if let Err(e) = result {
@@ -76,6 +93,12 @@ fn main() {
 
 fn parse_args() -> Result<Mode> {
     let args: Vec<String> = std::env::args().skip(1).collect();
+
+    // `xencode exec ...` — the Phase-4 headless subcommand.
+    if args.first().map(|s| s.as_str()) == Some("exec") {
+        return parse_exec(&args[1..]);
+    }
+
     let mut out: Option<String> = None;
     let mut cli = CliOptions::default();
     let mut agent: Option<String> = None;
@@ -129,6 +152,12 @@ fn parse_args() -> Result<Mode> {
                 continue;
             }
             "--commands" => return Ok(Mode::Commands),
+            "--no-checkpoints" => cli.no_checkpoints = true,
+            "--checkpoints" => return Ok(Mode::Checkpoints),
+            "--rewind" if i + 1 < args.len() => {
+                return Ok(Mode::Rewind { target: args[i + 1].clone() });
+            }
+            "--mcp-test-server" => return Ok(Mode::McpTestServer),
             "--screenshot" | "screenshot" | "" => {}
             "--window" => bail!("live window mode: not wired yet (winit+softbuffer next); use --screenshot"),
             other => bail!("unknown flag: {other}"),
@@ -151,6 +180,188 @@ fn parse_args() -> Result<Mode> {
     }
 
     Ok(Mode::Screenshot { out })
+}
+
+/// Parse the `exec` subcommand: `xencode exec "prompt" [flags]`.
+fn parse_exec(args: &[String]) -> Result<Mode> {
+    let mut ex = ExecOptions::default();
+    let mut prompt: Option<String> = None;
+    let mut i = 0;
+    while i < args.len() {
+        match args[i].as_str() {
+            "--json" => ex.json = true,
+            "--max-turns" if i + 1 < args.len() => {
+                ex.max_turns = Some(
+                    args[i + 1]
+                        .parse()
+                        .context("--max-turns expects a positive integer")?,
+                );
+                i += 1;
+            }
+            "--no-session" => ex.no_session = true,
+            "--continue" | "-c" => ex.cli.resume = Some(Resume::Continue),
+            "--resume" if i + 1 < args.len() => {
+                ex.cli.resume = Some(Resume::Id(args[i + 1].clone()));
+                i += 1;
+            }
+            "--fork" if i + 1 < args.len() => {
+                ex.cli.resume = Some(Resume::Fork(args[i + 1].clone()));
+                i += 1;
+            }
+            "--yes" | "-y" => ex.cli.auto_yes = true,
+            "--read-only" => ex.cli.read_only = true,
+            "--no-checkpoints" => ex.cli.no_checkpoints = true,
+            "--plan" => ex.cli.permission_mode = Some(PermissionMode::Plan),
+            "--permission-mode" if i + 1 < args.len() => {
+                let raw = &args[i + 1];
+                match PermissionMode::parse(raw) {
+                    Some(m) => ex.cli.permission_mode = Some(m),
+                    None => bail!(
+                        "unknown permission mode `{raw}` — expected one of: \
+                         default, accept-edits, read-only, plan, yolo"
+                    ),
+                }
+                i += 1;
+            }
+            other if other.starts_with('-') => bail!("unknown exec flag: {other}"),
+            other if prompt.is_none() => prompt = Some(other.to_string()),
+            other => bail!("unexpected argument: {other}"),
+        }
+        i += 1;
+    }
+    let Some(prompt) = prompt else {
+        bail!(
+            "usage: xencode exec \"prompt\" [--json] [--max-turns N] [--no-session] \
+             [--continue | --resume ID | --fork ID] [--read-only] [--permission-mode M]"
+        );
+    };
+    Ok(Mode::Exec { prompt, ex })
+}
+
+/// `xencode --checkpoints` — print the rewind timeline (oldest first).
+fn list_checkpoints() -> Result<()> {
+    let cwd = std::env::current_dir().context("resolve working directory")?;
+    let store = agent::checkpoint::CheckpointStore::open(&cwd);
+    let list = store.list();
+    if list.is_empty() {
+        println!("no checkpoints yet — one is recorded before every edit");
+        return Ok(());
+    }
+    println!("checkpoint timeline (oldest first):");
+    for cp in &list {
+        println!(
+            "  {}  {}  before {} {}",
+            cp.id,
+            fmt_ts_ms(cp.ts_unix_ms),
+            cp.tool,
+            cp.detail
+        );
+    }
+    println!("rewind with: xencode --rewind <id | hash prefix | latest>");
+    Ok(())
+}
+
+/// `xencode --rewind <id|hash|latest>` — restore the worktree to a checkpoint.
+fn rewind(target: &str) -> Result<()> {
+    let cwd = std::env::current_dir().context("resolve working directory")?;
+    let rt = tokio::runtime::Runtime::new().context("start tokio runtime")?;
+    rt.block_on(async move {
+        let store = agent::checkpoint::CheckpointStore::open(&cwd);
+        store.rewind(target).await.map(|_| ())
+    })
+}
+
+/// `xencode --mcp-test-server` — a minimal MCP server over stdio used by the
+/// client's end-to-end test: initialize / tools/list / tools/call / ping.
+fn mcp_test_server() -> Result<()> {
+    use std::io::{BufRead, Write};
+    let stdin = std::io::stdin();
+    let mut out = std::io::stdout();
+    for line in stdin.lock().lines() {
+        let line = line?;
+        let Ok(v) = serde_json::from_str::<serde_json::Value>(&line) else { continue };
+        let id = v.get("id").cloned();
+        let Some(method) = v.get("method").and_then(|m| m.as_str()).map(str::to_string) else { continue };
+        let resp = match method.as_str() {
+            "initialize" => serde_json::json!({
+                "jsonrpc": "2.0", "id": id,
+                "result": {
+                    "protocolVersion": "2024-11-05",
+                    "capabilities": { "tools": {} },
+                    "serverInfo": { "name": "xencode-test", "version": "0.0.1" }
+                }
+            }),
+            "tools/list" => serde_json::json!({
+                "jsonrpc": "2.0", "id": id,
+                "result": { "tools": [
+                    {
+                        "name": "echo",
+                        "description": "Echo a message back",
+                        "inputSchema": {
+                            "type": "object",
+                            "properties": { "message": { "type": "string" } },
+                            "required": ["message"]
+                        }
+                    },
+                    {
+                        "name": "add",
+                        "description": "Add two numbers",
+                        "inputSchema": {
+                            "type": "object",
+                            "properties": { "a": { "type": "number" }, "b": { "type": "number" } },
+                            "required": ["a", "b"]
+                        }
+                    }
+                ]}
+            }),
+            "tools/call" => {
+                let name = v["params"]["name"].as_str().unwrap_or_default().to_string();
+                let args = v["params"]["arguments"].clone();
+                let text = match name.as_str() {
+                    "echo" => args["message"].as_str().unwrap_or_default().to_string(),
+                    "add" => format!("{}", args["a"].as_f64().unwrap_or(0.0) + args["b"].as_f64().unwrap_or(0.0)),
+                    other => format!("unknown tool: {other}"),
+                };
+                serde_json::json!({
+                    "jsonrpc": "2.0", "id": id,
+                    "result": { "content": [ { "type": "text", "text": text } ] }
+                })
+            }
+            "ping" => serde_json::json!({ "jsonrpc": "2.0", "id": id, "result": {} }),
+            other => {
+                if id.is_none() {
+                    continue; // unknown notification — stay silent
+                }
+                serde_json::json!({
+                    "jsonrpc": "2.0", "id": id,
+                    "error": { "code": -32601, "message": format!("method not found: {other}") }
+                })
+            }
+        };
+        writeln!(out, "{resp}")?;
+        out.flush()?;
+    }
+    Ok(())
+}
+
+/// Format unix milliseconds as `YYYY-MM-DD HH:MM:SS` (UTC).
+fn fmt_ts_ms(ms: u64) -> String {
+    let secs = ms / 1000;
+    let days = (secs / 86_400) as i64;
+    let rem = secs % 86_400;
+    let (h, m, s) = (rem / 3600, (rem % 3600) / 60, rem % 60);
+    // Howard Hinnant's civil-from-days (proleptic Gregorian).
+    let z = days + 719_468;
+    let era = if z >= 0 { z } else { z - 146_096 } / 146_097;
+    let doe = z - era * 146_097;
+    let yoe = (doe - doe / 1460 + doe / 36_524 - doe / 146_096) / 365;
+    let y = yoe + era * 400;
+    let doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
+    let mp = (5 * doy + 2) / 153;
+    let d = doy - (153 * mp + 2) / 5 + 1;
+    let mth = if mp < 10 { mp + 3 } else { mp - 9 };
+    let y = if mth <= 2 { y + 1 } else { y };
+    format!("{y:04}-{mth:02}-{d:02} {h:02}:{m:02}:{s:02}")
 }
 
 /// `xencode --commands` — list every markdown slash command visible to the
@@ -262,14 +473,14 @@ fn agent_ui(prompt: &str, out: &str) -> Result<()> {
 /// Run the loop inline and fold its (buffered) event stream into the
 /// collector once the run completes. The channel is unbounded, so the loop
 /// never blocks on a slow consumer.
-async fn collect_run<P: agent::provider::Provider>(
-    provider: P,
+async fn collect_run(
+    provider: std::sync::Arc<dyn agent::provider::Provider>,
     prompt: &str,
     opts: AgentOptions,
     collector: &mut Collector,
 ) -> Result<String> {
     let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel::<AgentEvent>();
-    let answer = run_agent(&provider, prompt, opts, tx).await;
+    let answer = run_agent(provider, prompt, opts, tx).await;
     while let Ok(ev) = rx.try_recv() {
         collector.on(&ev);
     }
@@ -288,15 +499,19 @@ impl Asker for AutoAsker {
 }
 
 async fn live_run(prompt: &str, session_dir: &std::path::Path) -> Result<(ChatPage, String)> {
-    let provider = agent::provider::GlmProvider::from_env()?;
+    let provider: std::sync::Arc<dyn agent::provider::Provider> =
+        std::sync::Arc::new(agent::provider::GlmProvider::from_env()?);
     let mut collector = Collector::new(prompt, "Agent run");
     let cwd = std::env::current_dir().unwrap_or_default();
+    let mcp = agent::connect_mcp(&cwd).await;
     let opts = AgentOptions {
-        cwd,
+        cwd: cwd.clone(),
         session_dir: Some(session_dir.to_path_buf()),
         gate: Box::new(permissions::AskGate::new()),
         asker: Some(Box::new(AutoAsker)),
-        hooks: agent::hooks_for_project(&std::env::current_dir().unwrap_or_default()),
+        hooks: agent::hooks_for_project(&cwd),
+        mcp,
+        checkpoints: Some(agent::checkpoint::CheckpointStore::open(&cwd)),
         ..Default::default()
     };
     collect_run(provider, prompt, opts, &mut collector).await?;
@@ -304,8 +519,9 @@ async fn live_run(prompt: &str, session_dir: &std::path::Path) -> Result<(ChatPa
     Ok((collector.page, id))
 }
 
-/// Scripted run for `XENCODE_DEMO=1` — a tiny fake project, a read, a consent
-/// prompt (allowed), a build, and the final answer.
+/// Scripted run for `XENCODE_DEMO=1` — a tiny fake project exercising the
+/// Phase-4 surfaces: a subagent dispatch (with its own project agent file),
+/// a checkpointed write, and the final answer.
 async fn demo_run(prompt: &str, session_dir: &std::path::Path) -> Result<(ChatPage, String)> {
     use agent::provider::{Message, MockProvider, Role, ToolCall};
     use serde_json::json;
@@ -317,31 +533,46 @@ async fn demo_run(prompt: &str, session_dir: &std::path::Path) -> Result<(ChatPa
         dir.join("src/main.rs"),
         "fn main() {\n    println!(\"xencode\");\n}\n",
     )?;
+    // A project subagent for the demo dispatch.
+    std::fs::create_dir_all(dir.join(".xencode/agents"))?;
+    std::fs::write(
+        dir.join(".xencode/agents/reviewer.md"),
+        "---\nname: reviewer\ndescription: Reviews the demo project\ntools: read_file, list_dir\n---\nYou are a careful code reviewer. Read the named files and report issues as a numbered list.",
+    )?;
 
+    // Turn order: parent task call → child's final report → parent write
+    // (checkpointed) → parent's final answer. One shared scripted queue.
     let provider = MockProvider::new(vec![
         Message {
             role: Role::Assistant,
-            content: "Let me look at the entrypoint first.".into(),
+            content: "Let me get a second opinion on the entrypoint.".into(),
             tool_calls: vec![ToolCall {
                 id: "t1".into(),
-                name: "read_file".into(),
-                arguments: json!({"path": "src/main.rs"}),
+                name: "task".into(),
+                arguments: json!({"agent": "reviewer", "prompt": "Review src/main.rs for issues"}),
             }],
+            tool_call_id: None,
+        },
+        // Consumed by the child reviewer loop as its final report.
+        Message {
+            role: Role::Assistant,
+            content: "Review complete: main.rs is a minimal hello-world. No issues found.".into(),
+            tool_calls: vec![],
             tool_call_id: None,
         },
         Message {
             role: Role::Assistant,
-            content: "The entrypoint is a bare hello-world — it builds as-is, so let me verify with a release build.".into(),
+            content: "The reviewer signed off. Recording the findings.".into(),
             tool_calls: vec![ToolCall {
                 id: "t2".into(),
-                name: "bash".into(),
-                arguments: json!({"command": "cargo build --release"}),
+                name: "write_file".into(),
+                arguments: json!({"path": "NOTES.md", "content": "# Review notes\n\n- main.rs is clean; no issues found."}),
             }],
             tool_call_id: None,
         },
         Message {
             role: Role::Assistant,
-            content: "Build is green. Nothing to change — the demo project compiles clean and the run is done.".into(),
+            content: "Reviewer agent signed off (no issues) and the findings are recorded in NOTES.md — demo complete.".into(),
             tool_calls: vec![],
             tool_call_id: None,
         },
@@ -356,10 +587,11 @@ async fn demo_run(prompt: &str, session_dir: &std::path::Path) -> Result<(ChatPa
             eprintln!("· permission (demo): {} `{}` — allowed", req.tool, req.detail);
             permissions::Response::AllowAlways
         }))),
+        checkpoints: Some(agent::checkpoint::CheckpointStore::open(&dir)),
         ..Default::default()
     };
 
-    collect_run(provider, prompt, opts, &mut collector).await?;
+    collect_run(std::sync::Arc::new(provider), prompt, opts, &mut collector).await?;
     let id = Session::latest(session_dir).ok().flatten().unwrap_or_default();
     let _ = std::fs::remove_dir_all(&dir);
     Ok((collector.page, id))
