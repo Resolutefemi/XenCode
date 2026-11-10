@@ -196,6 +196,36 @@ impl ScriptRuntime {
         result
     }
 
+    /// Evaluate pre-read source inline (Phase 5 recipe preludes). Behaves
+    /// like [`Self::run_script`] without a file: `args` is exposed to the
+    /// script, TS is stripped, and the `default` export (or `main(args)`)
+    /// resolves to the returned JSON. `name` is the virtual module path used
+    /// in stack traces and relative-import resolution.
+    pub async fn run_source(
+        &self,
+        name: &str,
+        source: &str,
+        args: &serde_json::Value,
+    ) -> anyhow::Result<serde_json::Value> {
+        // Virtual module path: `.ts` so inline TypeScript is stripped; no
+        // file on disk is touched (prelude source arrives pre-read).
+        let virtual_path = PathBuf::from(format!(".xencode/inline/{name}.ts"));
+        // Expose `args` as the `params` global — recipe preludes read the
+        // validated recipe parameters through it.
+        let payload = args.clone();
+        self.ctx
+            .with(|cx| -> rquickjs::Result<()> {
+                let v = crate::jsvalue::from_json(&cx, &payload)?;
+                cx.globals().set("params", v)
+            })
+            .await
+            .map_err(|e| anyhow::anyhow!("{e}"))?;
+        self.interrupt.set_timeout(self.default_timeout);
+        let result = self.eval_module_source(&virtual_path, source, args, false).await;
+        self.interrupt.set_timeout(None);
+        result
+    }
+
     /// Evaluate pre-read source as a module (entry point machinery).
     /// `hook` selects the hook entry convention (callable default first).
     async fn eval_module_source(

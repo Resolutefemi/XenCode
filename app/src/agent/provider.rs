@@ -36,19 +36,23 @@ pub struct Message {
     pub tool_calls: Vec<ToolCall>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub tool_call_id: Option<String>,
+    /// Token usage for this turn, when known (Phase 5 telemetry). Skipped in
+    /// serialization when absent so old session files load unchanged.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub usage: Option<super::telemetry::TokenUsage>,
 }
 
 impl Message {
     pub fn system(content: impl Into<String>) -> Self {
-        Self { role: Role::System, content: content.into(), tool_calls: vec![], tool_call_id: None }
+        Self { role: Role::System, content: content.into(), tool_calls: vec![], tool_call_id: None, usage: None }
     }
 
     pub fn user(content: impl Into<String>) -> Self {
-        Self { role: Role::User, content: content.into(), tool_calls: vec![], tool_call_id: None }
+        Self { role: Role::User, content: content.into(), tool_calls: vec![], tool_call_id: None, usage: None }
     }
 
     pub fn tool_result(call_id: &str, content: impl Into<String>) -> Self {
-        Self { role: Role::Tool, content: content.into(), tool_calls: vec![], tool_call_id: Some(call_id.to_string()) }
+        Self { role: Role::Tool, content: content.into(), tool_calls: vec![], tool_call_id: Some(call_id.to_string()), usage: None }
     }
 }
 
@@ -74,6 +78,11 @@ pub trait Provider: Send + Sync {
         tools: &'a [ToolDef],
         tx: Option<&'a DeltaTx>,
     ) -> std::pin::Pin<Box<dyn std::future::Future<Output = Result<Message>> + Send + 'a>>;
+
+    /// Model identifier for telemetry (empty = unknown).
+    fn model(&self) -> &str {
+        ""
+    }
 }
 
 /// `Arc<P>` forwards to `P` — lets generic helpers (compaction) take the
@@ -86,6 +95,10 @@ impl<T: Provider + ?Sized> Provider for std::sync::Arc<T> {
         tx: Option<&'a DeltaTx>,
     ) -> std::pin::Pin<Box<dyn std::future::Future<Output = Result<Message>> + Send + 'a>> {
         (**self).complete(messages, tools, tx)
+    }
+
+    fn model(&self) -> &str {
+        (**self).model()
     }
 }
 
@@ -106,6 +119,17 @@ impl GlmProvider {
             .unwrap_or_else(|_| "https://api.z.ai/api/paas/v4".into());
         let model = std::env::var("XENCODE_MODEL").unwrap_or_else(|_| "glm-4.6".into());
         Ok(Self { http: reqwest::Client::new(), base_url, api_key, model })
+    }
+
+    /// A provider pinned to a specific model (Phase 5: the Oracle runs on a
+    /// stronger model while the main loop keeps the default). Same
+    /// base URL / key as [`Self::from_env`].
+    pub fn from_env_with_model(model: &str) -> Result<Self> {
+        let api_key = std::env::var("XENCODE_API_KEY")
+            .context("XENCODE_API_KEY is not set (export your z.ai API key)")?;
+        let base_url = std::env::var("XENCODE_BASE_URL")
+            .unwrap_or_else(|_| "https://api.z.ai/api/paas/v4".into());
+        Ok(Self { http: reqwest::Client::new(), base_url, api_key, model: model.to_string() })
     }
 
     fn wire_messages(messages: &[Message]) -> Vec<Value> {
@@ -191,6 +215,8 @@ impl Provider for GlmProvider {
         let mut content = String::new();
         // tool-call index -> (id, name, arguments-so-far)
         let mut calls: BTreeMap<u32, (String, String, String)> = BTreeMap::new();
+        // Provider-reported token usage (final SSE chunk, when present).
+        let mut usage: Option<super::telemetry::TokenUsage> = None;
 
         while let Some(chunk) = stream.next().await {
             buf.extend_from_slice(&chunk?);
@@ -199,6 +225,13 @@ impl Provider for GlmProvider {
                     continue;
                 }
                 let Ok(ev) = serde_json::from_str::<SseChunk>(&data) else { continue };
+                if let Some(u) = ev.usage {
+                    usage = Some(super::telemetry::TokenUsage {
+                        input: u.prompt_tokens.unwrap_or(0),
+                        output: u.completion_tokens.unwrap_or(0),
+                        estimated: false,
+                    });
+                }
                 let Some(choice) = ev.choices.first() else { continue };
                 if let Some(text) = &choice.delta.content {
                     if !text.is_empty() {
@@ -232,8 +265,20 @@ impl Provider for GlmProvider {
             })
             .collect();
 
-        Ok(Message { role: Role::Assistant, content, tool_calls, tool_call_id: None })
+        // When the API did not report usage, estimate from text sizes so
+        // cost accounting never silently reads zero (marked `estimated`).
+        let usage = usage.unwrap_or_else(|| super::telemetry::TokenUsage {
+            input: content.chars().count() as u64 / 4,
+            output: content.chars().count() as u64 / 4,
+            estimated: true,
+        });
+
+        Ok(Message { role: Role::Assistant, content, tool_calls, tool_call_id: None, usage: Some(usage) })
         })
+    }
+
+    fn model(&self) -> &str {
+        &self.model
     }
 }
 
@@ -266,6 +311,16 @@ fn find_subslice(hay: &[u8], needle: &[u8]) -> Option<usize> {
 struct SseChunk {
     #[serde(default)]
     choices: Vec<SseChoice>,
+    #[serde(default)]
+    usage: Option<SseUsage>,
+}
+
+#[derive(Deserialize)]
+struct SseUsage {
+    #[serde(default)]
+    prompt_tokens: Option<u64>,
+    #[serde(default)]
+    completion_tokens: Option<u64>,
 }
 
 #[derive(Deserialize)]
@@ -336,6 +391,10 @@ impl Provider for MockProvider {
             Ok(msg)
         })
     }
+
+    fn model(&self) -> &str {
+        "mock"
+    }
 }
 
 #[cfg(test)]
@@ -364,6 +423,7 @@ mod tests {
                     arguments: json!({"path": "a.rs"}),
                 }],
                 tool_call_id: None,
+                usage: None,
             },
             Message::tool_result("t1", "contents"),
         ];
@@ -372,5 +432,15 @@ mod tests {
         assert_eq!(wire[2]["tool_calls"][0]["function"]["name"], "read_file");
         assert_eq!(wire[3]["role"], "tool");
         assert_eq!(wire[3]["tool_call_id"], "t1");
+    }
+
+    #[test]
+    fn usage_field_is_skipped_when_absent() {
+        let msg = Message::user("hi");
+        let json = serde_json::to_string(&msg).unwrap();
+        assert!(!json.contains("usage"), "absent usage must not appear: {json}");
+        let with = Message { usage: Some(super::super::telemetry::TokenUsage { input: 1, output: 2, estimated: false }), ..Message::user("hi") };
+        let json = serde_json::to_string(&with).unwrap();
+        assert!(json.contains("usage"));
     }
 }

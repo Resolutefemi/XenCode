@@ -261,6 +261,26 @@ impl Collector {
                     note: format!("context compacted: {before} → {after} chars"),
                 });
             }
+            // Phase 5: the diagnostics loop ran after an edit — one tool row
+            // per check (ok = no new problems).
+            AgentEvent::Diagnostics { source, count, detail } => {
+                self.streaming_idx = None;
+                let head: String = detail
+                    .lines()
+                    .skip(1)
+                    .next()
+                    .unwrap_or("")
+                    .to_string();
+                self.page.entries.push(Entry::Tool {
+                    name: format!("diagnostics:{source}"),
+                    summary: if *count == 0 {
+                        "check failed to run".into()
+                    } else {
+                        format!("{count} new problem(s) — {head}")
+                    },
+                    ok: false,
+                });
+            }
             AgentEvent::Transcript(_) | AgentEvent::Done => {
                 self.page.streaming = false;
             }
@@ -287,6 +307,11 @@ mod tests {
         col.on(&AgentEvent::ToolEnd { name: "bash".into(), ok: true, ms: 12 });
         col.on(&AgentEvent::HookRun { kind: "PreToolUse".into(), script: "guard.ts".into(), ok: true });
         col.on(&AgentEvent::HookLog("hook console noise".into()));
+        col.on(&AgentEvent::Diagnostics {
+            source: "cargo check".into(),
+            count: 2,
+            detail: "[Diagnostics] `cargo check` reports 2 new problems after your edit:\nsrc/lib.rs:9: error: mismatched types\nFix these before finishing.".into(),
+        });
         col.on(&AgentEvent::Text("Build is green.".into()));
         col.on(&AgentEvent::Done);
 
@@ -304,7 +329,24 @@ mod tests {
                 if name == "hook:PreToolUse" && summary == "guard.ts"),
             "hook runs render as tool rows"
         );
-        assert!(matches!(&p.entries[5], Entry::Assistant { text } if text.contains("green")));
+        assert!(matches!(&p.entries[5], Entry::Tool { name, .. } if name == "diagnostics:cargo check"));
+        assert!(matches!(&p.entries[6], Entry::Assistant { text } if text.contains("green")));
+    }
+
+    #[test]
+    fn collector_renders_diagnostics_rows() {
+        let mut col = Collector::new("edit a file", "Agent run");
+        col.on(&AgentEvent::Diagnostics {
+            source: "cargo check".into(),
+            count: 1,
+            detail: "[Diagnostics] `cargo check` reports 1 new problem after your edit:\nsrc/lib.rs:9: error: boom\nFix these before finishing.".into(),
+        });
+        let p = &col.page;
+        assert!(
+            matches!(&p.entries[1], Entry::Tool { name, summary, .. }
+                if name == "diagnostics:cargo check" && summary.contains("1 new problem") && summary.contains("src/lib.rs:9")),
+            "diagnostics render as tool rows"
+        );
     }
 
     #[test]
@@ -321,6 +363,7 @@ mod tests {
                     arguments: json!({"path": "a.rs"}),
                 }],
                 tool_call_id: None,
+                usage: None,
             },
             Message::tool_result("t1", "1 | fn main() {}"),
             Message {
@@ -328,6 +371,7 @@ mod tests {
                 content: "It defines main.".into(),
                 tool_calls: vec![],
                 tool_call_id: None,
+                usage: None,
             },
         ];
         let page = ChatPage::from_conversation(&msgs);
@@ -349,6 +393,7 @@ mod tests {
                     arguments: json!({"command": "rm -rf /"}),
                 }],
                 tool_call_id: None,
+                usage: None,
             },
             Message::tool_result("t9", "Permission denied by the user."),
         ];
@@ -442,6 +487,7 @@ mod tests {
                     arguments: serde_json::json!({"agent": "scout", "prompt": "look around"}),
                 }],
                 tool_call_id: None,
+                usage: None,
             },
             Message::tool_result("t1", "the report"),
         ];

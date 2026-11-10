@@ -14,6 +14,20 @@
 //! proc = true
 //! env  = ["HOME"]
 //!
+//! [diagnostics]                # Phase 5: compiler errors fed back to the model
+//! command = ["cargo", "check", "--message-format=json"]
+//! format  = "cargo"            # "cargo" | "regex"
+//! timeout_ms = 120000
+//!
+//! [telemetry]                  # Phase 5: OTel-style run tracing
+//! enabled = true
+//! input_cost_per_mtok  = 0.60  # optional price table (USD per million tokens)
+//! output_cost_per_mtok = 2.20
+//! endpoint = "http://127.0.0.1:4318/v1/traces"  # OTLP/HTTP JSON export
+//!
+//! [oracle]                     # Phase 5: second-opinion agent model
+//! model = "glm-4.6"
+//!
 //! [[triggers]]
 //! id   = "nightly-report"
 //! cron = "0 30 9 * * *"        # sec min hour dom mon dow (optional sec)
@@ -52,6 +66,13 @@ pub struct XenConfig {
     pub hooks: HooksConfig,
     /// Extra env vars injected into scripts (`[automation.env]`).
     pub automation: AutomationConfig,
+    /// Diagnostics loop (`[diagnostics]`) — Phase 5: the check command whose
+    /// errors are fed back to the model after edits.
+    pub diagnostics: DiagnosticsConfig,
+    /// Run telemetry (`[telemetry]`) — Phase 5: OTel-style spans, tokens, cost.
+    pub telemetry: TelemetryConfig,
+    /// Oracle second-opinion agent (`[oracle]`) — Phase 5.
+    pub oracle: OracleConfig,
 }
 
 /// `[hooks]` table of `xen.toml`: the scripts that observe and gate the
@@ -83,6 +104,51 @@ impl HooksConfig {
 #[serde(default)]
 pub struct AutomationConfig {
     pub env: std::collections::BTreeMap<String, String>,
+}
+
+/// `[diagnostics]` table: the project check command whose output becomes
+/// structured diagnostics. `format` selects the parser — `"cargo"` reads
+/// `--message-format=json` lines, `"regex"` parses each output line with the
+/// `line_pattern` (named capture groups `file`, `line`, `level`, `message`).
+#[derive(Debug, Clone, Deserialize, Default)]
+#[serde(default)]
+pub struct DiagnosticsConfig {
+    /// Explicit check command (argv, run in the project root). Empty =
+    /// auto-detect (cargo check for Cargo.toml projects, project-local tsc).
+    pub command: Vec<String>,
+    /// Parser for the command output: `"cargo"` (default) or `"regex"`.
+    pub format: Option<String>,
+    /// Regex with `file`/`line`/`level`/`message` named groups (format regex).
+    pub line_pattern: Option<String>,
+    /// Command timeout in milliseconds (default 120 000).
+    pub timeout_ms: Option<u64>,
+    /// File extensions that trigger a check after an edit
+    /// (default: language-dependent set for the detected toolchain).
+    pub extensions: Option<Vec<String>>,
+}
+
+/// `[telemetry]` table: per-run spans (run / llm / tool), token counts and
+/// optional cost. Written as OTel-style JSONL under `.xencode/telemetry/`.
+#[derive(Debug, Clone, Deserialize, Default)]
+#[serde(default)]
+pub struct TelemetryConfig {
+    /// Master switch (default on when the table is present at all; a bare
+    /// `[telemetry]` with defaults also enables it).
+    pub enabled: Option<bool>,
+    /// USD per million input tokens (cost = 0 when unset).
+    pub input_cost_per_mtok: Option<f64>,
+    /// USD per million output tokens.
+    pub output_cost_per_mtok: Option<f64>,
+    /// OTLP/HTTP(JSON) collector endpoint — spans POST at run end.
+    pub endpoint: Option<String>,
+}
+
+/// `[oracle]` table: model used by the second-opinion agent. Falls back to
+/// `XENCODE_ORACLE_MODEL`, then the main provider's model.
+#[derive(Debug, Clone, Deserialize, Default)]
+#[serde(default)]
+pub struct OracleConfig {
+    pub model: Option<String>,
 }
 
 /// One automation trigger entry (`[[triggers]]` tables).
@@ -248,5 +314,44 @@ mod tests {
     fn unknown_fields_are_ignored() {
         let cfg: XenConfig = toml::from_str("[permissions]\nfuture_flag = true\n").unwrap();
         assert!(cfg.permissions.is_empty());
+    }
+
+    #[test]
+    fn parses_phase5_tables() {
+        let cfg: XenConfig = toml::from_str(
+            r#"
+            [diagnostics]
+            command = ["cargo", "check", "--message-format=json"]
+            format = "cargo"
+            timeout_ms = 60000
+
+            [telemetry]
+            enabled = true
+            input_cost_per_mtok = 0.6
+            output_cost_per_mtok = 2.2
+            endpoint = "http://127.0.0.1:4318/v1/traces"
+
+            [oracle]
+            model = "glm-4.6-plus"
+            "#,
+        )
+        .unwrap();
+        assert_eq!(cfg.diagnostics.command.len(), 3);
+        assert_eq!(cfg.diagnostics.format.as_deref(), Some("cargo"));
+        assert_eq!(cfg.diagnostics.timeout_ms, Some(60_000));
+        assert_eq!(cfg.telemetry.enabled, Some(true));
+        assert_eq!(cfg.telemetry.input_cost_per_mtok, Some(0.6));
+        assert_eq!(cfg.telemetry.output_cost_per_mtok, Some(2.2));
+        assert!(cfg.telemetry.endpoint.is_some());
+        assert_eq!(cfg.oracle.model.as_deref(), Some("glm-4.6-plus"));
+    }
+
+    #[test]
+    fn phase5_tables_default_to_empty() {
+        let cfg: XenConfig = toml::from_str("[hooks]\nstop = []\n").unwrap();
+        assert!(cfg.diagnostics.command.is_empty());
+        assert!(cfg.telemetry.endpoint.is_none());
+        assert!(cfg.telemetry.enabled.is_none());
+        assert!(cfg.oracle.model.is_none());
     }
 }

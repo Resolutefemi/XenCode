@@ -9,7 +9,7 @@
   with a GLM-powered agent core and a QuickJS automation engine (no Python).
 </p>
 
-> **Status:** active development. The GUI is a pixel-faithful reimplementation of the ZCode v3.17.2 UX (all six primary pages rendered and verified). **Phases 0–3 are complete**: the agent core runs headlessly (GLM streaming, sessions, permission modes), the chat pane renders live transcripts, the QuickJS automation engine ships with the full `xen.*` host bridge, and harness wave 1 landed — memory files, markdown slash commands, QuickJS-executed hooks and plan mode. **XenBrowser** (embedded agent browser) and harness wave 2 (MCP, subagents, checkpoints, `xen exec`) are next — see [plan.md](plan.md).
+> **Status:** active development. The GUI is a pixel-faithful reimplementation of the ZCode v3.17.2 UX (all six primary pages rendered and verified). **Phases 0–5 are complete**: the agent core runs headlessly (GLM streaming, sessions, permission modes), the chat pane renders live transcripts, the QuickJS automation engine ships with the full `xen.*` host bridge, and all three harness waves landed — memory files, slash commands, hooks and plan mode (wave 1); MCP, subagents, checkpoints and `xen exec` (wave 2); repo map, diagnostics loop, recipes, the Oracle and run telemetry (wave 3). **XenBrowser** (embedded agent browser) is next — see [plan.md](plan.md).
 
 ## Highlights
 
@@ -19,6 +19,11 @@
 - ⌨️ **Slash commands** — markdown prompts in `.xencode/commands/*.md` with `$ARGUMENTS` substitution
 - 🪝 **Hooks** — `PreToolUse` / `PostToolUse` / `Stop` executed by the QuickJS runtime; a deny verdict blocks the tool, feedback joins the result, a stop-block keeps the loop going
 - 🗺️ **Plan mode** — `--plan` researches read-only, prints the plan, then implements after approval; five permission modes (`default` / `accept-edits` / `read-only` / `plan` / `yolo`)
+- 🌲 **Repo map** — tree-sitter symbol extraction (Rust / TS / JS / Python / Go), PageRank-ranked like Aider, rendered into the system prompt so the agent starts with a live skeleton of the codebase
+- 🩺 **Diagnostics loop** — the project's check command (`cargo check`, project-local `tsc`, or any command) runs after every edit; new compiler errors are fed straight back into the loop (OpenCode-style)
+- 📖 **Recipes** — declarative playbooks in `.xencode/recipes/*.md` with parameters, `{{param}}` substitution, QuickJS preludes and multi-step subtasks (Goose-style)
+- 🔮 **Oracle** — a stronger-model second-opinion agent available as a tool and as `xencode --oracle "…"`; read-only loop, events render as agent cards (Amp-style)
+- 📊 **Run telemetry** — OTel-style spans (run / llm / tool), token counts and cost per run, persisted as JSONL under `.xencode/telemetry/`, optional OTLP/HTTP export
 - 🛡️ **Permission prompts** — mutations ask for consent (y/n/a in the CLI, consent cards in the chat pane)
 - 📸 **Visual ground truth** — every GUI page renders to PNG headlessly via `--screenshot`; live agent runs render via `--agent-ui`
 - ⚡ **QuickJS automation** — capability-scoped `xen.*` scripting, ~4 ms boot, one static binary; `xen-script run/triggers` CLI
@@ -206,13 +211,99 @@ XENCODE_DEMO=1 xencode --agent-ui "Fix the failing test" --out demo.png
 xencode --render-session <id> --out transcript.png
 ```
 
+## Harness wave 3 (Phase 5)
+
+**Repo map** — every agent run starts with a relevance-ranked skeleton of
+the codebase in the system prompt: tree-sitter symbols (functions, types,
+impls, classes, interfaces) for Rust, TypeScript/TSX, JavaScript, Python and
+Go, ranked by a PageRank over the file-reference graph, budget-truncated to
+~1k tokens. Inspect it any time:
+
+```bash
+xencode --repo-map               # the exact section the prompt receives
+xencode --agent "..." --no-repo-map   # opt out
+```
+
+**Diagnostics loop** — after the agent edits a source file, the project's
+check command runs once; problems that are *new* since the last round are
+pushed back into the loop as a user turn, so the compiler's verdict reaches
+the model before it finishes. Auto-detected for `Cargo.toml` projects
+(`cargo check --message-format=json`) and projects with a local
+`node_modules/.bin/tsc`; anything else is one config table away:
+
+```toml
+[diagnostics]
+command    = ["cargo", "check", "--message-format=json"]
+format     = "cargo"        # or "regex" with line_pattern (file/line/level/message groups)
+timeout_ms = 120000
+```
+
+**Recipes** — declarative playbooks in `.xencode/recipes/*.md` (project) and
+`~/.xencode/recipes/*.md` (user):
+
+````markdown
+<!-- .xencode/recipes/release-notes.md -->
+---
+name: release-notes
+description: Draft release notes from recent commits
+parameters:
+  - name: version
+    required: true
+  - name: audience
+    default: developers
+---
+```xen
+const log = await xen.proc.run("git", ["log", "--oneline", "-10"]);
+console.log(log.stdout);          // prelude output joins the prompt as context
+```
+
+## Draft
+Release notes for {{version}} aimed at {{audience}}.
+
+## Tighten
+Rewrite the previous draft in half the words.
+````
+
+Parameters are validated (required present, defaults filled, unknown
+rejected); `## ` sections become sequential subtasks, each a full agent run
+that sees the previous steps' transcript:
+
+```bash
+xencode --recipes                          # list what's available
+xencode recipe release-notes version=2.1.0
+```
+
+**Oracle** — a second-opinion agent on a (usually stronger) model, available
+as an `oracle` tool to the main loop and standalone. The oracle investigates
+with read-only tools (read / grep / list), never mutates, and returns a
+decisive verdict the model can act on:
+
+```bash
+xencode --oracle "Is the session-store locking strategy sound?"
+export XENCODE_ORACLE_MODEL=glm-4.6-plus   # or [oracle] model in xen.toml
+```
+
+**Run telemetry** — every run records OTel-style spans (`agent.run`,
+`llm.call` with tokens in/out, `tool.call`) plus computed cost (optional
+price table) to `.xencode/telemetry/<run-id>.jsonl`, and POSTs the spans to
+an OTLP/HTTP(JSON) collector when configured:
+
+```toml
+[telemetry]
+enabled = true
+input_cost_per_mtok  = 0.60                     # USD per million tokens
+output_cost_per_mtok = 2.20
+endpoint = "http://127.0.0.1:4318/v1/traces"    # or XENCODE_OTEL_ENDPOINT
+```
+
 ## Repository layout
 
 ```
 app/          the entire Rust application (GUI + agent core)
   src/ui/     native renderer pages (shell, sidebar, splash, chat, settings…)
   src/agent/  provider clients, tools, agent loop, sessions, permission gates,
-              subagents, MCP client, shadow-git checkpoints
+              subagents, MCP client, checkpoints, repo map, diagnostics loop,
+              recipes, oracle, telemetry
 public/       brand assets
 screenshots/  rendered GUI pages (visual ground truth)
 plan.md       master build plan — phases 0–8

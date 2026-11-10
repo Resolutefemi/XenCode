@@ -25,6 +25,13 @@
 //! Plan mode:       `xencode --plan "task"` (or `--permission-mode plan`)
 //!                  researches read-only, prints the plan, and — in a TTY —
 //!                  asks for approval before implementing.
+//! Recipes:         `xencode --recipes` lists declarative playbooks from
+//!                  `.xencode/recipes/*.md`; `xencode recipe <name> k=v …`
+//!                  runs one (params → steps → agent loops, QuickJS preludes).
+//! Oracle:          `xencode --oracle "question"` asks the second-opinion
+//!                  agent (Phase 5) — read-only loop on the configured model.
+//! Repo map:        `xencode --repo-map` prints the tree-sitter repo map
+//!                  (same section the system prompt gets).
 //! Test fixture:    `xencode --mcp-test-server` speaks the MCP protocol over
 //!                  stdio — the integration-test target for the MCP client.
 
@@ -59,6 +66,11 @@ enum Mode {
     Checkpoints,
     Rewind { target: String },
     McpTestServer,
+    // Phase 5 -------------------------------------------------------------
+    Recipes,
+    Recipe { name: String, params: Vec<(String, String)>, cli: CliOptions },
+    Oracle { question: String },
+    RepoMap,
 }
 
 fn main() {
@@ -83,6 +95,13 @@ fn main() {
         Mode::Checkpoints => list_checkpoints(),
         Mode::Rewind { target } => rewind(&target),
         Mode::McpTestServer => mcp_test_server(),
+        Mode::Recipes => agent::list_recipes(),
+        Mode::Recipe { name, params, cli } => {
+            agent::recipes::run_recipe(&name, &params, &cli).map(|answer| println!("{answer}"))
+        }
+
+        Mode::Oracle { question } => agent::run_oracle(&question),
+        Mode::RepoMap => print_repo_map(),
     };
 
     if let Err(e) = result {
@@ -97,6 +116,10 @@ fn parse_args() -> Result<Mode> {
     // `xencode exec ...` — the Phase-4 headless subcommand.
     if args.first().map(|s| s.as_str()) == Some("exec") {
         return parse_exec(&args[1..]);
+    }
+    // `xencode recipe <name> [k=v ...]` — the Phase-5 playbook runner.
+    if args.first().map(|s| s.as_str()) == Some("recipe") {
+        return parse_recipe(&args[1..]);
     }
 
     let mut out: Option<String> = None;
@@ -153,11 +176,17 @@ fn parse_args() -> Result<Mode> {
             }
             "--commands" => return Ok(Mode::Commands),
             "--no-checkpoints" => cli.no_checkpoints = true,
+            "--no-repo-map" => cli.no_repo_map = true,
             "--checkpoints" => return Ok(Mode::Checkpoints),
             "--rewind" if i + 1 < args.len() => {
                 return Ok(Mode::Rewind { target: args[i + 1].clone() });
             }
             "--mcp-test-server" => return Ok(Mode::McpTestServer),
+            "--recipes" => return Ok(Mode::Recipes),
+            "--oracle" if i + 1 < args.len() => {
+                return Ok(Mode::Oracle { question: args[i + 1].clone() });
+            }
+            "--repo-map" => return Ok(Mode::RepoMap),
             "--screenshot" | "screenshot" | "" => {}
             "--window" => bail!("live window mode: not wired yet (winit+softbuffer next); use --screenshot"),
             other => bail!("unknown flag: {other}"),
@@ -211,6 +240,7 @@ fn parse_exec(args: &[String]) -> Result<Mode> {
             "--yes" | "-y" => ex.cli.auto_yes = true,
             "--read-only" => ex.cli.read_only = true,
             "--no-checkpoints" => ex.cli.no_checkpoints = true,
+            "--no-repo-map" => ex.cli.no_repo_map = true,
             "--plan" => ex.cli.permission_mode = Some(PermissionMode::Plan),
             "--permission-mode" if i + 1 < args.len() => {
                 let raw = &args[i + 1];
@@ -232,10 +262,69 @@ fn parse_exec(args: &[String]) -> Result<Mode> {
     let Some(prompt) = prompt else {
         bail!(
             "usage: xencode exec \"prompt\" [--json] [--max-turns N] [--no-session] \
-             [--continue | --resume ID | --fork ID] [--read-only] [--permission-mode M]"
+             [--continue | --resume ID | --fork ID] [--read-only] [--permission-mode M] [--no-repo-map]"
         );
     };
     Ok(Mode::Exec { prompt, ex })
+}
+
+/// Parse the `recipe` subcommand: `xencode recipe <name> [key=value ...]`.
+fn parse_recipe(args: &[String]) -> Result<Mode> {
+    let mut cli = CliOptions::default();
+    let mut name: Option<String> = None;
+    let mut params: Vec<(String, String)> = Vec::new();
+    let mut i = 0;
+    while i < args.len() {
+        match args[i].as_str() {
+            "--yes" | "-y" => cli.auto_yes = true,
+            "--read-only" => cli.read_only = true,
+            "--no-checkpoints" => cli.no_checkpoints = true,
+            "--no-repo-map" => cli.no_repo_map = true,
+            "--plan" => cli.permission_mode = Some(PermissionMode::Plan),
+            "--permission-mode" if i + 1 < args.len() => {
+                let raw = &args[i + 1];
+                match PermissionMode::parse(raw) {
+                    Some(m) => cli.permission_mode = Some(m),
+                    None => bail!(
+                        "unknown permission mode `{raw}` — expected one of: \
+                         default, accept-edits, read-only, plan, yolo"
+                    ),
+                }
+                i += 1;
+            }
+            other if other.starts_with('-') => bail!("unknown recipe flag: {other}"),
+            other if name.is_none() => name = Some(other.to_string()),
+            other => {
+                let (k, v) = other
+                    .split_once('=')
+                    .context("recipe params look like key=value")?;
+                params.push((k.to_string(), v.to_string()));
+            }
+        }
+        i += 1;
+    }
+    let Some(name) = name else {
+        bail!("usage: xencode recipe <name> [key=value ...]  (list: xencode --recipes)");
+    };
+    Ok(Mode::Recipe { name, params, cli })
+}
+
+/// `xencode --repo-map` — print the repo map the system prompt receives.
+fn print_repo_map() -> Result<()> {
+    let cwd = std::env::current_dir().context("resolve working directory")?;
+    let map = agent::repomap::build(&cwd, agent::DEFAULT_REPO_MAP_BUDGET);
+    if map.text.is_empty() {
+        println!("(no parseable source files found)");
+        return Ok(());
+    }
+    println!(
+        "repo map — {} file(s), {} symbol(s){}",
+        map.files,
+        map.symbols,
+        if map.truncated { ", truncated" } else { "" }
+    );
+    print!("{}", map.text);
+    Ok(())
 }
 
 /// `xencode --checkpoints` — print the rewind timeline (oldest first).
@@ -504,17 +593,27 @@ async fn live_run(prompt: &str, session_dir: &std::path::Path) -> Result<(ChatPa
     let mut collector = Collector::new(prompt, "Agent run");
     let cwd = std::env::current_dir().unwrap_or_default();
     let mcp = agent::connect_mcp(&cwd).await;
+    let harness = agent::harness_for_project(&cwd);
+    let telemetry = agent::telemetry::Telemetry::for_run(&cwd, &harness.telemetry_cfg);
+    let oracle_setup = agent::recipes::build_oracle(&harness, &provider)?;
     let opts = AgentOptions {
         cwd: cwd.clone(),
         session_dir: Some(session_dir.to_path_buf()),
         gate: Box::new(permissions::AskGate::new()),
         asker: Some(Box::new(AutoAsker)),
-        hooks: agent::hooks_for_project(&cwd),
+        hooks: harness.hooks.clone(),
         mcp,
         checkpoints: Some(agent::checkpoint::CheckpointStore::open(&cwd)),
+        repo_map: Some(agent::DEFAULT_REPO_MAP_BUDGET),
+        diagnostics: harness.diagnostics.clone(),
+        telemetry: telemetry.clone(),
+        oracle: oracle_setup,
         ..Default::default()
     };
     collect_run(provider, prompt, opts, &mut collector).await?;
+    if let Some(t) = &telemetry {
+        eprintln!("{}", t.finish(0).await);
+    }
     let id = Session::latest(session_dir).ok().flatten().unwrap_or_default();
     Ok((collector.page, id))
 }
@@ -552,6 +651,7 @@ async fn demo_run(prompt: &str, session_dir: &std::path::Path) -> Result<(ChatPa
                 arguments: json!({"agent": "reviewer", "prompt": "Review src/main.rs for issues"}),
             }],
             tool_call_id: None,
+            usage: None,
         },
         // Consumed by the child reviewer loop as its final report.
         Message {
@@ -559,6 +659,7 @@ async fn demo_run(prompt: &str, session_dir: &std::path::Path) -> Result<(ChatPa
             content: "Review complete: main.rs is a minimal hello-world. No issues found.".into(),
             tool_calls: vec![],
             tool_call_id: None,
+            usage: None,
         },
         Message {
             role: Role::Assistant,
@@ -569,12 +670,14 @@ async fn demo_run(prompt: &str, session_dir: &std::path::Path) -> Result<(ChatPa
                 arguments: json!({"path": "NOTES.md", "content": "# Review notes\n\n- main.rs is clean; no issues found."}),
             }],
             tool_call_id: None,
+            usage: None,
         },
         Message {
             role: Role::Assistant,
             content: "Reviewer agent signed off (no issues) and the findings are recorded in NOTES.md — demo complete.".into(),
             tool_calls: vec![],
             tool_call_id: None,
+            usage: None,
         },
     ]);
 

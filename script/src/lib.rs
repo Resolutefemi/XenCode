@@ -22,6 +22,7 @@ pub mod jsvalue;
 pub mod modules;
 pub mod npm;
 pub mod permissions;
+pub mod recipes;
 pub mod runtime;
 pub mod shims;
 pub mod timers;
@@ -33,6 +34,7 @@ pub use events::{UiEvent, UiEventTx};
 pub use hooks::{HookKind, HookOutcome, HookRunner};
 pub use npm::VendorCache;
 pub use permissions::{PermissionState, PromptBridge, PromptReply};
+pub use recipes::{RecipeDef, RecipeParam, RecipeStep};
 pub use runtime::{RuntimeOptions, ScriptRuntime};
 pub use triggers::TriggerEngine;
 

@@ -1,6 +1,6 @@
 # XenCode — Master Build Plan
 
-> **Status:** Approved direction — execution starts on "go".
+> **Status:** Approved direction — **Phases 0–5 complete** (all three harness waves landed). Next up: **6.1–6.2** (XenBrowser CDP core + GUI tab), then 8 → 7.
 > **Last updated:** 2026-11-10
 > **Stack:** 100% Rust (native self-drawn GUI, no webview) · QuickJS (`rquickjs`) for all automation — no Python · ZCode v3.17.2 is the sole UI/UX spec.
 
@@ -201,6 +201,80 @@ Execution order: 0 → 1 → 2 → 6.1–6.2 → 3 → 4 → 8 → 7 → 5. Phas
 - **Recipes** — declarative playbooks with params/subtasks (Goose-style) on QuickJS.
 - **Oracle** — stronger-model second-opinion agent (Amp-style).
 - **OTel tracing** — tokens, cost, tool spans per run.
+- Status: **DONE**.
+  - Repo map (`app/src/agent/repomap.rs`): tree-sitter queries extract symbol
+    definitions (functions / structs / enums / traits / impls / consts / mods for
+    Rust; functions / classes / methods / interfaces / type aliases / enums /
+    arrow-const arrow fns for TS; the JS / Python / Go equivalents) with
+    first-line signatures and line numbers; identifier walks build a
+    file→file reference graph; PageRank (damping 0.85, renormalized) ranks
+    the files; the renderer emits Aider-style ranked file blocks
+    (`path` + `  L###│ signature`, `… N more` collapse at 15 symbols) under a
+    char budget (default 4 096 ≈ 1k tokens, `--no-repo-map` opts out,
+    `--repo-map` prints the section). Deterministic: stable sort, path tiebreak.
+    Skips `.git`/`.xencode`/build dirs and files > 256 KiB; walk capped at
+    3 000 files. Scoped child loops (subagents, oracle) don't get the map.
+  - Diagnostics loop (`app/src/agent/diagnostics.rs`): after `write_file` /
+    `edit_file` on a source file the project's check command runs once
+    (timeout-guarded); diagnostics are diffed against the previous round and
+    **new** problems are pushed into the loop as a user turn — the model sees
+    the compiler's verdict before finishing. Parsers: `cargo check
+    --message-format=json` (primary spans + error codes, warnings included)
+    and a generic `regex` format with `file`/`line`/`level`/`message` named
+    groups. Auto-detection: `Cargo.toml` → cargo check; local
+    `node_modules/.bin/tsc` → `tsc --noEmit --pretty false`; otherwise the
+    engine is off. A check tool that fails without parseable output surfaces
+    once (never wedges the loop). `AgentEvent::Diagnostics` renders as
+    `diagnostics:<source>` tool rows in the chat pane and stderr lines in the CLI.
+  - Recipes (`script/src/recipes.rs` parsing/preludes + `app/src/agent/recipes.rs`
+    runner): markdown playbooks in `.xencode/recipes/*.md` (project) +
+    `~/.xencode/recipes/*.md` (user), project shadows user by name. Frontmatter
+    (serde_yaml): `name`, `description`, `parameters` (name/type/required/
+    default/description). Body: `## ` sections are subtask steps (a body with
+    no headings is one step; a preamble joins the first step); `{{param}}`
+    substitution with validation (required present, defaults filled, unknown
+    rejected, unresolved placeholder = error); ` ```xen ` fenced blocks run on
+    the QuickJS automation core (fresh sandbox per block, dedicated thread,
+    60 s deadline, `params` global, console captured) and their output joins
+    the step prompt as `[recipe prelude output]` context. Each step is a full
+    agent run carrying the previous steps' transcript; the run lands in the
+    session store. CLI: `xencode recipe <name> k=v …` (permission flags like
+    `--agent`), `xencode --recipes` lists name/scope/steps/params/description.
+    New `ScriptRuntime::run_source` evaluates pre-read source (TS stripped,
+    hook-free) for the preludes.
+  - Oracle (`app/src/agent/oracle.rs`): `oracle` tool in the main loop
+    (`question` + optional `context` args) and `xencode --oracle "…"`
+    standalone (seeds context from the latest session's tail). The
+    consultation is a nested agent loop on the configured model — resolution:
+    `XENCODE_ORACLE_MODEL` env > `[oracle] model` in xen.toml > the main
+    provider's model (`GlmProvider::from_env_with_model` when they differ) —
+    with a read-only allowlist gate (`read_file`/`grep`/`list_dir`), no
+    session, no hooks, no nested tasks, 8-iteration cap. Events stream to the
+    UI wrapped as `AgentEvent::Subagent { name: "oracle" }` — zero new GUI
+    render paths; the verdict is the tool result the parent model sees.
+  - Telemetry (`app/src/agent/telemetry.rs`): per-run spans in an OTel-ish
+    shape — `agent.run` (iterations, answer chars, recorded on drop so error
+    paths keep their span), `llm.call` (model, tokens in/out, estimated flag,
+    ms, ok), `tool.call` (tool, ok, ms) — persisted as JSONL to
+    `.xencode/telemetry/<run_id>.jsonl` and POSTed at run end as
+    OTLP/HTTP(JSON) to `[telemetry] endpoint` / `XENCODE_OTEL_ENDPOINT`
+    (3 s timeout, fire-and-forget). Tokens come from the provider's SSE
+    `usage` when reported; otherwise an estimate (chars/4, marked
+    `estimated`) — cost from the `[telemetry]` price table
+    (USD/MTok in + out). CLI prints a one-line summary at run end.
+    `Provider` gained `model()` (Arc-forwarded) and `Message` an optional
+    `usage` (skipped when absent so old session files load unchanged).
+  - Config: `[diagnostics]` / `[telemetry]` / `[oracle]` tables in `xen.toml`
+    (`script/src/config.rs`), discovered once per CLI entry via
+    `harness_for_project` (hooks + diagnostics + telemetry + oracle model).
+  - Verified: 162 workspace tests green (92 app + 70 script) — repomap
+    extraction/ranking/budget/ignore rules across all five languages,
+    diagnostics parsing/auto-detect/new-problems diffing/tool-failure
+    surfacing/timeouts, recipe frontmatter/params/expand/prelude runs and
+    shadowing, oracle gate/consult/streaming/model resolution, telemetry
+    spans/JSONL/implicit-drop/cost/disabled; `--repo-map` smoke-tested on the
+    real repo, `--recipes`/`recipe` param validation and demo `--agent-ui`
+    and all six GUI pages re-rendered.
 
 ## Phase 6 — XenBrowser (L)
 

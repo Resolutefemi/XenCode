@@ -12,7 +12,7 @@ use tokio::sync::mpsc::UnboundedSender;
 use super::compact;
 use super::permissions::{Decision, PermissionGate, Request, Response};
 use super::provider::{Message, Provider, Role, ToolCall, ToolDef};
-use super::{checkpoint, mcp, session, subagent, tools};
+use super::{checkpoint, diagnostics, mcp, oracle, repomap, session, subagent, telemetry, tools};
 use xencode_script::hooks::{HookKind, HookRunner};
 
 /// Progress events for a UI or CLI printer.
@@ -37,6 +37,8 @@ pub enum AgentEvent {
     Checkpoint { tool: String, detail: String },
     /// The final message list — what a session store / GUI transcript renders.
     Transcript(Arc<Vec<Message>>),
+    /// The diagnostics loop ran after an edit (`count` = new problems found).
+    Diagnostics { source: String, count: usize, detail: String },
     Done,
 }
 
@@ -86,6 +88,20 @@ pub struct AgentOptions {
     pub system_extra: Option<String>,
     /// Whether the `task` tool is registered (children cut off recursion).
     pub allow_subagents: bool,
+    /// Repo map (Phase 5): `Some(budget_chars)` renders a relevance-ranked
+    /// tree-sitter symbol map into the system prompt. Skipped for scoped
+    /// child loops (`system_extra` present) — they carry their own prompt.
+    pub repo_map: Option<usize>,
+    /// Diagnostics engine (Phase 5): after write/edit tools, the project
+    /// check runs once and new errors are pushed into the loop.
+    pub diagnostics: Option<Arc<diagnostics::DiagnosticsEngine>>,
+    /// Run telemetry (Phase 5): spans (run/llm/tool), tokens, cost — JSONL
+    /// under `.xencode/telemetry/` plus optional OTLP export at finish.
+    pub telemetry: Option<Arc<telemetry::Telemetry>>,
+    /// Oracle setup (Phase 5): when present, the `oracle` tool joins the
+    /// registry and consultations run as a read-only nested loop on the
+    /// stronger model.
+    pub oracle: Option<Arc<oracle::OracleSetup>>,
 }
 
 impl Default for AgentOptions {
@@ -104,6 +120,10 @@ impl Default for AgentOptions {
             checkpoints: None,
             system_extra: None,
             allow_subagents: true,
+            repo_map: None,
+            diagnostics: None,
+            telemetry: None,
+            oracle: None,
         }
     }
 }
@@ -144,6 +164,10 @@ async fn run_agent_inner(
         ref checkpoints,
         ref system_extra,
         allow_subagents,
+        ref repo_map,
+        ref diagnostics,
+        ref telemetry,
+        ref oracle,
     } = opts;
     let mut tool_defs: Vec<ToolDef> = tools::tool_defs();
     // Subagents (Phase 4): the `task` tool is always available — at least the
@@ -156,7 +180,40 @@ async fn run_agent_inner(
     if let Some(m) = mcp {
         tool_defs.extend(m.tool_defs());
     }
+    // Oracle (Phase 5): second-opinion consultations join the registry.
+    if oracle.is_some() {
+        tool_defs.push(oracle::tool_def());
+    }
     let ctx = tools::ToolCtx { cwd: cwd.clone() };
+
+    // Phase 5 telemetry: the run span is recorded on drop (error paths keep
+    // their span); the ok-path finishes it explicitly before returning.
+    let run_guard = telemetry.as_ref().map(|t| t.run_span());
+
+    // Phase 5 repo map: a relevance-ranked skeleton of the codebase joins the
+    // system prompt. Scoped child loops (subagents/oracle) carry their own
+    // prompt instead — the map is for the top-level agent.
+    let repo_map_section = match (repo_map, system_extra.is_none()) {
+        (Some(budget), true) => {
+            let map = repomap::build(&cwd, *budget);
+            if map.text.is_empty() {
+                None
+            } else {
+                let note = if map.truncated {
+                    format!("\n(map truncated to {budget} chars — read files for detail)")
+                } else {
+                    String::new()
+                };
+                Some(format!(
+                    "\n\n# Repo map\n\nCurrent code skeleton — most-referenced files first, \
+                     signatures with line numbers. Use it to decide what to read; \
+                     it may not include every file.{}\n\n{}",
+                    note, map.text
+                ))
+            }
+        }
+        _ => None,
+    };
 
     // Hook scripts' console output flows through its own channel; a drainer
     // forwards it to the UI as HookLog events for the whole run.
@@ -172,11 +229,11 @@ async fn run_agent_inner(
 
     // Seed the loop: fresh sessions get system+prompt; resumes append to history.
     let mut messages = if history.is_empty() {
-        vec![Message::system(system_prompt(&cwd, plan_mode, system_extra.as_deref())), Message::user(prompt)]
+        vec![Message::system(system_prompt(&cwd, plan_mode, system_extra.as_deref(), repo_map_section.as_deref())), Message::user(prompt)]
     } else {
         let mut h = history;
         if !h.iter().any(|m| m.role == Role::System) {
-            h.insert(0, Message::system(system_prompt(&cwd, plan_mode, system_extra.as_deref())));
+            h.insert(0, Message::system(system_prompt(&cwd, plan_mode, system_extra.as_deref(), repo_map_section.as_deref())));
         }
         h.push(Message::user(prompt));
         h
@@ -210,7 +267,33 @@ async fn run_agent_inner(
                 }
             })
         };
-        let assistant = provider.complete(&messages, &tool_defs, Some(&delta_tx)).await?;
+        let assistant = {
+            let t0 = Instant::now();
+            let result = provider.complete(&messages, &tool_defs, Some(&delta_tx)).await;
+            let ms = t0.elapsed().as_millis();
+            match result {
+                Ok(a) => {
+                    // Phase 5 telemetry: one llm.call span per provider turn.
+                    // When the API did not report usage, estimate from the
+                    // transcript (input) and answer (output) sizes.
+                    if let Some(t) = telemetry {
+                        let usage = a.usage.unwrap_or(telemetry::TokenUsage {
+                            input: (compact::estimate_chars(&messages) as u64) / 4,
+                            output: (a.content.chars().count() as u64) / 4,
+                            estimated: true,
+                        });
+                        t.llm_call(provider.model(), &usage, ms, true);
+                    }
+                    a
+                }
+                Err(e) => {
+                    if let Some(t) = telemetry {
+                        t.llm_call(provider.model(), &telemetry::TokenUsage::default(), ms, false);
+                    }
+                    return Err(e);
+                }
+            }
+        };
         drop(delta_tx);
         let _ = pump.await;
 
@@ -226,6 +309,9 @@ async fn run_agent_inner(
                     )));
                     continue;
                 }
+            }
+            if let Some(g) = run_guard {
+                g.finish("ok", serde_json::json!({ "iterations": iteration, "answer_chars": assistant.content.chars().count() }));
             }
             if let Some(dir) = session_dir {
                 messages.push(assistant.clone());
@@ -267,7 +353,13 @@ async fn run_agent_inner(
                 .await;
             } else {
                 for call in group {
-                    let detail = summarize(&call.arguments);
+                    // Oracle calls get the dedicated card summary; everything
+                    // else uses the generic argument summarizer.
+                    let detail = if call.name == "oracle" {
+                        oracle::describe(&call.arguments)
+                    } else {
+                        summarize(&call.arguments)
+                    };
                     let mut decision = gate.review(&call.name, &call.arguments);
                     let mut prompted = false;
                     if decision == Decision::Ask {
@@ -335,25 +427,61 @@ async fn run_agent_inner(
                         summary: detail,
                     });
                     let t0 = Instant::now();
-                    // MCP tools (Phase 4) route over JSON-RPC stdio; built-ins
-                    // run through the deterministic tool set.
-                    let result: Result<String> = match call.name.strip_prefix("mcp__") {
-                        Some(rest) => match mcp {
-                            Some(m) => m.call(rest, &call.arguments).await,
-                            None => Err(anyhow::anyhow!("mcp tool used but no servers are connected: {}", call.name)),
-                        },
-                        None => tools::execute(&call.name, &call.arguments, &ctx).await,
+                    // Tool routing: the oracle (Phase 5) consults the stronger
+                    // model as a nested loop; MCP tools (Phase 4) route over
+                    // JSON-RPC stdio; built-ins run through the deterministic
+                    // tool set.
+                    let result: Result<String> = if call.name == "oracle" {
+                        match oracle {
+                            Some(o) => oracle::consult(o, &call.arguments, &cwd, tx.clone()).await,
+                            None => Err(anyhow::anyhow!(
+                                "oracle tool used but no oracle is configured"
+                            )),
+                        }
+                    } else {
+                        match call.name.strip_prefix("mcp__") {
+                            Some(rest) => match mcp {
+                                Some(m) => m.call(rest, &call.arguments).await,
+                                None => Err(anyhow::anyhow!(
+                                    "mcp tool used but no servers are connected: {}",
+                                    call.name
+                                )),
+                            },
+                            None => tools::execute(&call.name, &call.arguments, &ctx).await,
+                        }
                     };
                     let ms = t0.elapsed().as_millis();
                     let ok = result.is_ok();
                     let mut text = result.unwrap_or_else(|e| format!("Error: {e:#}"));
                     let _ = tx.send(AgentEvent::ToolEnd { name: call.name.clone(), ok, ms });
+                    if let Some(t) = telemetry {
+                        t.tool_call(&call.name, ok, ms);
+                    }
 
                     // PostToolUse hooks may attach feedback that joins the result
                     // the model sees for this tool call.
                     post_tool_hook(hooks.as_ref(), &call.name, &call.arguments, &mut text, ok, ms, hook_tx.clone(), &tx).await;
 
                     messages.push(Message::tool_result(&call.id, text));
+
+                    // Phase 5 diagnostics loop: after a source edit the project
+                    // check runs once; new problems are pushed as a user turn so
+                    // the model sees (and fixes) the compiler's verdict.
+                    if matches!(call.name.as_str(), "write_file" | "edit_file") {
+                        if let Some(dx) = diagnostics {
+                            let edited = call.arguments.get("path").and_then(Value::as_str).unwrap_or_default();
+                            if dx.triggers_on(edited) {
+                                if let Some((count, feedback)) = dx.new_problems(&cwd).await {
+                                    let _ = tx.send(AgentEvent::Diagnostics {
+                                        source: dx.source().to_string(),
+                                        count,
+                                        detail: feedback.clone(),
+                                    });
+                                    messages.push(Message::user(feedback));
+                                }
+                            }
+                        }
+                    }
                 }
             }
         }
@@ -473,7 +601,7 @@ async fn dispatch_subagents(
     }
 }
 
-fn system_prompt(cwd: &Path, plan_mode: bool, extra: Option<&str>) -> String {
+fn system_prompt(cwd: &Path, plan_mode: bool, extra: Option<&str>, repo_map: Option<&str>) -> String {
     let mut p = format!(
         "You are XenCode, a coding agent working inside the user's project at {}.\n\n\
          Rules:\n\
@@ -483,6 +611,11 @@ fn system_prompt(cwd: &Path, plan_mode: bool, extra: Option<&str>) -> String {
          - Keep answers short and concrete. When you are done, reply with the final summary only — no tool calls.",
         cwd.display()
     );
+
+    // Phase 5: repo map — relevance-ranked code skeleton (Aider-style).
+    if let Some(map) = repo_map {
+        p.push_str(map);
+    }
 
     // Phase 3: memory files auto-loaded into context (XENCODE.md / AGENTS.md).
     if let Some(memory) = super::memory::system_memory_section(cwd) {
@@ -610,7 +743,7 @@ async fn stop_hook_block(
 }
 
 pub(crate) fn summarize(args: &Value) -> String {
-    let value = ["path", "command", "pattern", "todos", "agent"]
+    let value = ["path", "command", "pattern", "todos", "agent", "question"]
         .iter()
         .find_map(|k| args.get(*k))
         .cloned()
@@ -645,6 +778,7 @@ mod tests {
             content: String::new(),
             tool_calls: vec![ToolCall { id: id.into(), name: name.into(), arguments: args }],
             tool_call_id: None,
+            usage: None,
         }
     }
 
@@ -654,6 +788,7 @@ mod tests {
             content: text.into(),
             tool_calls: vec![],
             tool_call_id: None,
+            usage: None,
         }
     }
 
@@ -789,6 +924,7 @@ mod tests {
                 content: "earlier answer".into(),
                 tool_calls: vec![],
                 tool_call_id: None,
+                usage: None,
             },
         ];
         let opts = AgentOptions {
@@ -821,6 +957,7 @@ mod tests {
                 content: "User asked about big.txt; it was read; task continues.".into(),
                 tool_calls: vec![],
                 tool_call_id: None,
+                usage: None,
             },
             final_turn("all done"),
         ]);

@@ -140,6 +140,7 @@ mod tests {
             content: String::new(),
             tool_calls: vec![ToolCall { id: id.into(), name: name.into(), arguments: args }],
             tool_call_id: None,
+            usage: None,
         }
     }
 
@@ -171,6 +172,7 @@ mod tests {
                 content: "short answer".into(),
                 tool_calls: vec![],
                 tool_call_id: None,
+                usage: None,
             },
         ];
         let before = estimate_chars(&msgs);
@@ -181,6 +183,7 @@ mod tests {
                 .into(),
             tool_calls: vec![],
             tool_call_id: None,
+            usage: None,
         }]);
         let out = compact(&mock, &msgs, 500).await.unwrap();
 

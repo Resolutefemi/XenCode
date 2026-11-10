@@ -249,6 +249,10 @@ pub async fn run_child(
         checkpoints,
         system_extra: Some(def.prompt.clone()),
         allow_subagents: false,
+        repo_map: None,
+        diagnostics: None,
+        telemetry: None,
+        oracle: None,
     };
 
     let answer = run_agent(provider, prompt, opts, tx).await;
