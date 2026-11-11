@@ -1,6 +1,6 @@
 # XenCode — Master Build Plan
 
-> **Status:** Approved direction — **Phases 0–5 complete** (all three harness waves landed), **XenBrowser 6.1–6.2 complete** (CDP core + Spaces, GUI browser tab + snapshot/diff), **Phase 8 complete** (API Discovery — network capture, endpoint catalog, OpenAPI export, copy-as, endpoint monitor), **XenRE 7.1 + 7.2 complete** (7.1: native ELF/PE/Mach-O analysis, hex/strings/imports panels, capstone disasm, `xen.re` hooks; 7.2: native APK/IPA package analysis + jadx orchestration with managed download) and **XenRE 7.3 complete** (XEX container parser + PPC64/Xenon disasm + Ghidra headless loader flow). Next up: **6.3–6.4** (interaction recorder → replay scripts, headless fleet) can follow in parallel; remaining orchestrated backends (ILSpy, RetDec) are optional extensions.
+> **Status:** Approved direction — **Phases 0–5 complete** (all three harness waves landed), **XenBrowser 6.1–6.4 complete** (CDP core + Spaces, GUI browser tab + snapshot/diff, interaction recorder → QuickJS replay scripts, headless fleet + scraping exports), **Phase 8 complete** (API Discovery — network capture, endpoint catalog, OpenAPI export, copy-as, endpoint monitor) and **XenRE 7.1 + 7.2 + 7.3 complete** (7.1: native ELF/PE/Mach-O analysis, hex/strings/imports panels, capstone disasm, `xen.re` hooks; 7.2: native APK/IPA package analysis + jadx orchestration with managed download; 7.3: XEX container parser + PPC64/Xenon disasm + Ghidra headless loader flow). Remaining: optional orchestrated backends (ILSpy, RetDec) as extensions; the managed-Chromium-download decision (open decision #2) is still open.
 > **Last updated:** 2026-11-11
 > **Stack:** 100% Rust (native self-drawn GUI, no webview) · QuickJS (`rquickjs`) for all automation — no Python · ZCode v3.17.2 is the sole UI/UX spec.
 
@@ -292,7 +292,7 @@ Goal: like ego(lite) — but better, on every platform, built in.
 - Architecture: pure-Rust CDP client driving Chromium (auto-detect system Chrome/Edge, optional managed download); screencast frames composited into the native renderer — a real browser tab inside XenCode.
 - Scraping engine: auto-wait, CSS/XPath/text/AI selectors, pagination + infinite scroll, proxies, rate limits, exports (JSON/CSV/Markdown).
 - Milestones: **6.1** CDP core + Spaces → **6.2** GUI tab + snapshot/diff → **6.3** recorder → **6.4** headless fleet + scraping exports.
-- Status: **6.1 and 6.2 DONE**.
+- Status: **6.1–6.4 DONE**.
   - New crate `browser/` (`xencode-browser`) — one static dependency tree, no Playwright/Node/Python:
     - Discovery (`discover.rs`): `XENCODE_BROWSER` override → PATH lookup → well-known Chrome/Edge/Chromium/Brave
       install paths (Linux/macOS/Windows) → Playwright browser caches (`chromium-*`, `chromium_headless_shell-*`,
@@ -345,8 +345,84 @@ Goal: like ego(lite) — but better, on every platform, built in.
     [--browser-path BIN] [--timeout-ms N] [--headed]` — actions run in order through the same auto-wait path;
     `--space inherit=~/.config/google-chrome` drives logged-in state.
   - Config: none required. `XENCODE_BROWSER` (binary override) is the only env knob.
-  - Follow-ups (6.3–6.4): interaction recorder → QuickJS replay scripts, parallel headless fleet at scale,
-    scraping exports (JSON/CSV/Markdown), managed Chromium download (open decision #2).
+  - Follow-ups (6.3–6.4): shipped — see below. Managed Chromium download (open decision #2) stays open.
+
+- Status: **6.3 DONE** — the interaction recorder, turning browser interactions into reusable QuickJS automation scripts (north star #4: the browser now exposes hooks to QuickJS):
+  - Recorder (`browser/src/recorder.rs`): a bootstrap script rides `Page.addScriptToEvaluateOnNewDocument` into every
+    document (one-shot guard, capture-phase listeners so page handlers can't swallow events) and streams raw DOM
+    events back through a `Runtime.addBinding("xenRecord")` binding. Listened interactions: clicks on actionable
+    elements (button/a/role=label/summary/input/[onclick]), `change` commits on text fields + `<select>`,
+    Enter/Escape/Tab keydowns, debounced scroll positions. The Rust-side pump folds raw events into deterministic
+    [`RecStep`]s via the pure [`RecorderState`]: a focusing click followed by `change` collapses into one `Fill`
+    (the click is replay noise), checkbox/radio clicks keep their `Click` and swallow the trailing `change`,
+    `<select>` commits become `Select`, navigations within 2 s after a click/press are dropped (the replayed click
+    navigates on its own), scroll bursts coalesce into one absolute `ScrollTo` per final position, 500-step cap.
+    Password fields (`type=password`) are redacted by default — the emitted script carries a set-before-replay note
+    (`--no-redact` keeps values).
+  - Selector strategy: high-signal CSS wins (`#id` / `[data-testid=…]` / `tag[name=…]`), falling back to a
+    `text=` selector (own-text match, 60-char cap) when the path is structural, else the nth-of-type CSS path
+    (depth-capped 6, `CSS.escape`d).
+  - Script emission ([`to_quickjs_script`]): the folded steps render as a `xen.browser` sequence — `navigate`,
+    `click`, `fill` (JSON-escaped values), `select`, `press`, `scrollTo` — with a header (recorded-at/source/step
+    count/redaction note, replay hint `xencode browser run <file>`) and a trailing `xen.browser.snapshot()` so the
+    replay prints the final page outline; the script's `export default` carries `{recording, steps}`.
+  - `xen.browser` QuickJS surface (`script/src/host/browser.rs`): plain-data [`BrowserCommand`] vocabulary
+    (Navigate/Click/Fill/Select/Press/Scroll/ScrollTo/Wait/Snapshot/Screenshot/Url/Title/Eval/Close) +
+    [`BrowserReply`] (Unit/Text/Json) over the injectable [`BrowserDriver`] trait — the script crate stays
+    browser-free, the host installs the driver (same bridge pattern as `xen.agent`/`xen.ui`). Registered as the
+    `xen/browser` ESM module and the `xen.browser` global namespace. Permission gates: `navigate` passes the `net`
+    gate (host allowlist; hostless schemes report their scheme name so scoped setups get a consent prompt, not a
+    parse error), `screenshot(path)` passes the `fs` write gate, no-path screenshots reply base64 PNG.
+    `RuntimeOptions.browser` / `ScriptRuntime.browser` install or clear a driver; without one the functions fail
+    with a clear setup message.
+  - App-side driver (`app/src/browser_driver.rs`): [`SpaceDriver`] implements the trait over a real Space — lazy
+    launch on first command, every command spawns onto the captured main-runtime `Handle` (tokio IO resources are
+    runtime-bound; the script thread's current-thread runtime must never poll the browser pipes), replies stay
+    plain data. Screenshot writes PNG files (or base64); `Close` drops the Space (kill_on_drop + clean-room wipe).
+  - CLI (in `app/src/main.rs`): `xencode browser record <url> --out FILE [--no-redact] [--headless] [--timeout-ms
+    N] [--space clean|inherit=PATH] [--browser-path BIN]` — headed by default (a human drives), ends on Ctrl-C /
+    window cap / browser close, emits the replay script with a recorded-at UTC header; `xencode browser run
+    <script.ts> [--headed] [--json] [--yes] [--timeout-ms N] [--space …] [--browser-path BIN]` — runs the script
+    through the SpaceDriver bridge: dedicated thread + current-thread runtime + LocalSet (hook-runner pattern),
+    permissions from `xen.toml` with stdin y/n/a consent (`--yes` or non-terminal stdin session-allows, CI-safe),
+    console events stream to stderr, the default export prints as JSON (`--json` wraps `{ok, result, ms}`).
+  - Verified: 10 recorder unit tests (click+change collapse, checkbox click survival, nav-after-click drop,
+    scroll coalescing, selector preference, emission with redaction note + JSON escaping, step cap, bootstrap
+    coverage) + 4 `xen.browser` tests (command round-trip through a scripted driver, no-driver setup message via
+    JS-level catch, invalid-URL diagnosis, url_host parsing incl. file/about) + 1 real-Chromium e2e (recorder on
+    a live fixture: text fill, redacted password fill, save click → folded steps → emitted script). Live CLI
+    verified end-to-end: record (headless, window cap) → emitted script → `browser run` replay printing the
+    outline; a hand-written script exercised navigate/title/scrollTo/eval/screenshot-to-file/fill in one run
+    (~1 s).
+- Status: **6.4 DONE** — the scraping engine and the headless fleet:
+  - Extraction (`browser/src/scrape.rs`): [`ScrapeSpec`] — an optional repeating `item` selector with per-row
+    [`FieldSpec`]s (`name=selector[@attr]`, attr ∈ href/src/html/value/…, no attr = trimmed text; value for form
+    controls), page-level fields (merged into every row), next-page selector pagination (max-pages cap, real
+    click through the auto-wait path), infinite scroll (rounds × scroll-dy, early exit when the page height
+    stabilizes) and a settle wait. The extraction runs as one `Runtime.evaluate` per page (fields resolve relative
+    to each item element, missing fields become null instead of dropping the row) and returns JSON rows — Rust
+    only validates. Pure export writers over the row maps: `to_json` (pretty), `to_csv` (RFC 4180 — quoting on
+    comma/quote/newline, embedded quotes doubled, CRLF rows), `to_markdown` (GFM table with pipe escaping);
+    columns are the union of row keys in first-seen order (serde_json maps iterate alphabetically).
+  - Fleet (`browser/src/fleet.rs`): W parallel worker Spaces (one Chromium process each — no GIL, no shared
+    state), an atomic URL queue keeping submission order in the results, a fleet-wide [`RateLimiter`] (rps cap;
+    slots reserved before sleeping so workers queue instead of racing), per-URL deadline (timeout → that URL
+    fails, the worker continues), per-URL fail-soft error collection (a worker launch failure fails only the URLs
+    it claimed). [`PageResult`] carries url/ok/rows/pages/error/ms; [`run_fleet`] returns results in submission
+    order for deterministic exports.
+  - CLI (`xencode scrape`): `xencode scrape <url> [--item SEL] [--field NAME=SEL[@ATTR]]… [--page-field …]…
+    [--next SEL] [--max-pages N] [--scroll N] [--scroll-dy N] [--wait MS] [--format json|csv|md] [--out FILE]
+    [--json]` for a single page, `--urls FILE` (one URL per line, `#` comments) + `--workers N` + `--rps F` for
+    the fleet — rows print in the chosen format (or land in `--out`), per-URL failures stream to stderr, `--json`
+    emits the machine envelope `{pages, rows, ms, failed, urls, data}`.
+  - Verified: 8 scrape unit tests (field-spec parsing incl. `@`-inside-selector safety, spec validation,
+    extraction-JS embedding, CSV quoting/union columns, markdown pipe escaping, JSON round-trip, column order,
+    number formatting) + 3 fleet unit tests (rate limiter spaces parallel reservations, limiter off when unset,
+    URL-list parsing) + 2 real-Chromium e2e (single-page extraction with attrs/page-fields → pagination across a
+    two-page fixture → CSV/Markdown exports; a 2-worker fleet over 2 URLs with ordered results). Live CLI
+    verified: single-page md/csv exports (file out), 2-worker fleet with the `--json` envelope (4 rows, 0 failed,
+    ~1.7 s).
+
 
 ## Phase 7 — XenRE (L)
 
@@ -387,7 +463,6 @@ Goal: decompile apps and binaries — APK, IPA, XEX, ELF/PE/Mach-O, JAR, .NET �
   - QuickJS hooks (`xen.re`): `xex(path)` → XexInfo (fs read gate; keyless so encrypted files work), `ghidra(path, {outDir?, download?, maxFiles?, maxFns?, timeoutSec?, lang?})` → GhidraRun (fs read + write gates, `proc` gate on the analyzeHeadless spawn, net gate on api.github.com/github.com/objects.githubusercontent.com when `download: true`; blocking work on `spawn_blocking`). `load_and_analyze` swaps byte views to the decompressed image for XEX so `analyze/disasm/strings/functions/hex` all speak image offsets.
   - GUI (`app/src/ui/re.rs`, `xencode --re-ui <FILE>`): a sixth **XEX** tab — identity rows (magic, image@load, entry, codec, title, version, disc, pe name) and a wrapping chip flow (sections green/sky by page type, imports sky, static libs + resources subtle, encrypted guardrail chip), rendered from the real parser; XEX files open on XEX directly, the sections/function rail stays live via the bridge BinaryInfo. Screenshot ships as `screenshots/11-re-xex.png`.
   - Verified: 15 new `xencode-re` unit tests (hand-built XEX2 fixtures: raw/basic/compressed reconstruct, 4 KiB page flag, section merge incl. header-page skipping, encrypted/LZX/delta refusals with the exact guardrail wording, DLL module flag → shared library, bridge VA↔image-offset round trips, garbage/truncation/overflow rejection) + 3 e2e tests (XEX through `analyze_bytes` → `payload_image` → entry disasm `li r3,1; blr` + strings + functions; encrypted structure-parse/refusal split; basic-compression end-to-end), 12 ghidra tests (release JSON + assets-fragment parsing, ensure/consent/download flow with a fake release zip, java-major floor, fake-analyzeHeadless run with the XEX raw-loader arg contract, JAVA_HOME derivation), 1 QuickJS runtime test (`xen.re.xex` structure + `disasm` on the image + `analyze` reporting xex/ppc64/big + clean `ghidra` error), 1 GUI test (XEX view rows/chips + all-six-tab sweep). Live CLI verified against a generated XEX fixture: `re xex` summary, PPC64 entry disasm, image strings, `--extract`, and the Ghidra missing-backend error message.
-
 ## Phase 8 — API Discovery (M)
 
 Goal: "easily get any website API."
@@ -466,7 +541,7 @@ Goal: "easily get any website API."
 | 12 | Recipes | Goose | QuickJS runtime | 5 |
 | 13 | Oracle | Amp | Agent core | 5 |
 | 14 | OTel tracing | Observability harnesses | Infra | 5 |
-| 15 | Browser tool | Cline / ego(lite) | XenBrowser | 6.1–6.2 ✅ |
+| 15 | Browser tool + recorder + scraping | Cline / ego(lite) | XenBrowser | 6.1–6.4 ✅ |
 
 ## Decisions
 

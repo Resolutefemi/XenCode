@@ -19,6 +19,7 @@ use rquickjs::{AsyncContext, AsyncRuntime, Ctx, Error as JsError, Module, Result
 
 use crate::events::UiEventTx;
 use crate::host::agent::AgentBridge;
+use crate::host::browser::{BrowserBridge, BrowserDriver};
 use crate::host::state::RuntimeState;
 use crate::host::ui::UiBridge;
 use crate::modules::NATIVE_BARE;
@@ -46,6 +47,9 @@ pub struct RuntimeOptions {
     pub npm_roots: HashMap<String, PathBuf>,
     /// Optional deadline for interrupt-guarded runs.
     pub timeout: Option<Duration>,
+    /// XenBrowser driver (Phase 6.3) — `xen.browser` commands ride this.
+    /// `None` = the surface exists but errors with a setup message.
+    pub browser: Option<Arc<dyn BrowserDriver>>,
 }
 
 impl RuntimeOptions {
@@ -59,6 +63,7 @@ impl RuntimeOptions {
             npm_files: HashMap::new(),
             npm_roots: HashMap::new(),
             timeout: None,
+            browser: None,
         }
     }
 }
@@ -100,6 +105,7 @@ pub struct ScriptRuntime {
     pub timers: Arc<Timers>,
     pub agent: AgentBridge,
     pub ui: UiBridge,
+    pub browser: BrowserBridge,
     interrupt: Arc<InterruptState>,
     default_timeout: Option<Duration>,
 }
@@ -118,11 +124,16 @@ impl ScriptRuntime {
 
         let agent = AgentBridge::new();
         let ui = UiBridge::new();
+        let browser = BrowserBridge::new();
+        if let Some(d) = &opts.browser {
+            browser.set_driver(d.clone());
+        }
         let state = RuntimeState::new(
             opts.events.clone(),
             opts.permissions.clone(),
             agent.clone(),
             ui.clone(),
+            browser.clone(),
         );
         ctx.with(|cx| {
             cx.store_userdata(state)
@@ -161,6 +172,7 @@ impl ScriptRuntime {
             timers,
             agent,
             ui,
+            browser,
             interrupt,
             default_timeout: opts.timeout,
         })
@@ -450,6 +462,7 @@ async fn install_xen_global(ctx: &AsyncContext) -> JsResult<()> {
             ("agent", "xen/agent"),
             ("ui", "xen/ui"),
             ("re", "xen/re"),
+            ("browser", "xen/browser"),
         ] {
             let promise = rquickjs::Module::import(&cx, spec)?;
             let ns: rquickjs::Object = promise.into_future().await?;
@@ -596,6 +609,7 @@ fn build_native_module_loader() -> ModuleLoader {
         .with_module("xen/agent", crate::host::agent::XenAgent)
         .with_module("xen/ui", crate::host::ui::XenUi)
         .with_module("xen/re", crate::host::re::XenRe)
+        .with_module("xen/browser", crate::host::browser::XenBrowser)
         .with_module("xen/path", crate::modules::path::XenPath)
         .with_module("xen/glob", crate::modules::glob::XenGlob)
         .with_module("xen/yaml", crate::modules::yaml::XenYaml)

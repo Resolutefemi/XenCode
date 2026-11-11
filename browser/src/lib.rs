@@ -26,14 +26,22 @@
 //! - [`apidisco`] turns captures into an endpoint catalog (URL templating,
 //!   auth detection, JSON-schema inference) with OpenAPI export, copy-as
 //!   replay snippets and the endpoint monitor diff.
+//! - [`recorder`] (Phase 6.3) records DOM interactions and emits QuickJS
+//!   replay scripts for the `xen.browser` surface.
+//! - [`scrape`] + [`fleet`] (Phase 6.4) extract structured rows (items,
+//!   fields, pagination, infinite scroll), run parallel headless Spaces and
+//!   export JSON / CSV / Markdown.
 
 pub mod apidisco;
 pub mod cdp;
 pub mod diff;
 pub mod discover;
+pub mod fleet;
 pub mod frame;
 pub mod launch;
 pub mod netcapture;
+pub mod recorder;
+pub mod scrape;
 pub mod snapshot;
 pub mod space;
 
@@ -48,6 +56,14 @@ pub use frame::Frame;
 pub use netcapture::{
     redact_entry, CaptureFile, CaptureOptions, CaptureState, NetCapture, NetEntry,
 };
+pub use recorder::{
+    recorder_js, to_quickjs_script, RawEvent, Recorder, RecordMeta, RecordOptions, RecStep,
+};
+pub use scrape::{
+    columns, extract_js, scrape, scrape_page, to_csv, to_json, to_markdown, FieldSpec, ScrapePage,
+    ScrapeSpec,
+};
+pub use fleet::{parse_url_list, run_fleet, FleetOptions, PageResult, RateLimiter};
 pub use snapshot::{snapshot_outline, SnapNode, Snapshot, OUTLINE_BUDGET};
 pub use space::{ScreenCast, Selector, Space, SpaceKind, SpaceOptions};
 

@@ -40,6 +40,7 @@
 //!                  OpenAPI export, and a baseline monitor for automation.
 
 mod agent;
+mod browser_driver;
 mod fonts;
 mod gfx;
 mod icons;
@@ -84,6 +85,17 @@ enum Mode {
     /// `xencode --browser-ui <url>` — the native browser tab with a live
     /// screencast frame composited into the renderer.
     BrowserUi { url: String, out: String },
+    // Phase 6.3 -----------------------------------------------------------
+    /// `xencode browser record <url> --out FILE` — record DOM interactions
+    /// into a QuickJS replay script (`xen.browser` surface).
+    BrowserRecord { url: String, opts: RecordOptions },
+    /// `xencode browser run <script.ts>` — run a browser automation script
+    /// through the SpaceDriver bridge.
+    BrowserRun { script: String, opts: BrowserRunOptions },
+    // Phase 6.4 -----------------------------------------------------------
+    /// `xencode scrape <url> [--urls FILE] ...` — structured extraction
+    /// (single page or a parallel headless fleet) with JSON/CSV/MD exports.
+    Scrape { args: ScrapeArgs },
     // Phase 8 -------------------------------------------------------------
     /// `xencode api capture <url>` — record XHR/fetch traffic.
     ApiCapture { url: String, opts: ApiCaptureOptions },
@@ -217,6 +229,64 @@ enum BrowserAction {
     Wait(u64),
 }
 
+/// `xencode browser record` options (Phase 6.3).
+#[derive(Debug, Clone)]
+struct RecordOptions {
+    /// Write the emitted QuickJS script here.
+    out: String,
+    /// Keep password fills verbatim (default: redacted).
+    no_redact: bool,
+    /// Headless recording (default: headed — a human drives).
+    headless: bool,
+    /// Recording window cap (ms) — Ctrl-C or browser close ends earlier.
+    timeout_ms: u64,
+    browser_path: Option<String>,
+    /// `clean` (default) or `inherit=<profile-path>`.
+    space: String,
+}
+
+/// `xencode browser run` options (Phase 6.3).
+#[derive(Debug, Clone)]
+struct BrowserRunOptions {
+    headless: bool,
+    browser_path: Option<String>,
+    /// `clean` (default) or `inherit=<profile-path>`.
+    space: String,
+    /// Script deadline (ms); 0 = no deadline.
+    timeout_ms: u64,
+    json: bool,
+    /// Auto-allow all permission prompts (CI; also implied when stdin is
+    /// not a terminal).
+    yes: bool,
+}
+
+/// `xencode scrape` options (Phase 6.4).
+#[derive(Debug, Default, Clone)]
+struct ScrapeArgs {
+    url: Option<String>,
+    /// Fleet mode: one URL per line (`#` comments allowed).
+    urls_file: Option<String>,
+    item: Option<String>,
+    fields: Vec<String>,
+    page_fields: Vec<String>,
+    next: Option<String>,
+    max_pages: u32,
+    scroll_rounds: u32,
+    scroll_dy: f64,
+    wait_ms: u64,
+    /// json | csv | md (default json).
+    format: String,
+    out: Option<String>,
+    /// Summary envelope on stdout instead of raw rows.
+    json: bool,
+    workers: u32,
+    rps: Option<f64>,
+    headless: bool,
+    browser_path: Option<String>,
+    space: String,
+    timeout_ms: u64,
+}
+
 #[derive(Debug, Default, Clone)]
 struct BrowserOptions {
     headless: bool,
@@ -261,6 +331,9 @@ fn main() -> Result<()> {
         Mode::RepoMap => print_repo_map(),
         Mode::Browser { url, opts } => run_browser(&url, opts),
         Mode::BrowserUi { url, out } => browser_ui(&url, &out),
+        Mode::BrowserRecord { url, opts } => run_browser_record(&url, &opts),
+        Mode::BrowserRun { script, opts } => run_browser_run(&script, &opts),
+        Mode::Scrape { args } => run_scrape(&args),
         Mode::ApiCapture { url, opts } => run_api_capture(&url, &opts),
         Mode::ApiShow { file, json } => run_api_show(&file, json),
         Mode::ApiOpenapi { file, out, title } => run_api_openapi(&file, out.as_deref(), title.as_deref()),
@@ -355,9 +428,13 @@ fn parse_args() -> Result<Mode> {
     if args.first().map(|s| s.as_str()) == Some("recipe") {
         return parse_recipe(&args[1..]);
     }
-    // `xencode browser <url> [flags]` — the Phase-6 headless Spaces CLI.
+    // `xencode browser <url> [flags]` / `browser record|run` — Phase 6.
     if args.first().map(|s| s.as_str()) == Some("browser") {
         return parse_browser(&args[1..]);
+    }
+    // `xencode scrape <url|urls-file> [flags]` — Phase 6.4.
+    if args.first().map(|s| s.as_str()) == Some("scrape") {
+        return parse_scrape(&args[1..]);
     }
     // `xencode api capture|show|openapi|copy|diff|monitor …` — Phase 8.
     if args.first().map(|s| s.as_str()) == Some("api") {
@@ -534,6 +611,12 @@ fn parse_exec(args: &[String]) -> Result<Mode> {
 
 /// Parse the `browser` subcommand: `xencode browser <url> [flags]`.
 fn parse_browser(args: &[String]) -> Result<Mode> {
+    // Phase 6.3 subcommands: `browser record <url> …` / `browser run <file> …`.
+    match args.first().map(|s| s.as_str()) {
+        Some("record") => return parse_browser_record(&args[1..]),
+        Some("run") => return parse_browser_run(&args[1..]),
+        _ => {}
+    }
     let mut opts = BrowserOptions { headless: true, timeout_ms: 30_000, ..Default::default() };
     let mut url: Option<String> = None;
     let mut i = 0;
@@ -603,6 +686,203 @@ fn parse_browser(args: &[String]) -> Result<Mode> {
         );
     };
     Ok(Mode::Browser { url, opts })
+}
+
+/// `xencode browser record <url> --out FILE [flags]` — Phase 6.3.
+fn parse_browser_record(args: &[String]) -> Result<Mode> {
+    let mut opts = RecordOptions {
+        out: String::new(),
+        no_redact: false,
+        headless: false,
+        timeout_ms: 600_000,
+        browser_path: None,
+        space: "clean".into(),
+    };
+    let mut url: Option<String> = None;
+    let mut i = 0;
+    while i < args.len() {
+        match args[i].as_str() {
+            "--out" if i + 1 < args.len() => {
+                opts.out = args[i + 1].clone();
+                i += 1;
+            }
+            "--no-redact" => opts.no_redact = true,
+            "--headless" => opts.headless = true,
+            "--timeout-ms" if i + 1 < args.len() => {
+                opts.timeout_ms = args[i + 1].parse().context("--timeout-ms expects a number")?;
+                i += 1;
+            }
+            "--browser-path" if i + 1 < args.len() => {
+                opts.browser_path = Some(args[i + 1].clone());
+                i += 1;
+            }
+            "--space" if i + 1 < args.len() => {
+                opts.space = args[i + 1].clone();
+                i += 1;
+            }
+            other if other.starts_with('-') => bail!("unknown browser record flag: {other}"),
+            other if url.is_none() => url = Some(other.to_string()),
+            other => bail!("unexpected browser record argument: {other}"),
+        }
+        i += 1;
+    }
+    let Some(url) = url else {
+        bail!(
+            "usage: xencode browser record <url> --out FILE [--no-redact] [--headless] \
+             [--timeout-ms N] [--space clean|inherit=PATH] [--browser-path BIN]"
+        );
+    };
+    if opts.out.is_empty() {
+        bail!("browser record needs --out FILE (the QuickJS replay script to write)");
+    }
+    Ok(Mode::BrowserRecord { url, opts })
+}
+
+/// `xencode browser run <script.ts> [flags]` — Phase 6.3.
+fn parse_browser_run(args: &[String]) -> Result<Mode> {
+    let mut opts = BrowserRunOptions {
+        headless: true,
+        browser_path: None,
+        space: "clean".into(),
+        timeout_ms: 120_000,
+        json: false,
+        yes: false,
+    };
+    let mut script: Option<String> = None;
+    let mut i = 0;
+    while i < args.len() {
+        match args[i].as_str() {
+            "--headed" => opts.headless = false,
+            "--json" => opts.json = true,
+            "--yes" => opts.yes = true,
+            "--timeout-ms" if i + 1 < args.len() => {
+                opts.timeout_ms = args[i + 1].parse().context("--timeout-ms expects a number")?;
+                i += 1;
+            }
+            "--browser-path" if i + 1 < args.len() => {
+                opts.browser_path = Some(args[i + 1].clone());
+                i += 1;
+            }
+            "--space" if i + 1 < args.len() => {
+                opts.space = args[i + 1].clone();
+                i += 1;
+            }
+            other if other.starts_with('-') => bail!("unknown browser run flag: {other}"),
+            other if script.is_none() => script = Some(other.to_string()),
+            other => bail!("unexpected browser run argument: {other}"),
+        }
+        i += 1;
+    }
+    let Some(script) = script else {
+        bail!(
+            "usage: xencode browser run <script.ts> [--headed] [--json] [--yes] [--timeout-ms N] \
+             [--space clean|inherit=PATH] [--browser-path BIN]"
+        );
+    };
+    Ok(Mode::BrowserRun { script, opts })
+}
+
+/// `xencode scrape <url> [flags]` — Phase 6.4.
+fn parse_scrape(args: &[String]) -> Result<Mode> {
+    let mut a = ScrapeArgs {
+        format: "json".into(),
+        max_pages: 1,
+        scroll_dy: 900.0,
+        wait_ms: 600,
+        workers: 4,
+        timeout_ms: 30_000,
+        headless: true,
+        space: "clean".into(),
+        ..Default::default()
+    };
+    let mut i = 0;
+    while i < args.len() {
+        match args[i].as_str() {
+            "--urls" if i + 1 < args.len() => {
+                a.urls_file = Some(args[i + 1].clone());
+                i += 1;
+            }
+            "--item" if i + 1 < args.len() => {
+                a.item = Some(args[i + 1].clone());
+                i += 1;
+            }
+            "--field" if i + 1 < args.len() => {
+                a.fields.push(args[i + 1].clone());
+                i += 1;
+            }
+            "--page-field" if i + 1 < args.len() => {
+                a.page_fields.push(args[i + 1].clone());
+                i += 1;
+            }
+            "--next" if i + 1 < args.len() => {
+                a.next = Some(args[i + 1].clone());
+                i += 1;
+            }
+            "--max-pages" if i + 1 < args.len() => {
+                a.max_pages = args[i + 1].parse().context("--max-pages expects a number")?;
+                i += 1;
+            }
+            "--scroll" if i + 1 < args.len() => {
+                a.scroll_rounds = args[i + 1].parse().context("--scroll expects a round count")?;
+                i += 1;
+            }
+            "--scroll-dy" if i + 1 < args.len() => {
+                a.scroll_dy = args[i + 1].parse().context("--scroll-dy expects a number")?;
+                i += 1;
+            }
+            "--wait" if i + 1 < args.len() => {
+                a.wait_ms = args[i + 1].parse().context("--wait expects milliseconds")?;
+                i += 1;
+            }
+            "--format" if i + 1 < args.len() => {
+                let f = args[i + 1].to_ascii_lowercase();
+                if !matches!(f.as_str(), "json" | "csv" | "md" | "markdown") {
+                    bail!("--format expects json|csv|md, got `{}`", args[i + 1]);
+                }
+                a.format = f;
+                i += 1;
+            }
+            "--out" if i + 1 < args.len() => {
+                a.out = Some(args[i + 1].clone());
+                i += 1;
+            }
+            "--json" => a.json = true,
+            "--workers" if i + 1 < args.len() => {
+                a.workers = args[i + 1].parse().context("--workers expects a number")?;
+                i += 1;
+            }
+            "--rps" if i + 1 < args.len() => {
+                a.rps = Some(args[i + 1].parse().context("--rps expects a number")?);
+                i += 1;
+            }
+            "--headless" => a.headless = true,
+            "--headed" => a.headless = false,
+            "--browser-path" if i + 1 < args.len() => {
+                a.browser_path = Some(args[i + 1].clone());
+                i += 1;
+            }
+            "--space" if i + 1 < args.len() => {
+                a.space = args[i + 1].clone();
+                i += 1;
+            }
+            "--timeout-ms" if i + 1 < args.len() => {
+                a.timeout_ms = args[i + 1].parse().context("--timeout-ms expects a number")?;
+                i += 1;
+            }
+            other if other.starts_with('-') => bail!("unknown scrape flag: {other}"),
+            other if a.url.is_none() => a.url = Some(other.to_string()),
+            other => bail!("unexpected scrape argument: {other}"),
+        }
+        i += 1;
+    }
+    if a.url.is_none() && a.urls_file.is_none() {
+        bail!(
+            "usage: xencode scrape <url> [--item SEL] [--field NAME=SEL[@ATTR]] ... \
+             [--page-field NAME=SEL[@ATTR]] ... [--next SEL] [--max-pages N] [--scroll N] \
+             [--format json|csv|md] [--out FILE] [--json] | --urls FILE [--workers N] [--rps F]"
+        );
+    }
+    Ok(Mode::Scrape { args: a })
 }
 
 /// `xencode browser <url>` — launch a headless Space, navigate, run the
@@ -702,6 +982,414 @@ fn run_browser(url: &str, opts: BrowserOptions) -> Result<()> {
         }
         Ok(())
     })
+}
+
+/// `xencode browser record <url> --out FILE` — Phase 6.3: open a Space,
+/// install the DOM-event recorder, let a human (or the action runner) drive,
+/// and emit a QuickJS replay script for the `xen.browser` surface.
+fn run_browser_record(url: &str, opts: &RecordOptions) -> Result<()> {
+    use xencode_browser::{Recorder, RecordMeta, RecordOptions as RecOpts, Space, SpaceKind, SpaceOptions};
+
+    let kind = if let Some(profile) = opts.space.strip_prefix("inherit=") {
+        SpaceKind::Inherit { profile: profile.into() }
+    } else {
+        SpaceKind::CleanRoom
+    };
+    let rt = tokio::runtime::Runtime::new().context("start tokio runtime")?;
+    rt.block_on(async move {
+        let space = Space::launch(SpaceOptions {
+            kind,
+            headless: opts.headless,
+            browser_path: opts.browser_path.clone().map(std::path::PathBuf::from),
+            ..Default::default()
+        })
+        .await
+        .context("launch browser space")?;
+
+        let recorder = Recorder::start(
+            &space,
+            RecOpts { redact_passwords: !opts.no_redact, record_scroll: true },
+        )
+        .await
+        .context("install recorder")?;
+        space.navigate(url).await.context("navigate")?;
+
+        let mode = if opts.headless { "headless" } else { "headed" };
+        eprintln!("· recording interactions on {url} ({mode}) — Ctrl-C or close the browser to finish");
+        eprintln!("· window cap: {} ms", opts.timeout_ms);
+
+        // Recording window: Ctrl-C, the timeout, or the browser dying.
+        let deadline = tokio::time::Instant::now()
+            + std::time::Duration::from_millis(opts.timeout_ms.max(1_000));
+        let mut events = space.events_resubscribe();
+        let mut ctrl_c = std::pin::pin!(tokio::signal::ctrl_c());
+        let mut connection_alive = true;
+        loop {
+            tokio::select! {
+                biased;
+                _ = &mut ctrl_c => {
+                    eprintln!("· ctrl-c — stopping the recorder");
+                    break;
+                }
+                _ = tokio::time::sleep_until(deadline) => {
+                    eprintln!("· recording window elapsed");
+                    break;
+                }
+                ev = events.recv() => {
+                    match ev {
+                        Err(_) => {
+                            eprintln!("· browser connection closed");
+                            connection_alive = false;
+                            break;
+                        }
+                        Ok(_) => continue,
+                    }
+                }
+            }
+        }
+        let _ = connection_alive;
+
+        let (steps, truncated) = recorder
+            .stop()
+            .await
+            .context("collect recording")?;
+        let redacted = steps
+            .iter()
+            .filter(|s| matches!(s, xencode_browser::RecStep::Fill { redacted: true, .. }))
+            .count();
+        let meta = RecordMeta {
+            start_url: url.to_string(),
+            recorded_at: utc_timestamp(),
+            redacted_count: redacted,
+        };
+        let script = xencode_browser::to_quickjs_script(&steps, &meta);
+        if let Some(parent) = std::path::Path::new(&opts.out).parent() {
+            std::fs::create_dir_all(parent)?;
+        }
+        std::fs::write(&opts.out, &script)
+            .with_context(|| format!("write {}", opts.out))?;
+
+        if truncated {
+            eprintln!("· recording truncated at the 500-step cap");
+        }
+        eprintln!(
+            "· recorded {} steps → {} ({} password field(s) redacted)",
+            steps.len(),
+            opts.out,
+            redacted
+        );
+        eprintln!("· replay: xencode browser run {}", opts.out);
+        Ok(())
+    })
+}
+
+/// `xencode browser run <script.ts>` — Phase 6.3: run a QuickJS automation
+/// script against a real Space through the `xen.browser` bridge. Permissions
+/// come from `xen.toml` (walking parents) with the stdin consent gate, same
+/// contract as `xen-script run`.
+fn run_browser_run(script: &str, opts: &BrowserRunOptions) -> Result<()> {
+    use xencode_browser::SpaceKind;
+    use xencode_script::config::XenConfig;
+    use xencode_script::permissions::{PermissionState, PromptBridge};
+    use xencode_script::runtime::{RuntimeOptions, ScriptRuntime};
+
+    let script_path = PathBuf::from(script);
+    if !script_path.exists() {
+        bail!("script not found: {script}");
+    }
+    let script_dir = script_path
+        .parent()
+        .map(|p| p.to_path_buf())
+        .unwrap_or_else(|| std::env::current_dir().unwrap_or_default());
+    let (cfg, config_path) = XenConfig::discover(&script_dir)?;
+    if config_path.is_file() {
+        eprintln!("· using {}", config_path.display());
+    }
+
+    // stdin consent (y/n/a) — the CLI asker, as in `xen-script run`.
+    // `--yes` (or a non-terminal stdin, e.g. CI) session-allows everything.
+    use std::io::IsTerminal as _;
+    let yes = opts.yes || !std::io::stdin().is_terminal();
+    let bridge = PromptBridge::new();
+    bridge.set(std::boxed::Box::new(move |prompt: &xencode_script::permissions::PermissionPrompt| {
+        use xencode_script::permissions::Decision;
+        if yes {
+            return Decision::AllowSession;
+        }
+        eprintln!("? {} access to `{}`? [y]es / [n]o / [a]lways: ", prompt.kind, prompt.detail);
+        let mut line = String::new();
+        if std::io::stdin().read_line(&mut line).is_err() {
+            return Decision::Deny;
+        }
+        match line.trim().to_ascii_lowercase().as_str() {
+            "a" | "always" => Decision::AllowSession,
+            "y" | "yes" => Decision::AllowOnce,
+            _ => Decision::Deny,
+        }
+    }));
+    let project_root = std::env::current_dir().unwrap_or_else(|_| script_dir.clone());
+    let perms = PermissionState::new(cfg.permissions.clone(), project_root, bridge);
+
+    let kind = if let Some(profile) = opts.space.strip_prefix("inherit=") {
+        SpaceKind::Inherit { profile: profile.into() }
+    } else {
+        SpaceKind::CleanRoom
+    };
+    let started = std::time::Instant::now();
+    let rt = tokio::runtime::Runtime::new().context("start tokio runtime")?;
+    let driver = browser_driver::SpaceDriver::new(
+        rt.handle().clone(),
+        browser_driver::SpaceLaunchConfig {
+            kind,
+            headless: opts.headless,
+            browser_path: opts.browser_path.clone().map(std::path::PathBuf::from),
+        },
+    );
+
+    let script_file = script_path.clone();
+    let timeout = if opts.timeout_ms > 0 {
+        Some(std::time::Duration::from_millis(opts.timeout_ms))
+    } else {
+        None
+    };
+    let result = rt.block_on(async move {
+        // QuickJS values are !Send — dedicated thread + current-thread
+        // runtime + LocalSet, mirroring the hook-runner pattern. The driver
+        // bounces Space work onto the multi-thread runtime via its Handle.
+        let outcome = tokio::task::spawn_blocking(move || {
+            let script_file = script_file.clone();
+            std::thread::Builder::new()
+                .name("xen-browser-run".into())
+                .spawn(move || {
+                    let inner = tokio::runtime::Builder::new_current_thread()
+                        .enable_all()
+                        .build()?;
+                    let local = tokio::task::LocalSet::new();
+                    local.block_on(&inner, async move {
+                        let (tx, mut rx) = xencode_script::events::channel();
+                        // Stream UI events (console) to stderr while running.
+                        let pump = tokio::task::spawn_local(async move {
+                            while let Some(ev) = rx.recv().await {
+                                if let Some(line) = xencode_script::events::format_cli(&ev) {
+                                    eprintln!("{line}");
+                                }
+                            }
+                        });
+                        let mut ropts = RuntimeOptions::new(&script_dir, perms, tx);
+                        ropts.browser = Some(std::sync::Arc::new(driver) as _);
+                        ropts.timeout = timeout;
+                        let srt = ScriptRuntime::new(ropts).await?;
+                        let res = srt.run_script(&script_file, &serde_json::Value::Null).await;
+                        srt.shutdown().await;
+                        pump.abort();
+                        res
+                    })
+                })?
+                .join()
+                .map_err(|_| std::io::Error::other("browser-run thread panicked"))?
+        })
+        .await
+        .map_err(|e| anyhow::anyhow!("browser-run task failed: {e}"))?;
+        outcome
+    });
+
+    let ms = started.elapsed().as_millis() as u64;
+    match result {
+        Ok(v) => {
+            if opts.json {
+                println!(
+                    "{}",
+                    serde_json::json!({ "ok": true, "result": v, "ms": ms })
+                );
+            } else {
+                let line = serde_json::to_string_pretty(&v).unwrap_or_else(|_| "null".into());
+                println!("{line}");
+                eprintln!("· script finished in {ms} ms");
+            }
+            Ok(())
+        }
+        Err(e) => {
+            if opts.json {
+                println!(
+                    "{}",
+                    serde_json::json!({ "ok": false, "error": format!("{e:#}"), "ms": ms })
+                );
+            }
+            Err(anyhow::anyhow!("script failed: {e:#}"))
+        }
+    }
+}
+
+/// `xencode scrape` — Phase 6.4: structured extraction on one page, or a
+/// parallel headless fleet over a URL list, with JSON/CSV/Markdown exports.
+fn run_scrape(args: &ScrapeArgs) -> Result<()> {
+    use xencode_browser::{
+        parse_url_list, run_fleet, scrape, to_csv, to_json, to_markdown, FieldSpec, FleetOptions,
+        ScrapeSpec, Space, SpaceKind, SpaceOptions,
+    };
+
+    let mut spec = ScrapeSpec {
+        item: args.item.clone(),
+        next: args.next.clone(),
+        max_pages: args.max_pages.max(1),
+        scroll_rounds: args.scroll_rounds,
+        scroll_dy: args.scroll_dy,
+        wait_ms: args.wait_ms,
+        ..Default::default()
+    };
+    for f in &args.fields {
+        spec.fields.push(FieldSpec::parse(f).with_context(|| format!("--field {f}"))?);
+    }
+    for f in &args.page_fields {
+        spec.page_fields.push(FieldSpec::parse(f).with_context(|| format!("--page-field {f}"))?);
+    }
+    spec.validate().context("scrape spec")?;
+
+    let kind = if let Some(profile) = args.space.strip_prefix("inherit=") {
+        SpaceKind::Inherit { profile: profile.into() }
+    } else {
+        SpaceKind::CleanRoom
+    };
+    let browser_path = args.browser_path.clone().map(std::path::PathBuf::from);
+    let rt = tokio::runtime::Runtime::new().context("start tokio runtime")?;
+
+    let (pages, ms, errors) = rt.block_on(async move {
+        let started = std::time::Instant::now();
+        match (&args.urls_file, &args.url) {
+            (Some(file), _) => {
+                let text = std::fs::read_to_string(file)
+                    .with_context(|| format!("read {}", file))?;
+                let urls = parse_url_list(&text);
+                if urls.is_empty() {
+                    bail!("url list is empty: {file}");
+                }
+                eprintln!(
+                    "· fleet: {} urls, {} workers{}",
+                    urls.len(),
+                    args.workers.max(1),
+                    args.rps
+                        .map(|r| format!(", {} rps cap", r))
+                        .unwrap_or_default()
+                );
+                let results = run_fleet(
+                    urls,
+                    spec,
+                    FleetOptions {
+                        workers: args.workers,
+                        rps: args.rps,
+                        timeout_ms: args.timeout_ms,
+                        browser_path,
+                        headless: args.headless,
+                        kind,
+                    },
+                )
+                .await?;
+                let mut pages = Vec::new();
+                let mut errors = Vec::new();
+                for r in &results {
+                    if let Some(e) = &r.error {
+                        errors.push(format!("✗ {}: {e}", r.url));
+                    } else if !r.ok {
+                        errors.push(format!("✗ {}: failed", r.url));
+                    }
+                    pages.extend(r.pages.clone());
+                }
+                let ms = started.elapsed().as_millis() as u64;
+                Ok((pages, ms, errors))
+            }
+            (None, Some(url)) => {
+                let space = Space::launch(SpaceOptions {
+                    kind,
+                    headless: args.headless,
+                    browser_path,
+                    ..Default::default()
+                })
+                .await
+                .context("launch browser space")?;
+                let nav = tokio::time::timeout(
+                    std::time::Duration::from_millis(args.timeout_ms.max(1_000)),
+                    space.navigate(url),
+                )
+                .await;
+                match nav {
+                    Err(_) => bail!("navigate timed out after {}ms", args.timeout_ms),
+                    Ok(Err(e)) => return Err(anyhow::anyhow!("{e:#}")),
+                    Ok(Ok(())) => {}
+                }
+                let pages = scrape(&space, &spec)
+                    .await
+                    .context("scrape failed")?;
+                let ms = started.elapsed().as_millis() as u64;
+                Ok((pages, ms, Vec::new()))
+            }
+            (None, None) => bail!("scrape needs a URL or --urls FILE"),
+        }
+    })?;
+
+    let rows: Vec<serde_json::Map<String, serde_json::Value>> =
+        pages.iter().flat_map(|p| p.rows.clone()).collect();
+    let body = match args.format.as_str() {
+        "csv" => to_csv(&rows),
+        "md" | "markdown" => to_markdown(&rows),
+        _ => to_json(&rows),
+    };
+    match &args.out {
+        Some(path) => {
+            if let Some(parent) = std::path::Path::new(path).parent() {
+                std::fs::create_dir_all(parent)?;
+            }
+            std::fs::write(path, &body).with_context(|| format!("write {path}"))?;
+            eprintln!("· wrote {} rows → {}", rows.len(), path);
+        }
+        None if args.json => {}
+        None => print!("{body}"),
+    }
+
+    for e in &errors {
+        eprintln!("{e}");
+    }
+    if args.json {
+        let summary = serde_json::json!({
+            "pages": pages.len(),
+            "rows": rows.len(),
+            "ms": ms,
+            "failed": errors.len(),
+            "urls": pages.iter().map(|p| p.url.clone()).collect::<Vec<_>>(),
+            "data": rows,
+        });
+        println!("{}", serde_json::to_string_pretty(&summary)?);
+    } else {
+        eprintln!("· {} page(s), {} row(s) in {} ms", pages.len(), rows.len(), ms);
+    }
+    if args.urls_file.is_some() && !errors.is_empty() {
+        // fleet: per-URL failures don't fail the run (results are partial),
+        // but surface the count in the exit code semantics used by `api
+        // diff`? No — fleet failures are data, not alerts. Stay 0.
+        eprintln!("· fleet finished with {} failed url(s)", errors.len());
+    }
+    Ok(())
+}
+
+/// UTC timestamp for the recording header (`YYYY-MM-DD HH:MMZ`).
+fn utc_timestamp() -> String {
+    let secs = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs())
+        .unwrap_or(0);
+    let days = (secs / 86_400) as i64;
+    let rem = secs % 86_400;
+    // civil-from-days (Howard Hinnant's algorithm)
+    let z = days + 719_468;
+    let era = z.div_euclid(146_097);
+    let doe = z.rem_euclid(146_097);
+    let yoe = (doe - doe / 1_460 + doe / 36_524 - doe / 146_096) / 365;
+    let y = yoe + era * 400;
+    let doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
+    let mp = (5 * doy + 2) / 153;
+    let d = doy - (153 * mp + 2) / 5 + 1;
+    let m = if mp < 10 { mp + 3 } else { mp - 9 };
+    let y = if m <= 2 { y + 1 } else { y };
+    format!("{y:04}-{m:02}-{d:02} {:02}:{:02}Z", rem / 3_600, (rem % 3_600) / 60)
 }
 
 /// Encode a decoded frame as a PNG file (CLI --screenshot output).

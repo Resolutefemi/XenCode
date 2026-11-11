@@ -8,12 +8,14 @@
 //! | `xen.agent` | [`agent`] | hooks (beforeTool/afterTool/onStop), session context, messaging |
 //! | `xen.ui` | [`ui`] | toasts, prompts, progress in the native GUI |
 //! | `xen.re` | [`re`] | binary analysis (ELF/PE/Mach-O), strings, hex, disasm |
+//! | `xen.browser` | [`browser`] | XenBrowser surface — navigate/click/fill/snapshot via an injected driver |
 //!
 //! Shared state ([`state::RuntimeState`] — event channel, permissions,
-//! agent/ui bridges) travels through context userdata so the stateless
+//! agent/ui/browser bridges) travels through context userdata so the stateless
 //! `ModuleDef`s can reach it.
 
 pub mod agent;
+pub mod browser;
 pub mod fs;
 pub mod http;
 pub mod proc;

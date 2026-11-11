@@ -444,6 +444,36 @@ impl Space {
         Ok(())
     }
 
+    /// Select an option in a `<select>` — sets the value and dispatches
+    /// `input` + `change` (bubbling), so React/Vue state follows. Returns
+    /// the selected value.
+    pub async fn select(&self, selector: &Selector, value: &str) -> Result<String> {
+        let Some(el) = self.resolve(selector).await? else {
+            return Err(anyhow!("select: `{selector}` not found within {:?}", AUTOWAIT_TIMEOUT));
+        };
+        let val = serde_json::to_string(value).unwrap_or_else(|_| "\"\"".into());
+        let js = format!(
+            "(() => {{ const el = (window.__xen && window.__xen.n.get('{}')) || null; \
+             if (!el || el.tagName !== 'SELECT') return null; \
+             el.value = {val}; \
+             el.dispatchEvent(new Event('input', {{ bubbles: true }})); \
+             el.dispatchEvent(new Event('change', {{ bubbles: true }})); \
+             return el.value; }})()",
+            el.token
+        );
+        let picked = self.evaluate(&js).await?;
+        match picked.as_str() {
+            Some(v) => Ok(v.to_string()),
+            None => Err(anyhow!("select: target is not a <select> element (or vanished)")),
+        }
+    }
+
+    /// Scroll to an absolute document position (`window.scrollTo`).
+    pub async fn scroll_to(&self, x: f64, y: f64) -> Result<()> {
+        self.evaluate(&format!("window.scrollTo({}, {})", x, y)).await?;
+        Ok(())
+    }
+
     /// Capture the DOM snapshot (the model-facing primitive).
     pub async fn snapshot(&self) -> Result<Snapshot> {
         let res = self

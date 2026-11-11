@@ -177,10 +177,6 @@ async fn e2e_two_spaces_are_isolated() {
 }
 
 /// Phase 8 e2e — network capture → endpoint catalog → copy-as → OpenAPI.
-/// A local CORS-enabled JSON API serves `GET /api/items?page=2`; the page
-/// fetch()es it from Chromium; the CDP Network pump must turn that into a
-/// redacted NetEntry, then into a catalog endpoint with an inferred
-/// response shape, a working curl snippet and an OpenAPI path.
 #[tokio::test]
 async fn e2e_network_capture_endpoint_catalog() {
     use xencode_browser::{build_catalog, copy_as, diff_catalogs, to_openapi, CaptureOptions,
@@ -287,4 +283,275 @@ async fn e2e_network_capture_endpoint_catalog() {
     let loaded = CaptureFile::load(&out).unwrap();
     assert!(loaded.redacted);
     assert!(loaded.entries.iter().any(|e| e.url.contains("/api/items")));
+}
+
+// ---------------------------------------------------------------------
+// Phase 6.3 — recorder
+// ---------------------------------------------------------------------
+
+/// A recording fixture with real inputs: a text field, a toggle button and
+/// a password-style field. The recorder must turn agent-driven interactions
+/// (real input events, same as a human's) into replayable steps.
+fn record_fixture(dir: &std::path::Path) -> std::path::PathBuf {
+    let page = dir.join("record.html");
+    std::fs::write(
+        &page,
+        r#"<!doctype html>
+<html>
+<head><title>XenRecord</title></head>
+<body>
+  <form id="f" onsubmit="return false;">
+    <input id="who" type="text" value=""/>
+    <input id="pw" type="password" value=""/>
+    <button id="save" onclick="document.getElementById('status').textContent = 'saved ' + document.getElementById('who').value;">Save</button>
+    <p id="status">idle</p>
+  </form>
+</body>
+</html>"#,
+    )
+    .unwrap();
+    page
+}
+
+#[tokio::test]
+async fn e2e_recorder_captures_interactions_and_emits_script() {
+    use xencode_browser::{
+        Recorder, RecordOptions, RecStep, Selector, Space, SpaceKind, SpaceOptions,
+        to_quickjs_script, RecordMeta,
+    };
+
+    let _browser_slot = BROWSER_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+    if have_browser().is_none() {
+        eprintln!("skipping: no browser found");
+        return;
+    }
+
+    let dir = tempfile::tempdir().unwrap();
+    let page = record_fixture(dir.path());
+    let url = format!("file://{}", page.display());
+
+    let space = Space::launch(SpaceOptions {
+        kind: SpaceKind::CleanRoom,
+        headless: true,
+        ..Default::default()
+    })
+    .await
+    .expect("launch space");
+
+    let recorder = Recorder::start(&space, RecordOptions::default())
+        .await
+        .expect("install recorder");
+
+    // Drive real interactions (same pipeline a human's input produces).
+    space.navigate(&url).await.expect("navigate");
+    space
+        .fill(&Selector::Css("#who".into()), "Femi")
+        .await
+        .expect("fill name");
+    space
+        .fill(&Selector::Css("#pw".into()), "hunter2")
+        .await
+        .expect("fill password");
+    space.click(&Selector::Css("#save".into())).await.expect("click save");
+    let status = space
+        .evaluate("document.getElementById('status').textContent")
+        .await
+        .unwrap();
+    assert_eq!(status, "saved Femi", "the recorded session must be real");
+
+    let (steps, truncated) = recorder.stop().await.expect("stop recorder");
+    assert!(!truncated);
+    assert!(
+        steps.iter().any(|s| matches!(s, RecStep::Fill { selector, value, redacted: false }
+            if selector.contains("#who") && value == "Femi")),
+        "text fill recorded with value: {steps:?}"
+    );
+    assert!(
+        steps.iter().any(|s| matches!(s, RecStep::Fill { selector, redacted: true, .. }
+            if selector.contains("#pw"))),
+        "password fill is redacted: {steps:?}"
+    );
+    assert!(
+        steps.iter().any(|s| matches!(s, RecStep::Click { selector, .. }
+            if selector.contains("#save"))),
+        "save click recorded: {steps:?}"
+    );
+
+    // The emitted script replays the same surface + carries the note.
+    let meta = RecordMeta {
+        start_url: url.clone(),
+        recorded_at: "e2e".into(),
+        redacted_count: 1,
+    };
+    let script = to_quickjs_script(&steps, &meta);
+    assert!(script.contains("xen.browser.fill("), "{script}");
+    assert!(script.contains("xen.browser.click("), "{script}");
+    assert!(script.contains("password"), "{script}");
+    drop(space);
+}
+
+// ---------------------------------------------------------------------
+// Phase 6.4 — scrape + exports + fleet
+// ---------------------------------------------------------------------
+
+/// A two-page catalog fixture: `page1.html` lists two products and links to
+/// `page2.html` with one more.
+fn scrape_fixture(dir: &std::path::Path) -> (String, String) {
+    let item = |name: &str, price: &str| {
+        format!(
+            r#"<li class="product"><h3 class="name">{name}</h3><span class="price">{price}</span><a class="go" href="/p/{name}">view</a></li>"#
+        )
+    };
+    let p1 = dir.join("page1.html");
+    std::fs::write(
+        &p1,
+        format!(
+            r#"<!doctype html><html><head><title>Catalog 1</title></head><body>
+            <h1 id="heading">Catalog page one</h1>
+            <ul id="list">{}</li>{}</li>
+            <a id="next" href="page2.html">Next</a>
+            </body></html>"#,
+            item("Pen", "$2"),
+            item("Pad", "$9")
+        ),
+    )
+    .unwrap();
+    let p2 = dir.join("page2.html");
+    std::fs::write(
+        &p2,
+        format!(
+            r#"<!doctype html><html><head><title>Catalog 2</title></head><body>
+            <h1 id="heading">Catalog page two</h1>
+            <ul id="list">{}</li>
+            </body></html>"#,
+            item("Ink", "$5")
+        ),
+    )
+    .unwrap();
+    (
+        format!("file://{}", p1.display()),
+        format!("file://{}", p2.display()),
+    )
+}
+
+#[tokio::test]
+async fn e2e_scrape_rows_pagination_and_exports() {
+    use xencode_browser::{
+        scrape, to_csv, to_markdown, FieldSpec, ScrapeSpec, Space, SpaceKind,
+        SpaceOptions,
+    };
+
+    let _browser_slot = BROWSER_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+    if have_browser().is_none() {
+        eprintln!("skipping: no browser found");
+        return;
+    }
+
+    let dir = tempfile::tempdir().unwrap();
+    let (url1, url2) = scrape_fixture(dir.path());
+    // rewrite the next link to the absolute file URL (relative works too,
+    // but keep the assertion independent of file-url resolution)
+    let p1 = dir.path().join("page1.html");
+    let html = std::fs::read_to_string(&p1).unwrap().replace("page2.html", &url2);
+    std::fs::write(&p1, html).unwrap();
+
+    let spec = ScrapeSpec {
+        item: Some("li.product".into()),
+        fields: vec![
+            FieldSpec::parse("name=h3.name").unwrap(),
+            FieldSpec::parse("price=span.price").unwrap(),
+            FieldSpec::parse("url=a.go@href").unwrap(),
+        ],
+        page_fields: vec![FieldSpec::parse("page=h1#heading").unwrap()],
+        next: Some("#next".into()),
+        max_pages: 2,
+        wait_ms: 150,
+        ..Default::default()
+    };
+
+    let space = Space::launch(SpaceOptions {
+        kind: SpaceKind::CleanRoom,
+        headless: true,
+        ..Default::default()
+    })
+    .await
+    .expect("launch space");
+    space.navigate(&url1).await.expect("navigate");
+
+    // single-page extraction first
+    let one = xencode_browser::scrape_page(&space, &spec).await.expect("extract page 1");
+    assert_eq!(one.rows.len(), 2, "{:?}", one.rows);
+    assert_eq!(one.rows[0]["name"], "Pen");
+    assert_eq!(one.rows[0]["price"], "$2");
+    assert!(one.rows[0]["url"].as_str().unwrap().contains("/p/Pen"));
+    assert_eq!(one.rows[0]["page"], "Catalog page one");
+
+    // full pagination run
+    let pages = scrape(&space, &spec).await.expect("paginate");
+    assert_eq!(pages.len(), 2, "both pages scraped");
+    assert!(pages[1].url.ends_with("page2.html"), "{}", pages[1].url);
+    let all_rows: Vec<_> = pages.iter().flat_map(|p| p.rows.iter()).collect();
+    assert_eq!(all_rows.len(), 3);
+    assert_eq!(all_rows[2]["name"], "Ink");
+
+    // exports over the flattened rows
+    let rows: Vec<serde_json::Map<String, serde_json::Value>> = pages
+        .iter()
+        .flat_map(|p| p.rows.clone())
+        .collect();
+    let csv = to_csv(&rows);
+    // serde_json maps iterate alphabetically (no preserve_order) — assert
+    // on content, not column order.
+    let header = csv.lines().next().unwrap();
+    for col in ["name", "page", "price", "url"] {
+        assert!(header.contains(col), "header {header:?} must contain {col}");
+    }
+    assert!(csv.contains("Pen,"), "{csv}");
+    assert!(csv.contains("$2"), "{csv}");
+    assert!(csv.contains("Ink,"), "{csv}");
+    assert!(csv.contains("$5"), "{csv}");
+    let md = to_markdown(&rows);
+    assert!(md.contains("| name |"), "{md}");
+    assert!(md.contains("Pen"), "{md}");
+    assert!(md.contains("Ink"), "{md}");
+    drop(space);
+}
+
+#[tokio::test]
+async fn e2e_fleet_scrapes_urls_in_parallel() {
+    use xencode_browser::{
+        parse_url_list, run_fleet, FieldSpec, FleetOptions, ScrapeSpec, SpaceKind,
+    };
+
+    let _browser_slot = BROWSER_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+    if have_browser().is_none() {
+        eprintln!("skipping: no browser found");
+        return;
+    }
+
+    let dir = tempfile::tempdir().unwrap();
+    let (url1, url2) = scrape_fixture(dir.path());
+    let urls = parse_url_list(&format!("{url1}\n{url2}\n"));
+
+    let spec = ScrapeSpec {
+        item: Some("li.product".into()),
+        fields: vec![FieldSpec::parse("name=h3.name").unwrap()],
+        ..Default::default()
+    };
+    let results = run_fleet(
+        urls,
+        spec,
+        FleetOptions { workers: 2, timeout_ms: 20_000, headless: true, kind: SpaceKind::CleanRoom, ..Default::default() },
+    )
+    .await
+    .expect("fleet run");
+
+    assert_eq!(results.len(), 2, "one result per url, submission order");
+    assert!(results[0].ok, "url1: {:?}", results[0].error);
+    assert!(results[1].ok, "url2: {:?}", results[1].error);
+    assert!(results[0].url.ends_with("page1.html"));
+    assert!(results[1].url.ends_with("page2.html"));
+    assert_eq!(results[0].rows.len(), 2);
+    assert_eq!(results[1].rows.len(), 1);
+    assert_eq!(results[0].rows[0]["name"], "Pen");
 }

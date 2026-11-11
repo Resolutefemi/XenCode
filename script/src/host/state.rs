@@ -8,6 +8,7 @@ use crate::events::UiEventTx;
 use crate::permissions::PermissionState;
 
 use super::agent::AgentBridge;
+use super::browser::BrowserBridge;
 use super::ui::UiBridge;
 
 #[derive(Clone)]
@@ -20,6 +21,8 @@ pub struct RuntimeState {
     pub agent: AgentBridge,
     /// GUI-side prompt bridge (text input in the native GUI).
     pub ui: UiBridge,
+    /// XenBrowser surface (Phase 6.3) — host-injected driver.
+    pub browser: BrowserBridge,
 }
 
 unsafe impl<'js> JsLifetime<'js> for RuntimeState {
@@ -32,7 +35,8 @@ impl RuntimeState {
         perms: PermissionState,
         agent: AgentBridge,
         ui: UiBridge,
+        browser: BrowserBridge,
     ) -> Self {
-        Self { events, perms, agent, ui }
+        Self { events, perms, agent, ui, browser }
     }
 }
