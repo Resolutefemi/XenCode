@@ -28,6 +28,8 @@ pub struct SpaceLaunchConfig {
     pub kind: SpaceKind,
     pub headless: bool,
     pub browser_path: Option<PathBuf>,
+    /// Managed-download consent (`--download`).
+    pub allow_download: bool,
 }
 
 impl Default for SpaceLaunchConfig {
@@ -36,6 +38,7 @@ impl Default for SpaceLaunchConfig {
             kind: SpaceKind::CleanRoom,
             headless: true,
             browser_path: None,
+            allow_download: false,
         }
     }
 }
@@ -69,6 +72,7 @@ impl SpaceDriver {
             kind: self.cfg.kind.clone(),
             headless: self.cfg.headless,
             browser_path: self.cfg.browser_path.clone(),
+            allow_download: self.cfg.allow_download,
             ..Default::default()
         })
         .await

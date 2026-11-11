@@ -1,12 +1,13 @@
 //! Find a Chromium-family browser binary.
 //!
-//! Priority: `XENCODE_BROWSER` env override → well-known install locations
-//! (Chrome, Edge, Chromium, Brave on Linux/macOS/Windows) → `PATH` lookup →
-//! Playwright browser caches (`~/.cache/ms-playwright/chromium-*`), which is
-//! how headless fleets get a browser without touching the user's install.
+//! Priority: `XENCODE_BROWSER` env override → `PATH` lookup → well-known
+//! install locations (Chrome, Edge, Chromium, Brave on Linux/macOS/Windows)
+//! → managed install (`~/.xencode/tools/chromium`, fetched via
+//! [`crate::download`] with `--download` consent) → Playwright browser
+//! caches (`~/.cache/ms-playwright/chromium-*`).
 //!
-//! A managed download remains an explicit follow-up (plan.md, open decision
-//! #2); every `Space` launch surfaces a clear message when nothing is found.
+//! Every `Space` launch surfaces a message naming the fix — including the
+//! `--download` opt-in — when nothing is found.
 
 use std::path::{Path, PathBuf};
 
@@ -54,6 +55,10 @@ pub fn find_all() -> Vec<BrowserCandidate> {
             out.push(BrowserCandidate { path: p, source: "install-path" });
         }
     }
+
+    // Managed CfT installs rank after system browsers, before other tools'
+    // caches — a `--download` is an explicit user request.
+    out.extend(crate::download::managed_candidates());
 
     for p in playwright_cache() {
         out.push(BrowserCandidate { path: p, source: "playwright-cache" });

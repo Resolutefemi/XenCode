@@ -1,6 +1,6 @@
 # XenCode — Master Build Plan
 
-> **Status:** Approved direction — **Phases 0–5 complete** (all three harness waves landed), **XenBrowser 6.1–6.4 complete** (CDP core + Spaces, GUI browser tab + snapshot/diff, interaction recorder → QuickJS replay scripts, headless fleet + scraping exports), **Phase 8 complete** (API Discovery — network capture, endpoint catalog, OpenAPI export, copy-as, endpoint monitor) and **XenRE 7.1 + 7.2 + 7.3 complete** (7.1: native ELF/PE/Mach-O analysis, hex/strings/imports panels, capstone disasm, `xen.re` hooks; 7.2: native APK/IPA package analysis + jadx orchestration with managed download; 7.3: XEX container parser + PPC64/Xenon disasm + Ghidra headless loader flow). Remaining: optional orchestrated backends (ILSpy, RetDec) as extensions; the managed-Chromium-download decision (open decision #2) is still open.
+> **Status:** Approved direction — **Phases 0–5 complete** (all three harness waves landed), **XenBrowser 6.1–6.4 complete** (CDP core + Spaces, GUI browser tab + snapshot/diff, interaction recorder → QuickJS replay scripts, headless fleet + scraping exports), **Phase 8 complete** (API Discovery — network capture, endpoint catalog, OpenAPI export, copy-as, endpoint monitor), **XenRE 7.1 + 7.2 + 7.3 complete** (7.1: native ELF/PE/Mach-O analysis, hex/strings/imports panels, capstone disasm, `xen.re` hooks; 7.2: native APK/IPA package analysis + jadx orchestration with managed download; 7.3: XEX container parser + PPC64/Xenon disasm + Ghidra headless loader flow) and **the managed-Chromium download (open decision #2) resolved** — discovery order "system first, managed fallback", consent-gated `--download` on every browser-driving command fetching official Chrome-for-Testing builds. Remaining: optional orchestrated RE backends (ILSpy, RetDec) as extensions.
 > **Last updated:** 2026-11-11
 > **Stack:** 100% Rust (native self-drawn GUI, no webview) · QuickJS (`rquickjs`) for all automation — no Python · ZCode v3.17.2 is the sole UI/UX spec.
 
@@ -345,7 +345,33 @@ Goal: like ego(lite) — but better, on every platform, built in.
     [--browser-path BIN] [--timeout-ms N] [--headed]` — actions run in order through the same auto-wait path;
     `--space inherit=~/.config/google-chrome` drives logged-in state.
   - Config: none required. `XENCODE_BROWSER` (binary override) is the only env knob.
-  - Follow-ups (6.3–6.4): shipped — see below. Managed Chromium download (open decision #2) stays open.
+  - Follow-ups (6.3–6.4): shipped — see below. **Managed Chromium download (open decision #2): resolved** — see the
+    `download.rs` addendum below.
+
+- Managed Chromium download (`browser/src/download.rs`) — the recommended strategy from the decisions list, now
+  shipped the same way as the jadx/Ghidra backends (consent-gated, injectable fetch, offline-testable):
+  - Source: Google's official **Chrome for Testing** feed
+    (`googlechromelabs.github.io/chrome-for-testing/last-known-good-versions-with-downloads.json`) — the same builds
+    the CDP/snapshot layers are verified against. Channel pinned to `Stable`; platform key derived at compile time
+    (`linux64`, `mac-arm64`, `mac-x64`, `win32`, `win64`) with the CfT binary layout per platform
+    (`chrome-linux64/chrome`, the `.app/Contents/MacOS/Google Chrome for Testing` path on macOS, `chrome-win64/chrome.exe`).
+  - Discovery order (decided): `XENCODE_BROWSER` env → `PATH` → well-known installs → **managed install**
+    (`$XENCODE_TOOLS/chromium/<version>/…`, default `~/.xencode/tools/chromium`) → Playwright caches. A managed build
+    is an explicit user request, so it outranks other tools' caches but never the system browser.
+  - Consent: every browser-driving command (`browser <url>`, `browser record`, `browser run`, `scrape`,
+    `api capture`, `api monitor`) takes `--download`; when discovery finds nothing and consent is absent, the launch
+    error names the fix (env override / system install / `--download`). `SpaceOptions.allow_download` /
+    `FleetOptions.allow_download` carry it through `Space::launch` (resolve runs on `spawn_blocking` — the feed +
+    ~170 MB tarball must stay off the async reactor; fleets pass consent to every worker).
+  - Install: feed parse (pure `parse_feed`) → zip download (512 MiB cap, rustls via `ureq`) → extraction with unix
+    exec-bit preservation (same conventions as jadx/Ghidra) → `.xencode-installed` marker (version + URL) → probe.
+    Idempotent: a managed root probe short-circuits before any network; version dirs sort numerically
+    (`version_key`, not lexicographically).
+  - Verified: 9 offline unit tests (feed parsing incl. channel/platform error paths, numeric version sort, CfT
+    binary layout, managed probe ordering, exec-bit extraction, injected-fetch download + idempotent rerun,
+    no-consent error naming `--download`) plus an `#[ignore]`d live test (real feed + real download + `--version`)
+    and a live CLI pass: refusal message → `--download` (CfT 157.0.8103.50, ~17 s) → discovery rerun in 701 ms →
+    scrape + all 7 real-Chromium e2e tests green against the managed build.
 
 - Status: **6.3 DONE** — the interaction recorder, turning browser interactions into reusable QuickJS automation scripts (north star #4: the browser now exposes hooks to QuickJS):
   - Recorder (`browser/src/recorder.rs`): a bootstrap script rides `Page.addScriptToEvaluateOnNewDocument` into every
@@ -546,6 +572,7 @@ Goal: "easily get any website API."
 ## Decisions
 
 1. **Execution order** — as in the phase map; reshuffle on request.
-2. **Open:** Chromium strategy — auto-detect system Chrome/Edge first, managed download fallback (recommended).
+2. **Decided:** Chromium strategy — auto-detect system Chrome/Edge first, managed Chrome-for-Testing download
+   fallback behind `--download` consent (shipped in `browser/src/download.rs`).
 3. **Open:** RE backends (~1 GB) — on-demand download prompt (recommended) vs skip external backends in v1.
 4. Phase 0 + Phase 1 start together on "go".

@@ -207,6 +207,8 @@ struct ApiCaptureOptions {
     no_bodies: bool,
     /// Keep secret header/query values verbatim (default: redacted).
     no_redact: bool,
+    /// Managed-download consent for the capture browser.
+    download: bool,
     /// Write the raw capture artifact here.
     out: Option<String>,
     /// Also export the generated OpenAPI document here.
@@ -241,6 +243,8 @@ struct RecordOptions {
     /// Recording window cap (ms) — Ctrl-C or browser close ends earlier.
     timeout_ms: u64,
     browser_path: Option<String>,
+    /// Managed-download consent (`--download`).
+    download: bool,
     /// `clean` (default) or `inherit=<profile-path>`.
     space: String,
 }
@@ -250,6 +254,8 @@ struct RecordOptions {
 struct BrowserRunOptions {
     headless: bool,
     browser_path: Option<String>,
+    /// Managed-download consent (`--download`).
+    download: bool,
     /// `clean` (default) or `inherit=<profile-path>`.
     space: String,
     /// Script deadline (ms); 0 = no deadline.
@@ -283,6 +289,8 @@ struct ScrapeArgs {
     rps: Option<f64>,
     headless: bool,
     browser_path: Option<String>,
+    /// Managed-download consent (`--download`).
+    download: bool,
     space: String,
     timeout_ms: u64,
 }
@@ -294,6 +302,8 @@ struct BrowserOptions {
     snapshot: bool,
     json: bool,
     browser_path: Option<String>,
+    /// Managed-download consent (`--download`).
+    download: bool,
     /// `clean` (default) or `inherit=<profile-path>`.
     space: String,
     timeout_ms: u64,
@@ -623,6 +633,7 @@ fn parse_browser(args: &[String]) -> Result<Mode> {
     while i < args.len() {
         match args[i].as_str() {
             "--headed" => opts.headless = false,
+            "--download" => opts.download = true,
             "--screenshot" if i + 1 < args.len() => {
                 opts.screenshot = Some(args[i + 1].clone());
                 i += 1;
@@ -680,7 +691,7 @@ fn parse_browser(args: &[String]) -> Result<Mode> {
     }
     let Some(url) = url else {
         bail!(
-            "usage: xencode browser <url> [--headless] [--screenshot FILE] [--snapshot] [--json] \
+            "usage: xencode browser <url> [--headless] [--download] [--screenshot FILE] [--snapshot] [--json] \
              [--click SEL] [--fill SEL=TEXT] [--press KEY] [--scroll DX,DY] [--wait MS] \
              [--space clean|inherit=PATH] [--browser-path BIN] [--timeout-ms N]"
         );
@@ -696,6 +707,7 @@ fn parse_browser_record(args: &[String]) -> Result<Mode> {
         headless: false,
         timeout_ms: 600_000,
         browser_path: None,
+        download: false,
         space: "clean".into(),
     };
     let mut url: Option<String> = None;
@@ -708,6 +720,7 @@ fn parse_browser_record(args: &[String]) -> Result<Mode> {
             }
             "--no-redact" => opts.no_redact = true,
             "--headless" => opts.headless = true,
+            "--download" => opts.download = true,
             "--timeout-ms" if i + 1 < args.len() => {
                 opts.timeout_ms = args[i + 1].parse().context("--timeout-ms expects a number")?;
                 i += 1;
@@ -728,7 +741,7 @@ fn parse_browser_record(args: &[String]) -> Result<Mode> {
     }
     let Some(url) = url else {
         bail!(
-            "usage: xencode browser record <url> --out FILE [--no-redact] [--headless] \
+            "usage: xencode browser record <url> --out FILE [--no-redact] [--headless] [--download] \
              [--timeout-ms N] [--space clean|inherit=PATH] [--browser-path BIN]"
         );
     };
@@ -743,6 +756,7 @@ fn parse_browser_run(args: &[String]) -> Result<Mode> {
     let mut opts = BrowserRunOptions {
         headless: true,
         browser_path: None,
+        download: false,
         space: "clean".into(),
         timeout_ms: 120_000,
         json: false,
@@ -755,6 +769,7 @@ fn parse_browser_run(args: &[String]) -> Result<Mode> {
             "--headed" => opts.headless = false,
             "--json" => opts.json = true,
             "--yes" => opts.yes = true,
+            "--download" => opts.download = true,
             "--timeout-ms" if i + 1 < args.len() => {
                 opts.timeout_ms = args[i + 1].parse().context("--timeout-ms expects a number")?;
                 i += 1;
@@ -775,7 +790,7 @@ fn parse_browser_run(args: &[String]) -> Result<Mode> {
     }
     let Some(script) = script else {
         bail!(
-            "usage: xencode browser run <script.ts> [--headed] [--json] [--yes] [--timeout-ms N] \
+            "usage: xencode browser run <script.ts> [--headed] [--json] [--yes] [--download] [--timeout-ms N] \
              [--space clean|inherit=PATH] [--browser-path BIN]"
         );
     };
@@ -857,6 +872,7 @@ fn parse_scrape(args: &[String]) -> Result<Mode> {
             }
             "--headless" => a.headless = true,
             "--headed" => a.headless = false,
+            "--download" => a.download = true,
             "--browser-path" if i + 1 < args.len() => {
                 a.browser_path = Some(args[i + 1].clone());
                 i += 1;
@@ -879,7 +895,8 @@ fn parse_scrape(args: &[String]) -> Result<Mode> {
         bail!(
             "usage: xencode scrape <url> [--item SEL] [--field NAME=SEL[@ATTR]] ... \
              [--page-field NAME=SEL[@ATTR]] ... [--next SEL] [--max-pages N] [--scroll N] \
-             [--format json|csv|md] [--out FILE] [--json] | --urls FILE [--workers N] [--rps F]"
+             [--format json|csv|md] [--out FILE] [--json] [--download] \
+             | --urls FILE [--workers N] [--rps F]"
         );
     }
     Ok(Mode::Scrape { args: a })
@@ -903,6 +920,7 @@ fn run_browser(url: &str, opts: BrowserOptions) -> Result<()> {
             kind,
             headless: opts.headless,
             browser_path: opts.browser_path.clone().map(std::path::PathBuf::from),
+            allow_download: opts.download,
             ..Default::default()
         })
         .await
@@ -1001,6 +1019,7 @@ fn run_browser_record(url: &str, opts: &RecordOptions) -> Result<()> {
             kind,
             headless: opts.headless,
             browser_path: opts.browser_path.clone().map(std::path::PathBuf::from),
+            allow_download: opts.download,
             ..Default::default()
         })
         .await
@@ -1143,6 +1162,7 @@ fn run_browser_run(script: &str, opts: &BrowserRunOptions) -> Result<()> {
             kind,
             headless: opts.headless,
             browser_path: opts.browser_path.clone().map(std::path::PathBuf::from),
+            allow_download: opts.download,
         },
     );
 
@@ -1279,6 +1299,7 @@ fn run_scrape(args: &ScrapeArgs) -> Result<()> {
                         rps: args.rps,
                         timeout_ms: args.timeout_ms,
                         browser_path,
+                        allow_download: args.download,
                         headless: args.headless,
                         kind,
                     },
@@ -1302,6 +1323,7 @@ fn run_scrape(args: &ScrapeArgs) -> Result<()> {
                     kind,
                     headless: args.headless,
                     browser_path,
+                    allow_download: args.download,
                     ..Default::default()
                 })
                 .await
@@ -1957,7 +1979,7 @@ fn parse_api(args: &[String]) -> Result<Mode> {
                 bail!("usage: xencode api capture <url> [--wait MS] [--click SEL] [--fill SEL=TEXT] \
                        [--press KEY] [--scroll DX,DY] [--no-bodies] [--no-redact] [--openapi FILE] \
                        [--out FILE] [--json] [--space clean|inherit=PATH] [--browser-path BIN] \
-                       [--timeout-ms N] [--headed]");
+                       [--timeout-ms N] [--headed] [--download]");
             };
             Ok(Mode::ApiCapture { url, opts })
         }
@@ -2095,6 +2117,7 @@ fn parse_api(args: &[String]) -> Result<Mode> {
                     }
                     "--no-bodies" => opts.no_bodies = true,
                     "--no-redact" => opts.no_redact = true,
+                    "--download" => opts.download = true,
                     "--out" if i + 1 < rest.len() => {
                         opts.out = Some(rest[i + 1].clone());
                         i += 1;
@@ -2172,6 +2195,7 @@ fn parse_capture_flags(args: &[String], opts: &mut ApiCaptureOptions) -> Result<
             }
             "--no-bodies" => opts.no_bodies = true,
             "--no-redact" => opts.no_redact = true,
+            "--download" => opts.download = true,
             "--out" if i + 1 < args.len() => {
                 opts.out = Some(args[i + 1].clone());
                 i += 1;
@@ -2224,6 +2248,7 @@ fn api_capture_session(
             kind,
             headless: opts.headless,
             browser_path: opts.browser_path.clone().map(std::path::PathBuf::from),
+            allow_download: opts.download,
             ..Default::default()
         })
         .await

@@ -29,6 +29,8 @@ pub struct FleetOptions {
     pub timeout_ms: u64,
     /// Explicit browser binary (discovered when `None`).
     pub browser_path: Option<PathBuf>,
+    /// Managed-download consent (`--download`) passed to worker Spaces.
+    pub allow_download: bool,
     /// Headless Spaces (fleet default: true).
     pub headless: bool,
     /// Profile kind for every worker.
@@ -42,6 +44,7 @@ impl Default for FleetOptions {
             rps: None,
             timeout_ms: 30_000,
             browser_path: None,
+            allow_download: false,
             headless: true,
             kind: SpaceKind::CleanRoom,
         }
@@ -153,6 +156,7 @@ pub async fn run_fleet(
                 kind: opts.kind.clone(),
                 headless: opts.headless,
                 browser_path: opts.browser_path.clone(),
+                allow_download: opts.allow_download,
                 ..Default::default()
             })
             .await

@@ -3190,6 +3190,8 @@ dependencies = [
  "tempfile",
  "thiserror",
  "tokio",
+ "ureq",
+ "zip",
  "zune-jpeg",
 ]
 

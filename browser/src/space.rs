@@ -23,7 +23,6 @@ use tokio::sync::watch;
 
 use crate::cdp::{Connection, Event};
 use crate::diff::{diff_snapshots, SnapshotDiff};
-use crate::discover;
 use crate::frame::{decode_frame, Frame};
 use crate::launch::{remove_dir_best_effort, spawn_browser, LaunchSpec};
 use crate::snapshot::{parse_snapshot, snapshot_outline, Snapshot, OUTLINE_BUDGET};
@@ -49,6 +48,9 @@ pub struct SpaceOptions {
     pub viewport: (u32, u32),
     /// Explicit browser binary; discovered when `None`.
     pub browser_path: Option<PathBuf>,
+    /// Managed-download consent (`--download`): when discovery finds nothing,
+    /// fetch an official Chrome for Testing build into the managed root.
+    pub allow_download: bool,
     pub extra_args: Vec<String>,
 }
 
@@ -59,6 +61,7 @@ impl Default for SpaceOptions {
             headless: true,
             viewport: crate::DEFAULT_VIEWPORT,
             browser_path: None,
+            allow_download: false,
             extra_args: Vec::new(),
         }
     }
@@ -144,14 +147,15 @@ impl Space {
     pub async fn launch(opts: SpaceOptions) -> Result<Space> {
         let browser_path = match opts.browser_path.clone() {
             Some(p) => p,
-            None => discover::find_browser()
-                .map(|c| c.path)
-                .ok_or_else(|| {
-                    anyhow!(
-                        "no Chrome/Chromium/Edge found — set XENCODE_BROWSER to a browser \
-                         binary or install Google Chrome"
-                    )
-                })?,
+            // Discovery scan + optional managed download are blocking
+            // (network); keep them off the async reactor.
+            None => {
+                let allow = opts.allow_download;
+                tokio::task::spawn_blocking(move || crate::download::resolve(allow, crate::download::fetch_url))
+                    .await
+                    .map_err(|e| anyhow!("browser resolve task failed: {e}"))?
+                    .map(|c| c.path)?
+            }
         };
 
         let clean = matches!(opts.kind, SpaceKind::CleanRoom);

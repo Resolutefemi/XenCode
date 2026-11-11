@@ -36,6 +36,7 @@ pub mod apidisco;
 pub mod cdp;
 pub mod diff;
 pub mod discover;
+pub mod download;
 pub mod fleet;
 pub mod frame;
 pub mod launch;
@@ -52,6 +53,10 @@ pub use apidisco::{
 pub use cdp::{CdpError, Connection, Event};
 pub use diff::{diff_snapshots, SnapshotDiff};
 pub use discover::{find_browser, BrowserCandidate};
+pub use download::{
+    binary_rel_path, download_latest, ensure_in, install_root, managed_candidates, parse_feed,
+    platform_key, probe_in, resolve, version_key, CHANNEL, DOWNLOAD_CAP, FEED_URL,
+};
 pub use frame::Frame;
 pub use netcapture::{
     redact_entry, CaptureFile, CaptureOptions, CaptureState, NetCapture, NetEntry,
