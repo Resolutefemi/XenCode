@@ -22,13 +22,20 @@
 //!   [`plist`], embedded Mach-O reuses [`analyzer`]) and [`jadx`] — the
 //!   first orchestrated backend: probe, managed on-demand download from
 //!   GitHub releases, headless decompile + output inventory.
+//! - Phase 7.3 completes the RE stack: [`xex`] — the Xbox 360 executable
+//!   container (keyless structure parse + raw/basic decompression of
+//!   unencrypted payloads, encrypted files get structure only) — and
+//!   [`ghidra`] — the Ghidra-headless orchestrated backend (managed
+//!   download, PPC raw-binary loader path for XEX images, decompiled-C
+//!   export inventory).
 //!
 //! # Compliance guardrail
 //!
 //! XenRE is for analysis of authorized, user-owned targets: CTF images, own
 //! binaries, builds with debug symbols, classroom samples. No DRM keys and
 //! no circumvention tooling is bundled — XEX decryption keys are never
-//! shipped, the later XEX parser only reads container structure.
+//! shipped; encrypted XEX payloads are never decrypted and LZX/delta
+//! compressed payloads are refused with guidance instead of a wrong decode.
 
 pub mod analyzer;
 pub mod apk;
@@ -36,11 +43,13 @@ pub mod axml;
 pub mod dex;
 pub mod disasm;
 pub mod functions;
+pub mod ghidra;
 pub mod hexview;
 pub mod ipa;
 pub mod jadx;
 pub mod plist;
 pub mod strings;
+pub mod xex;
 
 pub use analyzer::{
     analyze_file, analyze_bytes, Arch, BinaryInfo, BinaryKind, Endian, Export, Format, Import,
@@ -59,6 +68,15 @@ pub use jadx::{
 };
 pub use plist::{parse_plist, PlistValue};
 pub use strings::{extract_strings, FoundString, StrEnc};
+pub use xex::{
+    decompress as xex_decompress, parse_xex, to_binary_info as xex_to_binary_info,
+    payload_image as xex_payload_image, is_xex, XexBasicBlock, XexImage, XexInfo, XexResource,
+    XexSection, XexStaticLib, XexTls,
+};
+pub use ghidra::{
+    ensure as ghidra_ensure, fetch_url as ghidra_fetch_url, install_root as ghidra_install_root,
+    probe as ghidra_probe, run as ghidra_run, GhidraOpts, GhidraRun, GhidraStatus,
+};
 
 /// Largest file the analyzer will load into memory (512 MiB — RE targets are
 /// rarely bigger; the cap keeps a stray `xencode re <dir>` honest).

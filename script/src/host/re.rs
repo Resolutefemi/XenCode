@@ -6,13 +6,15 @@
 //! static binary. Results come back as plain JSON-shaped objects:
 //!
 //! ```js
-//! import { analyze, strings, disasm, apk, decompile } from "xen/re";
+//! import { analyze, strings, disasm, apk, decompile, xex, ghidra } from "xen/re";
 //! const info = await analyze("./payload.bin");
 //! console.log(info.format, info.arch, info.entry_va);
 //! const hits = await strings("./payload.bin", { minLen: 6 });
 //! const code = await disasm("./payload.bin", { max: 64 });
 //! const pkg = await apk("./app.apk");
 //! const run = await decompile("./app.apk", { outDir: "./jadx-out" });
+//! const x = await xex("./homebrew.xex");       // structure only — keyless
+//! const g = await ghidra("./sample.elf", { outDir: "./ghidra-out" });
 //! ```
 
 use rquickjs::function::Opt;
@@ -29,7 +31,7 @@ impl ModuleDef for XenRe {
     fn declare(decl: &Declarations) -> JsResult<()> {
         for name in [
             "analyze", "strings", "hex", "symbols", "imports", "exports",
-            "functions", "disasm", "apk", "ipa", "decompile",
+            "functions", "disasm", "apk", "ipa", "decompile", "xex", "ghidra",
         ] {
             decl.declare(name)?;
         }
@@ -173,11 +175,42 @@ impl ModuleDef for XenRe {
         )?;
         exports.export("decompile", f)?;
 
+        // xex(path) → XexInfo  (Xbox 360 container structure — keyless)
+        let p = perms.clone();
+        let f = Function::new(
+            ctx.clone(),
+            Async(move |cx: Ctx<'js>, path: String| {
+                let perms = p.clone();
+                let cx = cx.clone();
+                async move { re_xex(&cx, &perms, &path).await }
+            }),
+        )?;
+        exports.export("xex", f)?;
+
+        // ghidra(path, {outDir?, download?, maxFiles?, maxFns?, timeoutSec?, lang?}?)
+        //   → GhidraRun  (Ghidra backend; proc + fs-write gates, net gate on
+        //     download; XEX inputs are flattened and imported as PPC64 BE raw)
+        let p = perms.clone();
+        let f = Function::new(
+            ctx.clone(),
+            Async(move |cx: Ctx<'js>, path: String, opts: Opt<Object<'js>>| {
+                let perms = p.clone();
+                let cx = cx.clone();
+                async move { re_ghidra(&cx, &perms, &path, opts.0).await }
+            }),
+        )?;
+        exports.export("ghidra", f)?;
+
         Ok(())
     }
 }
 
 /// Read + analyze once for all bindings (permission gate included).
+///
+/// XEX containers: byte views (hex/strings/disasm/functions) run on the
+/// decompressed flat image — the BinaryInfo's va↔offset map already speaks
+/// image offsets. Encrypted/LZX containers refuse here with the compliance
+/// message; the structural `xex()` binding still works on them.
 async fn load_and_analyze(
     perms: &crate::permissions::PermissionState,
     path: &str,
@@ -195,6 +228,11 @@ async fn load_and_analyze(
     }
     let info =
         xencode_re::analyze_bytes(&data).map_err(|e| js_err(format!("re `{path}`: {e}")))?;
+    if info.format == xencode_re::Format::Xex {
+        let (img_info, image) =
+            xencode_re::xex_payload_image(&data).map_err(|e| js_err(e.to_string()))?;
+        return Ok((img_info, image));
+    }
     Ok((info, data))
 }
 
@@ -561,5 +599,132 @@ async fn re_decompile<'js>(
     .await
     .map_err(|e| js_err(format!("re decompile: {e}")))?
     .map_err(|e| js_err(format!("re decompile `{path}`: {e:#}")))?;
+    Ok(jsvalue::to_js(cx, &run)?)
+}
+
+// ----------------------------------------------------- Phase 7.3 hooks ----
+
+/// `xex(path)` → XexInfo — Xbox 360 container structure. Keyless by design:
+/// works on encrypted retail files too (headers are plaintext), while byte
+/// views on those refuse via load_and_analyze.
+async fn re_xex<'js>(
+    cx: &Ctx<'js>,
+    perms: &crate::permissions::PermissionState,
+    path: &str,
+) -> JsResult<Value<'js>> {
+    let data = load_package(perms, path).await?;
+    let info = tokio::task::spawn_blocking(move || xencode_re::parse_xex(&data))
+        .await
+        .map_err(|e| js_err(format!("re xex: {e}")))?
+        .map_err(|e| js_err(format!("re `{path}`: {e:#}")))?;
+    Ok(jsvalue::to_js(cx, &info)?)
+}
+
+struct GhidraSpec {
+    out_dir: String,
+    download: bool,
+    max_files: usize,
+    max_fns: usize,
+    timeout_sec: usize,
+    lang: Option<String>,
+}
+
+fn ghidra_opts(opts: Option<&Object<'_>>) -> JsResult<GhidraSpec> {
+    let mut spec = GhidraSpec {
+        out_dir: String::new(),
+        download: false,
+        max_files: xencode_re::GhidraOpts::DEFAULT_MAX_FILES,
+        max_fns: xencode_re::GhidraOpts::DEFAULT_MAX_FUNCTIONS,
+        timeout_sec: 0,
+        lang: None,
+    };
+    if let Some(o) = opts {
+        if let Some(d) = o.get::<_, Option<String>>("outDir")? {
+            spec.out_dir = d;
+        }
+        spec.download = o.get::<_, Option<bool>>("download")?.unwrap_or(false);
+        spec.max_files = o
+            .get::<_, Option<f64>>("maxFiles")?
+            .map(|v| (v.max(0.0) as usize).min(100_000))
+            .unwrap_or(spec.max_files);
+        spec.max_fns = o
+            .get::<_, Option<f64>>("maxFns")?
+            .map(|v| (v.max(0.0) as usize).min(1_000_000))
+            .unwrap_or(spec.max_fns);
+        spec.timeout_sec = o
+            .get::<_, Option<f64>>("timeoutSec")?
+            .map(|v| (v.max(0.0) as usize).min(3600))
+            .unwrap_or(0);
+        spec.lang = o.get::<_, Option<String>>("lang")?;
+    }
+    Ok(spec)
+}
+
+/// `ghidra(path, {outDir?, download?, maxFiles?, maxFns?, timeoutSec?, lang?}?)`
+/// → GhidraRun — the Ghidra-headless orchestrated backend. Gates: fs read on
+/// the input, fs write on the export dir, proc on the analyzeHeadless spawn,
+/// and net on the GitHub hosts when `download: true`.
+async fn re_ghidra<'js>(
+    cx: &Ctx<'js>,
+    perms: &crate::permissions::PermissionState,
+    path: &str,
+    opts: Option<Object<'js>>,
+) -> JsResult<Value<'js>> {
+    let spec = ghidra_opts(opts.as_ref())?;
+    // Input read gate (also enforces the shared size cap).
+    perms.check_fs_read(path).map_err(js_err)?;
+    let input_len = tokio::fs::metadata(path)
+        .await
+        .map_err(|e| js_err(format!("re `{path}`: {e}")))?
+        .len();
+    if input_len > xencode_re::MAX_INPUT_BYTES {
+        return Err(js_err(format!(
+            "re `{path}`: {} bytes exceeds the {} cap",
+            input_len,
+            xencode_re::MAX_INPUT_BYTES
+        )));
+    }
+
+    // Out dir: explicit, else `<stem>-ghidra` beside the input.
+    let out_dir = if spec.out_dir.is_empty() {
+        let stem = std::path::Path::new(path)
+            .file_stem()
+            .and_then(|s| s.to_str())
+            .unwrap_or("image")
+            .to_string();
+        format!("{stem}-ghidra")
+    } else {
+        spec.out_dir.clone()
+    };
+    perms.check_fs_write(&out_dir).map_err(js_err)?;
+
+    // analyzeHeadless spawns a process; the managed download touches
+    // github.com hosts.
+    perms.check_proc("ghidra").map_err(js_err)?;
+    if spec.download {
+        for host in ["api.github.com", "github.com", "objects.githubusercontent.com"] {
+            perms.check_net(host).map_err(js_err)?;
+        }
+    }
+
+    let path_buf = path.to_string();
+    let run = tokio::task::spawn_blocking(move || -> Result<xencode_re::GhidraRun, anyhow::Error> {
+        let status = xencode_re::ghidra_ensure(
+            &xencode_re::ghidra_install_root(),
+            spec.download,
+            xencode_re::ghidra_fetch_url,
+        )?;
+        let opts = xencode_re::GhidraOpts {
+            max_files: spec.max_files,
+            max_functions: spec.max_fns,
+            timeout_sec: spec.timeout_sec,
+            lang: spec.lang,
+            base_addr: None,
+        };
+        xencode_re::ghidra_run(std::path::Path::new(&path_buf), std::path::Path::new(&out_dir), opts, &status)
+    })
+    .await
+    .map_err(|e| js_err(format!("re ghidra: {e}")))?
+    .map_err(|e| js_err(format!("re ghidra `{path}`: {e:#}")))?;
     Ok(jsvalue::to_js(cx, &run)?)
 }

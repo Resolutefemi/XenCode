@@ -966,4 +966,164 @@ mod tests {
         assert_eq!(clean_path(Path::new("/a/b/../c")), "/a/c");
         assert_eq!(clean_path(Path::new("x/./y")), "x/y");
     }
+
+    /// Phase 7.3: `xen.re.xex` reads the Xbox 360 container structure
+    /// end-to-end; `disasm` runs on the decompressed image (PPC64 BE);
+    /// `ghidra` surfaces a clean error when the backend is absent.
+    #[tokio::test(flavor = "current_thread")]
+    async fn xen_re_xex_ghidra_hooks() {
+        tokio::task::LocalSet::new().run_until(async {
+        let dir = tempfile::tempdir().unwrap();
+        let xex_path = dir.path().join("homebrew.xex");
+        std::fs::write(&xex_path, mini_xex_fixture()).unwrap();
+
+        let (tx, _rx) = crate::events::channel();
+        let rt = ScriptRuntime::new(RuntimeOptions::new(
+            dir.path().to_str().unwrap(),
+            PermissionState::allow_all(),
+            tx,
+        ))
+        .await
+        .unwrap();
+        let path_json = serde_json::to_string(&xex_path).unwrap();
+
+        // Structure parse.
+        let info = rt
+            .eval_json_async(&format!(
+                "(async () => await xen.re.xex({path_json}))()"
+            ))
+            .await
+            .unwrap();
+        assert_eq!(info["magic"], "XEX2");
+        assert_eq!(info["encryption"], "none");
+        assert_eq!(info["compression"], "none");
+        assert_eq!(info["load_address"].as_f64(), Some(2181038080.0));
+        assert_eq!(info["entry_point"].as_f64(), Some(2181042176.0));
+        assert_eq!(info["title_id"].as_f64(), Some(1397819355.0));
+        assert_eq!(info["title_tag"], "SQ");
+
+        // Disassembly rides the decompressed image (first 2 PPC64 BE insns).
+        let insns = rt
+            .eval_json_async(&format!(
+                "(async () => await xen.re.disasm({path_json}, {{ max: 2 }}))()"
+            ))
+            .await
+            .unwrap();
+        let arr = insns.as_array().expect("insn array");
+        assert_eq!(arr.len(), 2);
+        assert_eq!(arr[0]["mnemonic"], "li");
+        assert_eq!(arr[1]["mnemonic"], "blr");
+
+        // analyze() on the same file reports the XEX format + arch.
+        let analyzed = rt
+            .eval_json_async(&format!(
+                "(async () => await xen.re.analyze({path_json}))()"
+            ))
+            .await
+            .unwrap();
+        assert_eq!(analyzed["format"], "xex");
+        assert_eq!(analyzed["arch"], "ppc64");
+        assert_eq!(analyzed["endian"], "big");
+
+        // ghidra without an install → clean JS error (never a panic).
+        let err = rt
+            .eval_json_async(&format!(
+                "(async () => {{ try {{ await xen.re.ghidra({path_json}, {{ outDir: './g-out' }}); \
+                 return {{ ok: true }}; }} catch (e) {{ return {{ js_error: String(e && e.message || e) }}; }} }})()"
+            ))
+            .await
+            .unwrap();
+        let msg = err["js_error"].as_str().unwrap_or_default();
+        assert!(
+            msg.contains("Ghidra is not installed") || msg.contains("not installed"),
+            "got: {msg}"
+        );
+
+        rt.shutdown().await;
+        }).await;
+    }
+
+    /// Minimal unencrypted XEX2 (one 4 KiB code page with `li r3,1; blr`
+    /// at the entry, FILE_FORMAT none/none, EXECUTION_INFO title 'SQ').
+    fn mini_xex_fixture() -> Vec<u8> {
+        let be = |v: u32| v.to_be_bytes();
+        let so: u32 = 0x100;
+        let mut sec = Vec::new();
+        sec.extend_from_slice(&be(0x184 + 24)); // security header size
+        sec.extend_from_slice(&be(0x2000)); // image size (2 × 4 KiB pages)
+        sec.extend_from_slice(&[0u8; 0x100]); // RSA sig
+        sec.extend_from_slice(&[0u8; 0x4]); // unk_108
+        sec.extend_from_slice(&be(0x1000_0000)); // image flags: 4 KiB pages
+        sec.extend_from_slice(&be(0x8200_0000)); // load address
+        sec.extend_from_slice(&[0u8; 0x14]); // section digest
+        sec.extend_from_slice(&be(0)); // import table count
+        sec.extend_from_slice(&[0u8; 0x14]); // import digest
+        sec.extend_from_slice(&[0u8; 0x10]); // media id
+        sec.extend_from_slice(&[0u8; 0x10]); // aes key slot (zeros)
+        sec.extend_from_slice(&be(0)); // export table
+        sec.extend_from_slice(&[0u8; 0x14]); // header digest
+        sec.extend_from_slice(&be(0xFFFF_FFFF)); // region
+        sec.extend_from_slice(&be(0x7)); // allowed media
+        sec.extend_from_slice(&be(2)); // page descriptor count
+        sec.extend_from_slice(&be((2u32 << 4) | 1)); // two code pages
+        sec.extend_from_slice(&[0u8; 0x14]); // page digest
+
+        let ff_block = {
+            let mut b = Vec::new();
+            b.extend_from_slice(&be(8)); // struct size
+            b.extend_from_slice(&0u16.to_be_bytes()); // encryption none
+            b.extend_from_slice(&0u16.to_be_bytes()); // compression none
+            b
+        };
+        let exec_blob = {
+            let mut b = Vec::new();
+            b.extend_from_slice(&be(0)); // media id
+            b.extend_from_slice(&be(0x2000_0000)); // version 2.0.0.0
+            b.extend_from_slice(&be(0x1000_0000)); // base version 1.0.0.0
+            b.extend_from_slice(&be(0x5351_07DB)); // title id 'SQ'
+            b.extend_from_slice(&[9, 2, 0, 1]); // platform/exec/disc
+            b.extend_from_slice(&be(0x1234_5678)); // savegame id
+            b
+        };
+        let ff_off = 0x18 + 4 * 8;
+        let exec_off = ff_off + ff_block.len();
+        let pe_off = (so as usize + sec.len()).max(exec_off + exec_blob.len());
+
+        let mut out = Vec::new();
+        out.extend_from_slice(b"XEX2");
+        out.extend_from_slice(&be(0x81)); // title + user-mode
+        out.extend_from_slice(&be(pe_off as u32));
+        out.extend_from_slice(&be(0)); // reserved
+        out.extend_from_slice(&be(so));
+        out.extend_from_slice(&be(4)); // optional header count
+        for (k, v) in [
+            (0x0001_0100u32, 0x8200_1000u32), // ENTRY_POINT
+            (0x0001_0201, 0x8200_0000),       // IMAGE_BASE
+            (0x0000_03FF, ff_off as u32),     // FILE_FORMAT_INFO
+            (0x0004_0006, exec_off as u32),   // EXECUTION_INFO
+        ] {
+            out.extend_from_slice(&be(k));
+            out.extend_from_slice(&be(v));
+        }
+        while out.len() < ff_off {
+            out.push(0);
+        }
+        out.extend_from_slice(&ff_block);
+        out.extend_from_slice(&exec_blob);
+        while out.len() < so as usize {
+            out.push(0);
+        }
+        out.extend_from_slice(&sec);
+
+        let mut data = vec![0u8; pe_off];
+        data[..out.len()].copy_from_slice(&out);
+        data[so as usize..so as usize + sec.len()].copy_from_slice(&sec);
+        // `li r3, 1; blr` at image offset 0x1000 (= payload offset 0x1000);
+        // the image is two pages so the entry point is properly mapped.
+        let entry_off = pe_off + 0x1000;
+        data.resize(entry_off + 8, 0);
+        data[entry_off..entry_off + 8]
+            .copy_from_slice(&[0x38, 0x60, 0x00, 0x01, 0x4e, 0x80, 0x00, 0x20]);
+        data
+    }
 }

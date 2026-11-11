@@ -129,6 +129,23 @@ enum Mode {
         max_files: usize,
         json: bool,
     },
+    // Phase 7.3 -------------------------------------------------------------
+    /// `xencode re xex <FILE> [--json] [--extract DIR]` — Xbox 360 XEX
+    /// container summary; --extract materializes the unencrypted flat image.
+    ReXex { file: String, json: bool, extract: Option<String> },
+    /// `xencode re ghidra <FILE> [--out DIR] [--download] [--max-files N]
+    /// [--max-fns N] [--timeout-sec N] [--lang ID] [--json]` — Ghidra
+    /// headless analysis + decompiled-C export inventory.
+    ReGhidra {
+        file: String,
+        out: Option<String>,
+        download: bool,
+        max_files: usize,
+        max_fns: usize,
+        timeout_sec: usize,
+        lang: Option<String>,
+        json: bool,
+    },
     /// `xencode --re-ui <FILE>` — the Phase-7 native RE tab with the
     /// analyzed binary rendered into the workspace.
     ReUi { file: String, out: String },
@@ -279,6 +296,26 @@ fn main() -> Result<()> {
         }
         Mode::ReApk { file, json } => run_re_apk(&file, json),
         Mode::ReIpa { file, json } => run_re_ipa(&file, json),
+        Mode::ReXex { file, json, extract } => run_re_xex(&file, json, extract.as_deref()),
+        Mode::ReGhidra {
+            file,
+            out,
+            download,
+            max_files,
+            max_fns,
+            timeout_sec,
+            lang,
+            json,
+        } => run_re_ghidra(
+            &file,
+            out.as_deref(),
+            download,
+            max_files,
+            max_fns,
+            timeout_sec,
+            lang.as_deref(),
+            json,
+        ),
         Mode::ReDecompile {
             file,
             out,
@@ -1739,11 +1776,105 @@ fn parse_re(args: &[String]) -> Result<Mode> {
         bail!(
             "usage: xencode re info <FILE> | strings <FILE> | hex <FILE> | symbols <FILE> | \
              imports <FILE> | exports <FILE> | disasm <FILE> | apk <FILE> | ipa <FILE> | \
-             decompile <FILE>"
+             decompile <FILE> | xex <FILE> | ghidra <FILE>"
         );
     };
     let rest = &args[1..];
     match cmd.as_str() {
+        "xex" => {
+            let mut file = None;
+            let mut extract = None;
+            let mut json = false;
+            let mut i = 0;
+            while i < rest.len() {
+                match rest[i].as_str() {
+                    "--extract" if i + 1 < rest.len() => {
+                        extract = Some(rest[i + 1].clone());
+                        i += 2;
+                    }
+                    "--json" => {
+                        json = true;
+                        i += 1;
+                    }
+                    other if other.starts_with('-') => bail!("unknown re xex flag: {other}"),
+                    other if file.is_none() => {
+                        file = Some(other.to_string());
+                        i += 1;
+                    }
+                    other => bail!("unexpected re xex argument: {other}"),
+                }
+            }
+            Ok(Mode::ReXex {
+                file: re_file(file, "re xex")?,
+                json,
+                extract,
+            })
+        }
+        "ghidra" => {
+            let mut file = None;
+            let mut out = None;
+            let mut download = false;
+            let mut max_files = xencode_re::GhidraOpts::DEFAULT_MAX_FILES;
+            let mut max_fns = xencode_re::GhidraOpts::DEFAULT_MAX_FUNCTIONS;
+            let mut timeout_sec = 0usize;
+            let mut lang = None;
+            let mut json = false;
+            let mut i = 0;
+            while i < rest.len() {
+                match rest[i].as_str() {
+                    "--out" if i + 1 < rest.len() => {
+                        out = Some(rest[i + 1].clone());
+                        i += 2;
+                    }
+                    "--download" => {
+                        download = true;
+                        i += 1;
+                    }
+                    "--max-files" if i + 1 < rest.len() => {
+                        max_files = rest[i + 1]
+                            .parse()
+                            .context("--max-files expects a number")?;
+                        i += 2;
+                    }
+                    "--max-fns" if i + 1 < rest.len() => {
+                        max_fns = rest[i + 1]
+                            .parse()
+                            .context("--max-fns expects a number")?;
+                        i += 2;
+                    }
+                    "--timeout-sec" if i + 1 < rest.len() => {
+                        timeout_sec = rest[i + 1]
+                            .parse()
+                            .context("--timeout-sec expects a number of seconds")?;
+                        i += 2;
+                    }
+                    "--lang" if i + 1 < rest.len() => {
+                        lang = Some(rest[i + 1].clone());
+                        i += 2;
+                    }
+                    "--json" => {
+                        json = true;
+                        i += 1;
+                    }
+                    other if other.starts_with('-') => bail!("unknown re ghidra flag: {other}"),
+                    other if file.is_none() => {
+                        file = Some(other.to_string());
+                        i += 1;
+                    }
+                    other => bail!("unexpected re ghidra argument: {other}"),
+                }
+            }
+            Ok(Mode::ReGhidra {
+                file: re_file(file, "re ghidra")?,
+                out,
+                download,
+                max_files,
+                max_fns,
+                timeout_sec,
+                lang,
+                json,
+            })
+        }
         "apk" | "ipa" => {
             let (file, flags) = re_file_flags(rest)?;
             Ok(if cmd == "apk" {
@@ -2005,6 +2136,13 @@ fn re_analyze(file: &str) -> Result<(xencode_re::BinaryInfo, Vec<u8>)> {
         bail!("{} exceeds the {} analysis cap", file, xencode_re::MAX_INPUT_BYTES);
     }
     let info = xencode_re::analyze_file(file)?;
+    // XEX containers: byte views (strings/disasm) run on the decompressed
+    // flat image, whose offsets the BinaryInfo's va↔offset map already uses.
+    // Encrypted/LZX containers are refused here with the compliance message.
+    if info.format == xencode_re::Format::Xex {
+        let (img_info, image) = xencode_re::xex_payload_image(&data)?;
+        return Ok((img_info, image));
+    }
     Ok((info, data))
 }
 
@@ -2474,6 +2612,226 @@ fn run_re_decompile(
     Ok(())
 }
 
+/// `xencode re xex <FILE>` — Xbox 360 XEX container summary: magic, module
+/// flags, encryption/compression, execution info, section table, resources,
+/// import/static libraries. `--extract DIR` materializes the unencrypted
+/// flat image plus one file per section (encrypted/LZX containers refuse
+/// with the compliance message — headers stay readable either way).
+fn run_re_xex(file: &str, json: bool, extract: Option<&str>) -> Result<()> {
+    let data = re_read(file)?;
+    let meta = xencode_re::parse_xex(&data)?;
+
+    if json && extract.is_none() {
+        println!("{}", serde_json::to_string_pretty(&meta)?);
+        return Ok(());
+    }
+
+    // Extract the flat image (+ per-section slices) when asked.
+    if let Some(dir) = extract {
+        let img = xencode_re::xex_decompress(&data)?;
+        let out = std::path::Path::new(dir);
+        std::fs::create_dir_all(out)?;
+        let image_path = out.join("image.bin");
+        std::fs::write(&image_path, &img.image)?;
+        for s in &img.info.sections {
+            let name = format!(
+                "{:#010x}_{}_{}k.bin",
+                s.va,
+                s.type_name,
+                s.size / 1024
+            );
+            std::fs::write(out.join(name), &img.image[s.image_offset as usize..(s.image_offset + s.size) as usize])?;
+        }
+        if !json {
+            println!(
+                "extracted {} ({:.1} MB) + {} section files → {}",
+                "image.bin",
+                img.image.len() as f64 / (1024.0 * 1024.0),
+                img.info.sections.len(),
+                out.display()
+            );
+        } else {
+            println!(
+                "{}",
+                serde_json::to_string_pretty(&serde_json::json!({
+                    "image": image_path.display().to_string(),
+                    "image_size": img.image.len(),
+                    "sections": img.info.sections.iter().map(|s| serde_json::json!({
+                        "type": s.type_name,
+                        "va": s.va,
+                        "size": s.size,
+                    })).collect::<Vec<_>>(),
+                }))?
+            );
+        }
+        return Ok(());
+    }
+
+    if json {
+        println!("{}", serde_json::to_string_pretty(&meta)?);
+        return Ok(());
+    }
+    println!("magic        {}", meta.magic);
+    println!("module flags 0x{:08X} {}", meta.module_flags, meta.module_flag_names.join(", "));
+    println!(
+        "image        {:#x} @ load {:#x} ({} pages × {})",
+        meta.image_size,
+        meta.load_address,
+        meta.page_descriptor_count,
+        human_bytes(meta.page_size)
+    );
+    println!(
+        "entry        {}",
+        meta.entry_point.map(|v| format!("{v:#x}")).unwrap_or_else(|| "-".into())
+    );
+    println!("encryption   {}", meta.encryption);
+    println!("compression  {}", meta.compression);
+    if !meta.basic_blocks.is_empty() {
+        println!(
+             "  blocks     {} ({} data / {} zero)",
+            meta.basic_blocks.len(),
+            human_bytes(meta.basic_blocks.iter().map(|b| b.data_size).sum()),
+            human_bytes(meta.basic_blocks.iter().map(|b| b.zero_size).sum())
+        );
+    }
+    if let Some(w) = meta.lzx_window_size {
+        println!("  lzx window {w:#x}");
+    }
+    if let Some(id) = meta.title_id {
+        let tag = meta.title_tag.as_deref().unwrap_or("--");
+        println!("title id     {id:#010x} ({tag})");
+    }
+    if let (Some(v), Some(bv)) = (&meta.version, &meta.base_version) {
+        println!("version      {v} (base {bv})");
+    }
+    if let (Some(dn), Some(dc)) = (meta.disc_number, meta.disc_count) {
+        println!("disc         {} of {}", dn + 1, dc);
+    }
+    if let Some(name) = &meta.original_pe_name {
+        println!("pe name      {name}");
+    }
+    if !meta.import_libraries.is_empty() {
+        println!("imports      {}", meta.import_libraries.join(", "));
+    }
+    if !meta.static_libraries.is_empty() {
+        println!(
+            "static libs  {}",
+            meta.static_libraries
+                .iter()
+                .map(|l| format!("{} {}", l.name, l.version))
+                .collect::<Vec<_>>()
+                .join(", ")
+        );
+    }
+    if !meta.resources.is_empty() {
+        println!("resources    {}", meta.resources.len());
+    }
+    if meta.encryption != "none" {
+        println!();
+        println!(
+            "note         payload is encrypted — XenRE parses container structure only; \
+             decryption keys are never bundled (compliance guardrail)"
+        );
+    }
+    println!();
+    println!("{:>10}  {:<9} {:>10}  {:>10}", "VA", "TYPE", "SIZE", "IMAGE-OFF");
+    for s in &meta.sections {
+        println!(
+            "{:>10}  {:<9} {:>10}  {:>10}",
+            format!("{:#x}", s.va),
+            s.type_name,
+            human_bytes(s.size),
+            format!("{:#x}", s.image_offset)
+        );
+    }
+    Ok(())
+}
+
+/// `xencode re ghidra <FILE>` — Ghidra headless analysis + decompiled-C
+/// export. The backend is detected (PATH, then the managed install);
+/// `--download` opts into fetching the latest release (~450 MB, JDK 21).
+/// XEX inputs are flattened first and imported as PPC64 BE raw binaries.
+#[allow(clippy::too_many_arguments)]
+fn run_re_ghidra(
+    file: &str,
+    out: Option<&str>,
+    download: bool,
+    max_files: usize,
+    max_fns: usize,
+    timeout_sec: usize,
+    lang: Option<&str>,
+    json: bool,
+) -> Result<()> {
+    let status = xencode_re::ghidra_ensure(
+        &xencode_re::ghidra_install_root(),
+        download,
+        xencode_re::ghidra_fetch_url,
+    )?;
+    if !json {
+        match (&status.version, &status.path) {
+            (Some(v), Some(p)) => println!(
+                "ghidra    {v} ({p}{})",
+                if status.managed { ", managed" } else { "" }
+            ),
+            _ => println!("ghidra    version unknown"),
+        }
+        if let Some(jv) = &status.java_version {
+            println!("java      {jv}");
+        }
+    }
+
+    let out_dir = out
+        .map(PathBuf::from)
+        .unwrap_or_else(|| {
+            let base = Path::new(file)
+                .file_stem()
+                .and_then(|s| s.to_str())
+                .unwrap_or("image");
+            PathBuf::from(format!("{base}-ghidra"))
+        });
+    let opts = xencode_re::GhidraOpts {
+        max_files,
+        max_functions: max_fns,
+        timeout_sec,
+        lang: lang.map(|s| s.to_string()),
+        base_addr: None,
+    };
+    let run = xencode_re::ghidra_run(Path::new(file), &out_dir, opts, &status)?;
+
+    if json {
+        println!("{}", serde_json::to_string_pretty(&run)?);
+        return Ok(());
+    }
+    println!(
+        "decompiled {} functions across {} .c files in {:.1}s → exit {}",
+        run.functions_decompiled.map(|n| n.to_string()).unwrap_or_else(|| "?".into()),
+        run.total_c_files,
+        run.elapsed_ms as f64 / 1000.0,
+        run.exit_code
+    );
+    println!("out       {}", run.out_dir);
+    if !run.warnings.is_empty() {
+        println!("warnings");
+        for w in &run.warnings {
+            println!("  {w}");
+        }
+    }
+    println!();
+    const SHOW: usize = 24;
+    for f in run.c_files.iter().take(SHOW) {
+        println!("  {f}");
+    }
+    if run.c_files.len() > SHOW {
+        println!("  … {} more listed ({} total)", run.c_files.len() - SHOW, run.total_c_files);
+    } else if run.total_c_files as usize > run.c_files.len() {
+        println!("  … {} more (cap {})", run.total_c_files as usize - run.c_files.len(), max_files);
+    }
+    if run.exit_code != 0 {
+        bail!("Ghidra exited with code {}", run.exit_code);
+    }
+    Ok(())
+}
+
 /// `xencode --re-ui <FILE>` — the Phase-7.1 native RE tab: analyze the real
 /// binary through the XenRE core and render the hex / strings / symbols /
 /// imports views into the workspace (same renderer as the live window).
@@ -2622,6 +2980,111 @@ fn re_ui(file: &str, out: &str) -> Result<()> {
             pkg_chips.push(ui::re::ReChip { label: "code signature", tone: ui::re::ReChipTone::Green });
         }
         bin_info = i.binary.clone();
+    } else if xencode_re::is_xex(&data) {
+        // Phase 7.3: XEX containers open on the XEX identity view — the
+        // structure parse is keyless, so even encrypted retail files render.
+        let x = xencode_re::parse_xex(&data)?;
+        format_label = "XEX";
+        arch_label = "ppc64";
+        kind_label = "xbox 360";
+        pkg_size = data.len() as u64;
+        pkg_rows.push(ui::re::ReKv {
+            key: "magic",
+            value: Box::leak(x.magic.clone().into_boxed_str()),
+        });
+        pkg_rows.push(ui::re::ReKv {
+            key: "image",
+            value: Box::leak(
+                format!(
+                    "{:#x} @ load {:#x} ({} pages × {})",
+                    x.image_size,
+                    x.load_address,
+                    x.page_descriptor_count,
+                    human_bytes(x.page_size)
+                )
+                .into_boxed_str(),
+            ),
+        });
+        if let Some(ep) = x.entry_point {
+            pkg_rows.push(ui::re::ReKv {
+                key: "entry",
+                value: Box::leak(format!("{ep:#x}").into_boxed_str()),
+            });
+        }
+        pkg_rows.push(ui::re::ReKv {
+            key: "codec",
+            value: Box::leak(
+                format!("enc {} · comp {}", x.encryption, x.compression).into_boxed_str(),
+            ),
+        });
+        if let Some(id) = x.title_id {
+            let tag = x.title_tag.clone().unwrap_or_else(|| "--".into());
+            pkg_rows.push(ui::re::ReKv {
+                key: "title",
+                value: Box::leak(format!("{id:#010x} ({tag})").into_boxed_str()),
+            });
+        }
+        if let (Some(v), Some(bv)) = (&x.version, &x.base_version) {
+            pkg_rows.push(ui::re::ReKv {
+                key: "version",
+                value: Box::leak(format!("{v} (base {bv})").into_boxed_str()),
+            });
+        }
+        if let (Some(dn), Some(dc)) = (x.disc_number, x.disc_count) {
+            pkg_rows.push(ui::re::ReKv {
+                key: "disc",
+                value: Box::leak(format!("{} of {}", dn + 1, dc).into_boxed_str()),
+            });
+        }
+        if let Some(name) = &x.original_pe_name {
+            pkg_rows.push(ui::re::ReKv {
+                key: "pe name",
+                value: Box::leak(name.clone().into_boxed_str()),
+            });
+        }
+        for s in x.sections.iter().take(6) {
+            let label = format!(
+                "{} {:#x} {}",
+                s.type_name,
+                s.va,
+                human_bytes(s.size)
+            );
+            let tone = if s.page_type == 1 {
+                ui::re::ReChipTone::Green
+            } else {
+                ui::re::ReChipTone::Sky
+            };
+            pkg_chips.push(ui::re::ReChip { label: Box::leak(label.into_boxed_str()), tone });
+        }
+        for lib in x.import_libraries.iter().take(6) {
+            pkg_chips.push(ui::re::ReChip {
+                label: Box::leak(format!("import {lib}").into_boxed_str()),
+                tone: ui::re::ReChipTone::Sky,
+            });
+        }
+        for lib in x.static_libraries.iter().take(4) {
+            pkg_chips.push(ui::re::ReChip {
+                label: Box::leak(
+                    format!("{} {}", lib.name, lib.version).into_boxed_str(),
+                ),
+                tone: ui::re::ReChipTone::Subtle,
+            });
+        }
+        for r in x.resources.iter().take(4) {
+            pkg_chips.push(ui::re::ReChip {
+                label: Box::leak(
+                    format!("resource {} {}", r.name, human_bytes(r.size)).into_boxed_str(),
+                ),
+                tone: ui::re::ReChipTone::Subtle,
+            });
+        }
+        if x.encryption != "none" {
+            pkg_chips.push(ui::re::ReChip {
+                label: "encrypted — structure only (no keys bundled)",
+                tone: ui::re::ReChipTone::Subtle,
+            });
+        }
+        bin_info = Some(xencode_re::xex_to_binary_info(&x));
     } else {
         format_label = "";
         arch_label = "";
@@ -2630,6 +3093,15 @@ fn re_ui(file: &str, out: &str) -> Result<()> {
         bin_info = Some(xencode_re::analyze_file(file)?);
     }
 
+    // The rows/chips vectors are consumed by render_re_tab — capture the
+    // default tab choice (and their emptiness) before the move.
+    let default_tab = if pkg_rows.is_empty() {
+        ui::re::ReTab::Hex
+    } else if xencode_re::is_xex(&data) {
+        ui::re::ReTab::Xex
+    } else {
+        ui::re::ReTab::Package
+    };
     render_re_tab(
         file,
         out,
@@ -2642,6 +3114,7 @@ fn re_ui(file: &str, out: &str) -> Result<()> {
         arch_label,
         kind_label,
         pkg_size,
+        default_tab,
     )
 }
 
@@ -2659,6 +3132,7 @@ fn render_re_tab(
     arch_label: &str,
     kind_label: &str,
     size: u64,
+    default_tab: ui::re::ReTab,
 ) -> Result<()> {
     // Hex: 12 rows starting at the entry point (or the first exec section);
     // packages fall back to the first rows of the archive.
@@ -2807,12 +3281,9 @@ fn render_re_tab(
         kind: Box::leak(kind_s.into_boxed_str()),
         entry: Box::leak(entry_s.into_boxed_str()),
         size,
-        // Packages open on the bundle summary; binaries on hex.
-        tab: if pkg_rows.is_empty() {
-            ui::re::ReTab::Hex
-        } else {
-            ui::re::ReTab::Package
-        },
+        // Packages open on the bundle summary; XEX on its identity view;
+        // plain binaries on hex.
+        tab: default_tab,
         hex: Box::leak(hex_rows.into_boxed_slice()),
         strings: Box::leak(strings.into_boxed_slice()),
         symbols: Box::leak(symbols.into_boxed_slice()),

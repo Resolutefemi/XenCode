@@ -3,8 +3,10 @@
 //! The native layer of the code view: feed a byte slice + base virtual
 //! address, get back one [`Insn`] per decoded instruction (addr, raw bytes,
 //! mnemonic, operand string). Architectures: x86 (16/32/64), ARM, ARM64 and
-//! PPC/PPC64 (the Xenon in the Xbox 360 is PPC64 with Altivec — covered by
-//! capstone's PPC core; no Xenon-specific encodings are special-cased yet).
+//! PPC64 big-endian — the Xbox 360 Xenon core (Phase 7.3: the `xenon` alias
+//! now maps to PPC64 to match the real ISA; XEX images auto-disassemble as
+//! PPC64 BE). Capstone's PPC core covers the common instruction set; the
+//! Xenon-only VMX128 extensions (128-register Altivec) are not special-cased.
 //!
 //! x86-64 is the default flavor; real RE workflows disassemble from a known
 //! entry point or function symbol (see [`functions`]), so callers pass the
@@ -73,10 +75,12 @@ pub fn parse_arch(s: &str) -> Result<DisArch> {
         "arm" => Ok(DisArch::Arm),
         "thumb" => Ok(DisArch::Thumb),
         "arm64" | "aarch64" => Ok(DisArch::Arm64),
-        "ppc" | "powerpc" | "xenon" => Ok(DisArch::Ppc),
-        "ppc64" | "powerpc64" => Ok(DisArch::Ppc64),
+        // Xenon (Xbox 360) is PPC64 big-endian — Phase 7.3 fixes the old
+        // 32-bit mapping now that XEX containers auto-select the arch.
+        "xenon" | "ppc64" | "powerpc64" => Ok(DisArch::Ppc64),
+        "ppc" | "powerpc" => Ok(DisArch::Ppc),
         other => bail!(
-            "unknown arch `{other}` — expected x86, x86_64, arm, thumb, arm64, ppc or ppc64"
+            "unknown arch `{other}` — expected x86, x86_64, arm, thumb, arm64, ppc, ppc64 or xenon"
         ),
     }
 }
@@ -189,6 +193,19 @@ mod tests {
     }
 
     #[test]
+    fn xenon_maps_to_ppc64_big_endian() {
+        // Phase 7.3: the Xenon core is PPC64 BE. `li r3, 1` (0x38600001)
+        // followed by `blr` (0x4e800020) decodes as two PPC64 BE insns.
+        let code = [0x38, 0x60, 0x00, 0x01, 0x4e, 0x80, 0x00, 0x20];
+        let insns = disasm_bytes(&code, 0x8200_1000, DisArch::Ppc64, 16).unwrap();
+        assert_eq!(insns.len(), 2);
+        assert_eq!(insns[0].mnemonic, "li");
+        assert_eq!(insns[0].operands, "r3, 1");
+        assert_eq!(insns[1].mnemonic, "blr");
+        assert_eq!(parse_arch("xenon").unwrap(), DisArch::Ppc64);
+    }
+
+    #[test]
     fn invalid_bytes_stop_the_run() {
         let code = [0x55, 0xff, 0xff, 0xff, 0xff, 0xc3];
         let insns = disasm_bytes(&code, 0x10, DisArch::X86_64, 64).unwrap();
@@ -214,7 +231,8 @@ mod tests {
     fn parse_arch_aliases() {
         assert_eq!(parse_arch("x64").unwrap(), DisArch::X86_64);
         assert_eq!(parse_arch("aarch64").unwrap(), DisArch::Arm64);
-        assert_eq!(parse_arch("Xenon").unwrap(), DisArch::Ppc);
+        assert_eq!(parse_arch("Xenon").unwrap(), DisArch::Ppc64, "7.3: Xenon = PPC64 BE");
+        assert_eq!(parse_arch("ppc").unwrap(), DisArch::Ppc);
         assert!(parse_arch("mips").is_err());
     }
 

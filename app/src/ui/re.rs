@@ -26,6 +26,9 @@ pub enum ReTab {
     Symbols,
     Imports,
     Package,
+    /// Xbox 360 XEX container identity (Phase 7.3) — same KV+chips layout
+    /// as Package, fed from the XEX structure parse.
+    Xex,
 }
 
 impl ReTab {
@@ -36,14 +39,16 @@ impl ReTab {
             ReTab::Symbols => "Symbols",
             ReTab::Imports => "Imports",
             ReTab::Package => "Package",
+            ReTab::Xex => "XEX",
         }
     }
-    pub const ALL: [ReTab; 5] = [
+    pub const ALL: [ReTab; 6] = [
         ReTab::Hex,
         ReTab::Strings,
         ReTab::Symbols,
         ReTab::Imports,
         ReTab::Package,
+        ReTab::Xex,
     ];
 }
 
@@ -156,6 +161,7 @@ pub fn draw(c: &mut Canvas, area: Rect, page: &RePage<'_>) {
         ReTab::Symbols => draw_symbols(c, content, page),
         ReTab::Imports => draw_imports(c, content, page),
         ReTab::Package => draw_package(c, content, page),
+        ReTab::Xex => draw_xex(c, content, page),
     }
 
     let status = Rect::new(area.x, content.bottom(), area.w, STATUS_H);
@@ -510,18 +516,50 @@ fn draw_imports(c: &mut Canvas, r: Rect, page: &RePage<'_>) {
 /// Package view (Phase 7.2): bundle identity rows, then chip flow of
 /// permissions / components / abis / dex stats.
 fn draw_package(c: &mut Canvas, r: Rect, page: &RePage<'_>) {
-    if page.package_rows.is_empty() && page.package_chips.is_empty() {
-        empty_view(c, r, "package", "not an APK/IPA — no bundle manifest");
+    draw_kv_chips(
+        c,
+        r,
+        page.package_rows,
+        page.package_chips,
+        "package",
+        "not an APK/IPA — no bundle manifest",
+    );
+}
+
+/// The XEX identity view (Phase 7.3) — same KV+chips machinery, fed from
+/// the XEX container structure parse.
+fn draw_xex(c: &mut Canvas, r: Rect, page: &RePage<'_>) {
+    draw_kv_chips(
+        c,
+        r,
+        page.package_rows,
+        page.package_chips,
+        "xex",
+        "not an XEX container — Xbox 360 images only",
+    );
+}
+
+/// Shared key/value rows + wrapping chip flow behind Package and XEX.
+fn draw_kv_chips(
+    c: &mut Canvas,
+    r: Rect,
+    rows: &[ReKv<'_>],
+    chips: &[ReChip<'_>],
+    _icon: &str,
+    empty_hint: &str,
+) {
+    if rows.is_empty() && chips.is_empty() {
+        empty_view(c, r, "package", empty_hint);
         return;
     }
     let lh = fonts::line_height(12.0, false);
-    let rows = ((r.h - 16.0) / lh).floor() as usize;
+    let max_rows = ((r.h - 16.0) / lh).floor() as usize;
 
     // Key/value rows first.
     let mut y = r.y + 8.0;
     let mut drawn = 0usize;
-    for kv in page.package_rows.iter() {
-        if drawn >= rows {
+    for kv in rows.iter() {
+        if drawn >= max_rows {
             break;
         }
         let kw = 84.0;
@@ -542,10 +580,10 @@ fn draw_package(c: &mut Canvas, r: Rect, page: &RePage<'_>) {
     }
 
     // Chip flow under the rows.
-    if drawn < rows && !page.package_chips.is_empty() {
+    if drawn < max_rows && !chips.is_empty() {
         y += 6.0;
         let mut x = r.x + 12.0;
-        for chip in page.package_chips.iter() {
+        for chip in chips.iter() {
             let w = fonts::measure(chip.label, 10.0, Weight::Normal, false) + 16.0;
             if x + w > r.right() - 12.0 {
                 // wrap
@@ -568,10 +606,10 @@ fn draw_package(c: &mut Canvas, r: Rect, page: &RePage<'_>) {
     }
 
     // Truncation hint when rows didn't fit.
-    if page.package_rows.len() > drawn {
+    if rows.len() > drawn {
         let more = format!(
-            "+{} more rows — `xencode re apk/ipa --json` for the full set",
-            page.package_rows.len() - drawn
+            "+{} more rows — `xencode re apk/ipa/xex --json` for the full set",
+            rows.len() - drawn
         );
         fonts::draw_mid(
             c,
@@ -752,6 +790,40 @@ mod tests {
             let mut c = Canvas::new(1200.0, 800.0, 2.0);
             draw(&mut c, Rect::new(268.0, 52.0, 928.0, 740.0), &page);
         }
+    }
+
+    #[test]
+    fn xex_tab_renders_identity_rows_and_chips() {
+        // Phase 7.3: the XEX identity view reuses the KV+chips machinery.
+        let rows: &'static [ReKv<'static>] = Box::leak(
+            vec![
+                ReKv { key: "magic", value: "XEX2" },
+                ReKv { key: "image", value: "0xae0000 @ load 0x82000000 (174 pages × 64.0 KB)" },
+                ReKv { key: "entry", value: "0x821cba90" },
+                ReKv { key: "codec", value: "enc aes · comp basic" },
+                ReKv { key: "title", value: "0x535107db (SQ)" },
+            ]
+            .into_boxed_slice(),
+        );
+        let chips: &'static [ReChip<'static>] = Box::leak(
+            vec![
+                ReChip { label: "code 0x82010000 3.0 MB", tone: ReChipTone::Green },
+                ReChip { label: "data 0x82040000 1.5 MB", tone: ReChipTone::Sky },
+                ReChip { label: "import xboxkrnl.exe", tone: ReChipTone::Sky },
+                ReChip { label: "XAPILIB 2.0.6534.0", tone: ReChipTone::Subtle },
+                ReChip { label: "encrypted — structure only (no keys bundled)", tone: ReChipTone::Subtle },
+            ]
+            .into_boxed_slice(),
+        );
+        let mut page = sample_page();
+        page.format = "XEX";
+        page.arch = "ppc64";
+        page.kind = "xbox 360";
+        page.tab = ReTab::Xex;
+        page.package_rows = rows;
+        page.package_chips = chips;
+        let mut c = Canvas::new(1200.0, 800.0, 2.0);
+        draw(&mut c, Rect::new(268.0, 52.0, 928.0, 740.0), &page);
     }
 
     #[test]

@@ -9,7 +9,7 @@
   with a GLM-powered agent core and a QuickJS automation engine (no Python).
 </p>
 
-> **Status:** active development. The GUI is a pixel-faithful reimplementation of the ZCode v3.17.2 UX (all six primary pages rendered and verified). **Phases 0–5 are complete**: the agent core runs headlessly (GLM streaming, sessions, permission modes), the chat pane renders live transcripts, the QuickJS automation engine ships with the full `xen.*` host bridge, and all three harness waves landed — memory files, slash commands, hooks and plan mode (wave 1); MCP, subagents, checkpoints and `xen exec` (wave 2); repo map, diagnostics loop, recipes, the Oracle and run telemetry (wave 3). **XenBrowser 6.1–6.2 are complete**: a pure-Rust CDP client drives real Chromium — Spaces, auto-wait actions, DOM snapshots diffed by `backendNodeId`, and a native browser tab compositing live screencast frames. **Phase 8 (API Discovery) is complete**: network capture turns observed XHR/fetch traffic into an endpoint catalog with copy-as cURL/fetch/reqwest/QuickJS, OpenAPI 3.1 export and a change-alerting endpoint monitor (6.3–6.4 recorder + headless fleet and XenRE 7.2–7.3 remain — see [plan.md](plan.md)). **XenRE 7.1 is complete**: native ELF/PE/Mach-O analysis with hex/strings/imports panels, capstone disassembly and the `xen.re` script hooks.
+> **Status:** active development. The GUI is a pixel-faithful reimplementation of the ZCode v3.17.2 UX (all six primary pages rendered and verified). **Phases 0–5 are complete**: the agent core runs headlessly (GLM streaming, sessions, permission modes), the chat pane renders live transcripts, the QuickJS automation engine ships with the full `xen.*` host bridge, and all three harness waves landed — memory files, slash commands, hooks and plan mode (wave 1); MCP, subagents, checkpoints and `xen exec` (wave 2); repo map, diagnostics loop, recipes, the Oracle and run telemetry (wave 3). **XenBrowser 6.1–6.2 are complete**: a pure-Rust CDP client drives real Chromium — Spaces, auto-wait actions, DOM snapshots diffed by `backendNodeId`, and a native browser tab compositing live screencast frames. **Phase 8 (API Discovery) is complete**: network capture turns observed XHR/fetch traffic into an endpoint catalog with copy-as cURL/fetch/reqwest/QuickJS, OpenAPI 3.1 export and a change-alerting endpoint monitor (6.3–6.4 recorder + headless fleet remain — see [plan.md](plan.md)). **XenRE 7.1–7.3 are complete**: native ELF/PE/Mach-O analysis with hex/strings/imports panels, capstone disassembly (x86→PPC64/Xenon) and the `xen.re` script hooks; APK/IPA package analysis with jadx orchestration; Xbox 360 XEX container parsing (keyless, encrypted payloads never decrypted) with Ghidra-headless decompilation including the PPC64 raw-binary loader flow.
 
 ## Highlights
 
@@ -60,6 +60,13 @@ function rail, hex view at the entry point, strings/symbols/imports views:
 | Sections rail, hex at entry, ELF/x86_64 chips |
 | --- |
 | ![re-tab](screenshots/09-re-tab.png) |
+
+**Phase 7.3 XEX identity view** — Xbox 360 containers open on a dedicated
+XEX tab (keyless structure parse; encrypted files render structure only):
+
+| XEX identity rows, section chips, PPC64 rail |
+| --- |
+| ![re-xex](screenshots/11-re-xex.png) |
 
 ## Build & run
 
@@ -383,7 +390,10 @@ the sharing boundary; keep redacted captures when in doubt.
 
 The XenRE toolkit analyzes executables natively (no external tools): ELF /
 PE / Mach-O parsing, string extraction, hex views and capstone
-disassembly (x86, x64, ARM, Thumb, ARM64, PPC — Xenon included).
+disassembly (x86, x64, ARM, Thumb, ARM64, PPC64 — Xenon included),
+Android/iOS package analysis with an on-demand jadx backend, and Xbox 360
+XEX containers (keyless structure parse — encrypted payloads are never
+decrypted) with an on-demand Ghidra headless backend.
 
 ```bash
 # One-screen summary: format, arch, entry, sections
@@ -395,19 +405,29 @@ xencode re strings ./binary --min 8 --utf16
 # Hex view anywhere in the file (hex offsets welcome)
 xencode re hex ./binary --offset 0x1000 --len 256
 
-# Disassemble from the entry point (or --offset / --arch ppc)
+# Disassemble from the entry point (or --offset / --arch xenon)
 xencode re disasm ./binary --len 0x100
-xencode re disasm ./firmware --arch ppc64
+xencode re disasm ./firmware --arch xenon
 
 # Symbol / import / export tables
 xencode re symbols ./binary && xencode re imports ./binary
+
+# Android/iOS packages + managed jadx decompile (~40 MB download)
+xencode re apk ./app.apk && xencode re decompile ./app.apk --download
+
+# Xbox 360 XEX containers: structure, image extraction, Ghidra flow
+xencode re xex ./homebrew.xex --extract ./image
+xencode re disasm ./homebrew.xex              # PPC64 BE at the entry, auto-arch
+xencode re ghidra ./sample.elf --download     # ~450 MB, JDK 21
 ```
 
 Scripts get the same power through the `xen.re` hooks (`analyze`,
-`strings`, `hex`, `disasm`, `symbols`, `imports`, `exports`, `functions`)
-— every call passes the `fs` read permission gate first. The native
-`--re-ui` tab renders the analyzed binary (hex at the entry point,
-sections + function rail); `xencode --re-ui ./binary --out re.png`.
+`strings`, `hex`, `disasm`, `symbols`, `imports`, `exports`, `functions`,
+`apk`, `ipa`, `decompile`, `xex`, `ghidra`) — every call passes the `fs`
+read permission gate first. The native `--re-ui` tab renders the analyzed
+binary (hex at the entry point, sections + function rail; APK/IPA open on
+a Package view, XEX files on an XEX identity view);
+`xencode --re-ui ./binary --out re.png`.
 
 > XenRE is for authorized, user-owned targets only — no DRM keys or
 > circumvention tooling is bundled.

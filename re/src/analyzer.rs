@@ -29,6 +29,9 @@ pub enum Format {
     Pe,
     MachO,
     Coff,
+    /// Xbox 360 XEX container (Phase 7.3) — structural info only; byte views
+    /// run on the decompressed image ([`crate::xex::decompress`]).
+    Xex,
     Unknown,
 }
 
@@ -39,6 +42,7 @@ impl fmt::Display for Format {
             Format::Pe => "PE",
             Format::MachO => "Mach-O",
             Format::Coff => "COFF",
+            Format::Xex => "XEX",
             Format::Unknown => "unknown",
         })
     }
@@ -362,6 +366,20 @@ impl BinaryInfo {
     pub fn exec_sections(&self) -> Vec<&Section> {
         self.sections.iter().filter(|s| s.flags.exec).collect()
     }
+
+    /// Replace the va↔offset map from flat `(va_start, va_end, off_start)`
+    /// ranges. Crate-internal — the XEX bridge builds one flat image map.
+    pub(crate) fn set_addr_maps(&mut self, maps: impl IntoIterator<Item = (u64, u64, u64)>) {
+        self.addr_map = maps
+            .into_iter()
+            .map(|(va_start, va_end, off_start)| AddrMap {
+                va_start,
+                va_end,
+                off_start,
+                len: va_end.saturating_sub(va_start),
+            })
+            .collect();
+    }
 }
 
 /// Parse and analyze a file from disk.
@@ -388,6 +406,14 @@ pub fn analyze_file(path: impl AsRef<Path>) -> Result<BinaryInfo> {
 /// Analyze an in-memory image.
 pub fn analyze_bytes(data: &[u8]) -> Result<BinaryInfo> {
     use goblin::Object;
+
+    // XEX containers route through the dedicated keyless parser (Phase 7.3).
+    if crate::xex::is_xex(data) {
+        let xex = crate::xex::parse_xex(data)?;
+        let mut info = crate::xex::to_binary_info(&xex);
+        info.size = data.len() as u64;
+        return Ok(info);
+    }
 
     let mut info = match Object::parse(data)
         .map_err(|e| anyhow::anyhow!("format parse failed: {e}"))?

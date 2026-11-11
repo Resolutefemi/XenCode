@@ -359,3 +359,225 @@ fn real_system_elf_round_trips() {
         }
     }
 }
+
+// ------------------------------------------------------------ XEX (7.3) ----
+
+/// Minimal unencrypted XEX2: one header page, one code page (`li r3,1; blr`),
+/// one data page carrying a string — laid out like the xex unit fixture but
+/// self-contained for the integration pipeline. `blocks`/`payload` override
+/// the FILE_FORMAT_INFO table and the raw payload (for compression tests).
+fn xex2_fixture_opts(
+    encryption: u16,
+    compression: u16,
+    blocks: &[(u32, u32)],
+    payload: Vec<u8>,
+) -> Vec<u8> {
+    let be = |v: u32| v.to_be_bytes();
+    let so: usize = 0x200;
+    let page: u32 = 0x10000; // 64 KiB pages (no page-size-4kb flag)
+
+    // Security block.
+    let mut sec = Vec::new();
+    let put = |v: &mut Vec<u8>, x: u32| v.extend_from_slice(&x.to_be_bytes());
+    put(&mut sec, 0x184 + 3 * 24); // header size (3 descriptors)
+    let image_size: u32 = 3 * page;
+    put(&mut sec, image_size);
+    sec.extend_from_slice(&[0u8; 0x100]); // RSA sig
+    sec.extend_from_slice(&[0u8; 0x4]); // unk_108
+    put(&mut sec, 0x2000_0000); // image flags: region free, 64 KiB pages
+    put(&mut sec, 0x8200_0000); // load address
+    sec.extend_from_slice(&[0u8; 0x14]); // section digest
+    put(&mut sec, 0); // import table count
+    sec.extend_from_slice(&[0u8; 0x14]); // import digest
+    sec.extend_from_slice(&[0u8; 0x10]); // xgd2 media id
+    sec.extend_from_slice(&[0u8; 0x10]); // aes key slot (never read here)
+    put(&mut sec, 0); // export table
+    sec.extend_from_slice(&[0u8; 0x14]); // header digest
+    put(&mut sec, 0xFFFF_FFFF); // region
+    put(&mut sec, 0x7); // allowed media
+    put(&mut sec, 3); // page descriptor count
+    for (ty, pages) in [(0u32, 1u32), (1, 1), (2, 1)] {
+        put(&mut sec, (pages << 4) | ty);
+        sec.extend_from_slice(&[0u8; 0x14]); // page digest
+    }
+
+    // Optional header blocks.
+    let ff_block = {
+        let mut b = Vec::new();
+        put(&mut b, (8 + blocks.len() * 8) as u32); // struct size
+        b.extend_from_slice(&encryption.to_be_bytes());
+        b.extend_from_slice(&compression.to_be_bytes());
+        for (d, z) in blocks {
+            put(&mut b, *d);
+            put(&mut b, *z);
+        }
+        b
+    };
+    let exec_blob = {
+        let mut b = Vec::new();
+        put(&mut b, 0); // media id
+        put(&mut b, 0x2000_0000); // version 2.0.0.0
+        put(&mut b, 0x1000_0000); // base version 1.0.0.0
+        put(&mut b, 0x5351_07DB); // title id ('SQ')
+        b.extend_from_slice(&[9, 2, 0, 1]); // platform/exec/disc 0 of 1
+        put(&mut b, 0x1234_5678); // savegame id
+        b
+    };
+
+    let total_opt = 4; // entry + image base + file format + execution info
+    let mut cur = 0x18 + total_opt * 8;
+    let ff_off = cur;
+    cur += ff_block.len();
+    let exec_off = cur;
+    cur += exec_blob.len();
+    let so_final = cur.max(so);
+    let pe_off = so_final + sec.len();
+
+    let mut out = Vec::new();
+    out.extend_from_slice(b"XEX2");
+    put(&mut out, 0x81); // module flags: title + user-mode
+    put(&mut out, pe_off as u32);
+    put(&mut out, 0); // reserved
+    put(&mut out, so_final as u32);
+    put(&mut out, total_opt as u32);
+    for (k, v) in [
+        (0x0001_0100u32, 0x8200_1000u32), // ENTRY_POINT
+        (0x0001_0201, 0x8200_0000),       // IMAGE_BASE
+        (0x0000_03FF, ff_off as u32),     // FILE_FORMAT_INFO
+        (0x0004_0006, exec_off as u32),   // EXECUTION_INFO (6 dwords raw)
+    ] {
+        put(&mut out, k);
+        put(&mut out, v);
+    }
+    while out.len() < ff_off {
+        out.push(0);
+    }
+    out.extend_from_slice(&ff_block);
+    out.extend_from_slice(&exec_blob);
+    while out.len() < so_final {
+        out.push(0);
+    }
+    out.extend_from_slice(&sec);
+
+    if payload.is_empty() {
+        // Default payload = flattened image: header page, code page, data page.
+        let mut img = vec![0u8; image_size as usize];
+        // Code at image offset 0x10000 (page 1): li r3,1; blr.
+        img[0x1_0000..0x1_0008]
+            .copy_from_slice(&[0x38, 0x60, 0x00, 0x01, 0x4e, 0x80, 0x00, 0x20]);
+        // Data at image offset 0x20000 (page 2): a string.
+        img[0x2_0000..0x2_0008].copy_from_slice(b"XENCODE\x00");
+        out.extend_from_slice(&img);
+    } else {
+        out.extend_from_slice(&payload);
+    }
+    out
+}
+
+fn xex2_fixture(encryption: u16, compression: u16) -> Vec<u8> {
+    xex2_fixture_opts(encryption, compression, &[], vec![])
+}
+
+#[test]
+fn xex_pipeline_end_to_end() {
+    let data = xex2_fixture(0, 0);
+    let info = analyze_bytes(&data).expect("xex fixture must parse");
+
+    assert_eq!(info.format, Format::Xex);
+    assert_eq!(info.arch.to_string(), "ppc64");
+    assert_eq!(info.bits, 64);
+    assert_eq!(info.endian.to_string(), "big");
+    assert_eq!(info.kind, BinaryKind::Exe);
+    assert!(!info.pie);
+    assert_eq!(info.entry_va, Some(0x8200_1000));
+    assert_eq!(info.image_base, Some(0x8200_0000));
+    assert_eq!(info.size, data.len() as u64);
+
+    // Sections: code + data (header pages never surface).
+    assert_eq!(info.sections.len(), 2);
+    let code = &info.sections[0];
+    assert_eq!(code.name, ".xex-code");
+    assert_eq!(code.va, Some(0x8201_0000));
+    assert_eq!(code.file_off, 0x1_0000, "image offset");
+    assert!(code.flags.exec && !code.flags.write);
+    let data_sec = &info.sections[1];
+    assert_eq!(data_sec.name, ".xex-data");
+    assert!(data_sec.flags.write && !data_sec.flags.exec);
+
+    // Flat image map round-trips.
+    assert_eq!(info.va_to_offset(0x8201_0000), Some(0x1_0000));
+    assert_eq!(info.offset_to_va(0x2_0000), Some(0x8202_0000));
+
+    // Byte views run on the decompressed image (compression none → copy).
+    let (img_info, image) = xex_payload_image(&data).expect("payload materializes");
+    assert_eq!(image.len(), 3 * 0x1_0000);
+    assert_eq!(img_info.entry_va, Some(0x8200_1000));
+
+    // Disassembly at the entry: PPC64 BE `li r3, 1` + `blr`.
+    let arch = arch_from_binary(&img_info).unwrap();
+    assert_eq!(arch, DisArch::Ppc64);
+    let insns = disasm_bytes(&image[0x1_0000..0x1_0008], 0x8200_1000, arch, 16).unwrap();
+    assert_eq!(insns.len(), 2);
+    assert_eq!(insns[0].mnemonic, "li");
+    assert_eq!(insns[0].operands, "r3, 1");
+    assert_eq!(insns[1].mnemonic, "blr");
+
+    // Strings over the image find the data-page text.
+    let hits = extract_strings(&image, 4);
+    assert!(hits.iter().any(|s| s.text == "XENCODE"));
+
+    // Functions: just the entry point (no symbol tables in XEX).
+    let fns = functions(&img_info);
+    assert_eq!(fns.len(), 1);
+    assert_eq!(fns[0].name, "<entry>");
+    assert_eq!(fns[0].va, 0x8200_1000);
+
+    // Structured metadata renders, and no key material leaks into JSON.
+    let meta = parse_xex(&data).expect("structure parses");
+    assert_eq!(meta.magic, "XEX2");
+    assert_eq!(meta.encryption, "none");
+    assert_eq!(meta.compression, "none");
+    assert_eq!(meta.title_id, Some(0x5351_07DB));
+    assert_eq!(meta.title_tag.as_deref(), Some("SQ"));
+    assert_eq!(meta.version.as_deref(), Some("2.0.0.0"));
+    let json = serde_json::to_string(&meta).expect("serializes");
+    assert!(!json.to_ascii_lowercase().contains("aes_key"));
+    assert!(!json.to_ascii_lowercase().contains("\"key\""));
+}
+
+#[test]
+fn xex_encrypted_refuses_byte_views_but_parses_structure() {
+    let data = xex2_fixture(1, 0); // encryption = normal (AES)
+    let info = analyze_bytes(&data).expect("structure still analyzes");
+    assert_eq!(info.format, Format::Xex);
+    assert_eq!(info.entry_va, Some(0x8200_1000));
+
+    let err = xex_payload_image(&data).expect_err("byte views must refuse");
+    let msg = err.to_string();
+    assert!(msg.contains("AES-encrypted"), "{msg}");
+    assert!(msg.contains("keys are never bundled"), "{msg}");
+
+    // Structure metadata is unaffected (headers are plaintext).
+    let meta = parse_xex(&data).expect("parses");
+    assert_eq!(meta.encryption, "aes");
+    assert_eq!(meta.load_address, 0x8200_0000);
+}
+
+#[test]
+fn xex_basic_compression_end_to_end() {
+    // Basic compression: pair (data 0x10008, zero 0x1FFF8) streams the
+    // header page + code through and zero-fills the rest of the image.
+    let mut payload = vec![0u8; 0x1_0000];
+    payload.extend_from_slice(&[0x38, 0x60, 0x00, 0x01, 0x4e, 0x80, 0x00, 0x20]);
+    let data = xex2_fixture_opts(0, 1, &[(0x1_0008, 0x1_FFF8)], payload);
+
+    let (img_info, image) = xex_payload_image(&data).expect("reconstructs");
+    assert_eq!(img_info.format, Format::Xex);
+    assert_eq!(image.len(), 3 * 0x1_0000);
+    assert_eq!(image[0x1_0000..0x1_0008], [0x38, 0x60, 0x00, 0x01, 0x4e, 0x80, 0x00, 0x20]);
+    // Zero run left the tail zeroed (the stream ended at the code bytes).
+    assert!(image[0x2_0000..0x2_0008].iter().all(|&b| b == 0));
+    let meta = parse_xex(&data).expect("structure parses");
+    assert_eq!(meta.compression, "basic");
+    assert_eq!(meta.basic_blocks.len(), 1);
+}
