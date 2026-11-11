@@ -13,8 +13,13 @@ goblin = "0.10"
 # Disassembly: x86/x64, ARM, ARM64, PPC/Xenon (static C core, bundled build).
 capstone = { version = "0.14", features = ["arch_x86", "arch_arm", "arch_arm64", "arch_powerpc"] }
 serde = { version = "1", features = ["derive"] }
+serde_json = "1"
 anyhow = "1"
 thiserror = "2"
+# APK / IPA are ZIP archives (deflate + stored members; no C runtime).
+zip = { version = "6", default-features = false, features = ["deflate"] }
+# Managed jadx download (GitHub releases) — blocking HTTP with rustls, no tokio.
+ureq = { version = "3", default-features = false, features = ["rustls"] }
 
 [dev-dependencies]
 tempfile = "3"

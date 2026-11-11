@@ -16,6 +16,12 @@
 //!   ARM64, PPC/Xenon) with arch auto-detection from [`analyzer::BinaryInfo`].
 //! - [`functions`] builds the function list from symbol tables and the entry
 //!   point.
+//! - Phase 7.2 adds the app-package surface:
+//!   [`apk`] (AndroidManifest via [`axml`], DEX class inventory via [`dex`],
+//!   native libs, signing-block detection), [`ipa`] (Info.plist via
+//!   [`plist`], embedded Mach-O reuses [`analyzer`]) and [`jadx`] — the
+//!   first orchestrated backend: probe, managed on-demand download from
+//!   GitHub releases, headless decompile + output inventory.
 //!
 //! # Compliance guardrail
 //!
@@ -25,18 +31,33 @@
 //! shipped, the later XEX parser only reads container structure.
 
 pub mod analyzer;
+pub mod apk;
+pub mod axml;
+pub mod dex;
 pub mod disasm;
 pub mod functions;
 pub mod hexview;
+pub mod ipa;
+pub mod jadx;
+pub mod plist;
 pub mod strings;
 
 pub use analyzer::{
     analyze_file, analyze_bytes, Arch, BinaryInfo, BinaryKind, Endian, Export, Format, Import,
     Section, SectionFlags, Symbol, SymbolKind, SymbolScope,
 };
+pub use apk::{analyze_apk, is_apk, ApkComponent, ApkInfo, ApkOpts, ApkSigning, DexFileInfo, NativeLib};
+pub use axml::{parse_axml, AttrValue, AxmlNode};
 pub use disasm::{arch_from_binary, disasm_bytes, parse_arch, render_insn, DisArch, Insn};
+pub use dex::{access_flags_str, parse_dex, DexClass, DexInfo};
 pub use functions::{functions, Function};
 pub use hexview::{clamp_range, hex_rows, render_hex_row, HexRow, DEFAULT_ROW_WIDTH};
+pub use ipa::{analyze_ipa, is_ipa, IpaInfo, IpaOpts};
+pub use jadx::{
+    ensure as jadx_ensure, fetch_url, install_root, probe as jadx_probe, run as jadx_run,
+    JadxOpts, JadxRun, JadxStatus,
+};
+pub use plist::{parse_plist, PlistValue};
 pub use strings::{extract_strings, FoundString, StrEnc};
 
 /// Largest file the analyzer will load into memory (512 MiB — RE targets are

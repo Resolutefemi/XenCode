@@ -1,4 +1,4 @@
-//! `xen.re` — the XenRE toolkit exposed to QuickJS (Phase 7).
+//! `xen.re` — the XenRE toolkit exposed to QuickJS (Phase 7 + 7.2).
 //!
 //! Every function takes a file path, passes the `fs` read permission gate
 //! (scope globs from `xen.toml`, GUI consent on first use), then runs the
@@ -6,11 +6,13 @@
 //! static binary. Results come back as plain JSON-shaped objects:
 //!
 //! ```js
-//! import { analyze, strings, disasm } from "xen/re";
+//! import { analyze, strings, disasm, apk, decompile } from "xen/re";
 //! const info = await analyze("./payload.bin");
 //! console.log(info.format, info.arch, info.entry_va);
 //! const hits = await strings("./payload.bin", { minLen: 6 });
 //! const code = await disasm("./payload.bin", { max: 64 });
+//! const pkg = await apk("./app.apk");
+//! const run = await decompile("./app.apk", { outDir: "./jadx-out" });
 //! ```
 
 use rquickjs::function::Opt;
@@ -27,7 +29,7 @@ impl ModuleDef for XenRe {
     fn declare(decl: &Declarations) -> JsResult<()> {
         for name in [
             "analyze", "strings", "hex", "symbols", "imports", "exports",
-            "functions", "disasm",
+            "functions", "disasm", "apk", "ipa", "decompile",
         ] {
             decl.declare(name)?;
         }
@@ -133,6 +135,43 @@ impl ModuleDef for XenRe {
             }),
         )?;
         exports.export("disasm", f)?;
+
+        // apk(path) → ApkInfo
+        let p = perms.clone();
+        let f = Function::new(
+            ctx.clone(),
+            Async(move |cx: Ctx<'js>, path: String| {
+                let perms = p.clone();
+                let cx = cx.clone();
+                async move { re_apk(&cx, &perms, &path).await }
+            }),
+        )?;
+        exports.export("apk", f)?;
+
+        // ipa(path) → IpaInfo
+        let p = perms.clone();
+        let f = Function::new(
+            ctx.clone(),
+            Async(move |cx: Ctx<'js>, path: String| {
+                let perms = p.clone();
+                let cx = cx.clone();
+                async move { re_ipa(&cx, &perms, &path).await }
+            }),
+        )?;
+        exports.export("ipa", f)?;
+
+        // decompile(path, {outDir?, noRes?, deobf?, download?, threads?, maxFiles?}?)
+        //   → JadxRun  (jadx backend; proc + fs-write gates, net gate on download)
+        let p = perms.clone();
+        let f = Function::new(
+            ctx.clone(),
+            Async(move |cx: Ctx<'js>, path: String, opts: Opt<Object<'js>>| {
+                let perms = p.clone();
+                let cx = cx.clone();
+                async move { re_decompile(&cx, &perms, &path, opts.0).await }
+            }),
+        )?;
+        exports.export("decompile", f)?;
 
         Ok(())
     }
@@ -370,4 +409,157 @@ fn default_code_window(info: &xencode_re::BinaryInfo) -> JsResult<(u64, u64)> {
         .va_to_offset(va)
         .ok_or_else(|| js_err(format!("entry {va:#x} is not mapped")))?;
     Ok((off, va))
+}
+
+// ----------------------------------------------------- Phase 7.2 hooks ----
+
+/// Read an APK/IPA with the fs-read gate + shared size cap.
+async fn load_package(
+    perms: &crate::permissions::PermissionState,
+    path: &str,
+) -> JsResult<Vec<u8>> {
+    perms.check_fs_read(path).map_err(js_err)?;
+    let data = tokio::fs::read(path)
+        .await
+        .map_err(|e| js_err(format!("re `{path}`: {e}")))?;
+    if data.len() as u64 > xencode_re::MAX_INPUT_BYTES {
+        return Err(js_err(format!(
+            "re `{path}`: {} bytes exceeds the {} cap",
+            data.len(),
+            xencode_re::MAX_INPUT_BYTES
+        )));
+    }
+    Ok(data)
+}
+
+async fn re_apk<'js>(
+    cx: &Ctx<'js>,
+    perms: &crate::permissions::PermissionState,
+    path: &str,
+) -> JsResult<Value<'js>> {
+    let data = load_package(perms, path).await?;
+    if !xencode_re::is_apk(&data) {
+        return Err(js_err(format!("re `{path}` is not an APK")));
+    }
+    let info = tokio::task::spawn_blocking(move || {
+        xencode_re::analyze_apk(&data, xencode_re::ApkOpts::default())
+    })
+    .await
+    .map_err(|e| js_err(format!("re apk: {e}")))?
+    .map_err(|e| js_err(format!("re `{path}`: {e}")))?;
+    Ok(jsvalue::to_js(cx, &info)?)
+}
+
+async fn re_ipa<'js>(
+    cx: &Ctx<'js>,
+    perms: &crate::permissions::PermissionState,
+    path: &str,
+) -> JsResult<Value<'js>> {
+    let data = load_package(perms, path).await?;
+    if !xencode_re::is_ipa(&data) {
+        return Err(js_err(format!("re `{path}` is not an IPA")));
+    }
+    let info = tokio::task::spawn_blocking(move || {
+        xencode_re::analyze_ipa(&data, xencode_re::IpaOpts::default())
+    })
+    .await
+    .map_err(|e| js_err(format!("re ipa: {e}")))?
+    .map_err(|e| js_err(format!("re `{path}`: {e}")))?;
+    Ok(jsvalue::to_js(cx, &info)?)
+}
+
+struct DecompileOpts {
+    out_dir: String,
+    no_res: bool,
+    deobf: bool,
+    download: bool,
+    threads: u32,
+    max_files: usize,
+}
+
+fn decompile_opts(opts: Option<&Object<'_>>) -> JsResult<DecompileOpts> {
+    let mut spec = DecompileOpts {
+        out_dir: String::new(),
+        no_res: false,
+        deobf: false,
+        download: false,
+        threads: 0,
+        max_files: xencode_re::JadxRun::DEFAULT_MAX_FILES,
+    };
+    if let Some(o) = opts {
+        if let Some(d) = o.get::<_, Option<String>>("outDir")? {
+            spec.out_dir = d;
+        }
+        spec.no_res = o.get::<_, Option<bool>>("noRes")?.unwrap_or(false);
+        spec.deobf = o.get::<_, Option<bool>>("deobf")?.unwrap_or(false);
+        spec.download = o.get::<_, Option<bool>>("download")?.unwrap_or(false);
+        spec.threads = o
+            .get::<_, Option<f64>>("threads")?
+            .map(|v| v.max(0.0) as u32)
+            .unwrap_or(0);
+        spec.max_files = o
+            .get::<_, Option<f64>>("maxFiles")?
+            .map(|v| (v.max(0.0) as usize).min(100_000))
+            .unwrap_or(spec.max_files);
+    }
+    Ok(spec)
+}
+
+async fn re_decompile<'js>(
+    cx: &Ctx<'js>,
+    perms: &crate::permissions::PermissionState,
+    path: &str,
+    opts: Option<Object<'js>>,
+) -> JsResult<Value<'js>> {
+    let spec = decompile_opts(opts.as_ref())?;
+    let data = load_package(perms, path).await?;
+    if !xencode_re::is_apk(&data) {
+        return Err(js_err(format!(
+            "re `{path}` is not an APK — jadx decompiles Android packages"
+        )));
+    }
+
+    // Out dir: explicit, else `<stem>-jadx` beside the APK (project-relative
+    // paths resolve like fs writes).
+    let out_dir = if spec.out_dir.is_empty() {
+        let stem = std::path::Path::new(path)
+            .file_stem()
+            .and_then(|s| s.to_str())
+            .unwrap_or("apk")
+            .to_string();
+        format!("{stem}-jadx")
+    } else {
+        spec.out_dir.clone()
+    };
+    perms.check_fs_write(&out_dir).map_err(js_err)?;
+
+    // The jadx backend spawns a process (bin/jadx) — proc gate on it. The
+    // managed download touches github.com hosts — net gate when enabled.
+    perms.check_proc("jadx").map_err(js_err)?;
+    if spec.download {
+        for host in ["api.github.com", "github.com", "objects.githubusercontent.com"] {
+            perms.check_net(host).map_err(js_err)?;
+        }
+    }
+
+    let path_buf = path.to_string();
+    let out_dir_buf = out_dir;
+    let run = tokio::task::spawn_blocking(move || -> Result<xencode_re::JadxRun, anyhow::Error> {
+        let status = xencode_re::jadx_ensure(
+            &xencode_re::install_root(),
+            spec.download,
+            xencode_re::fetch_url,
+        )?;
+        let opts = xencode_re::JadxOpts {
+            no_res: spec.no_res,
+            deobf: spec.deobf,
+            threads: spec.threads,
+            max_files: spec.max_files,
+        };
+        xencode_re::jadx_run(std::path::Path::new(&path_buf), std::path::Path::new(&out_dir_buf), opts, &status)
+    })
+    .await
+    .map_err(|e| js_err(format!("re decompile: {e}")))?
+    .map_err(|e| js_err(format!("re decompile `{path}`: {e:#}")))?;
+    Ok(jsvalue::to_js(cx, &run)?)
 }

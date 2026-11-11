@@ -816,6 +816,151 @@ mod tests {
         }).await;
     }
 
+    /// Phase 7.2: `xen.re.apk` end-to-end — a minimal compiled AndroidManifest
+    /// inside a zip resolves to the package name through the QuickJS hook;
+    /// `decompile` on a non-APK surfaces a clean JS error.
+    #[tokio::test(flavor = "current_thread")]
+    async fn xen_re_apk_hook() {
+        tokio::task::LocalSet::new().run_until(async {
+        let dir = tempfile::tempdir().unwrap();
+        let apk_path = dir.path().join("app.apk");
+
+        // Compact compiled-AXML manifest (UTF-16 pool): <manifest package="com.xen.mini" versionCode="3">.
+        let axml = {
+            let mut strings: Vec<String> = Vec::new();
+            let mut idx = |s: &str, strings: &mut Vec<String>| -> u32 {
+                if let Some(i) = strings.iter().position(|x| x == s) { return i as u32; }
+                strings.push(s.to_string());
+                (strings.len() - 1) as u32
+            };
+            let mut chunks: Vec<u8> = Vec::new();
+            let attrs = [
+                ("package", 0x03u8, idx("com.xen.mini", &mut strings)),
+                ("versionCode", 0x10, 3),
+            ];
+            let count = attrs.len() as u16;
+            let size = 36u32 + count as u32 * 20;
+            let mut c: Vec<u8> = Vec::new();
+            c.extend_from_slice(&0x0102u16.to_le_bytes());
+            c.extend_from_slice(&16u16.to_le_bytes());
+            c.extend_from_slice(&size.to_le_bytes());
+            c.extend_from_slice(&1u32.to_le_bytes());
+            c.extend_from_slice(&0xFFFF_FFFFu32.to_le_bytes());
+            c.extend_from_slice(&0xFFFF_FFFFu32.to_le_bytes());
+            c.extend_from_slice(&idx("manifest", &mut strings).to_le_bytes());
+            c.extend_from_slice(&20u16.to_le_bytes());
+            c.extend_from_slice(&20u16.to_le_bytes());
+            c.extend_from_slice(&count.to_le_bytes());
+            c.extend_from_slice(&[0u8; 6]);
+            for (name, dt, data) in &attrs {
+                let ni = idx(name, &mut strings);
+                c.extend_from_slice(&0xFFFF_FFFFu32.to_le_bytes());
+                c.extend_from_slice(&ni.to_le_bytes());
+                c.extend_from_slice(&0xFFFF_FFFFu32.to_le_bytes());
+                c.extend_from_slice(&8u16.to_le_bytes());
+                c.push(0);
+                c.push(*dt);
+                c.extend_from_slice(&data.to_le_bytes());
+            }
+            chunks.extend_from_slice(&c);
+            let end_c = {
+                let mut c = Vec::new();
+                c.extend_from_slice(&0x0103u16.to_le_bytes());
+                c.extend_from_slice(&16u16.to_le_bytes());
+                c.extend_from_slice(&24u32.to_le_bytes());
+                c.extend_from_slice(&1u32.to_le_bytes());
+                c.extend_from_slice(&0xFFFF_FFFFu32.to_le_bytes());
+                c.extend_from_slice(&0xFFFF_FFFFu32.to_le_bytes());
+                c.extend_from_slice(&idx("manifest", &mut strings).to_le_bytes());
+                c
+            };
+            chunks.extend_from_slice(&end_c);
+            // string pool (UTF-16)
+            let mut offsets: Vec<u8> = Vec::new();
+            let mut data: Vec<u8> = Vec::new();
+            for s in &strings {
+                offsets.extend_from_slice(&(data.len() as u32).to_le_bytes());
+                let units: Vec<u16> = s.encode_utf16().collect();
+                data.extend_from_slice(&(units.len() as u16).to_le_bytes());
+                for u in units { data.extend_from_slice(&u.to_le_bytes()); }
+                data.extend_from_slice(&0u16.to_le_bytes());
+            }
+            while data.len() % 4 != 0 { data.push(0); }
+            let strings_start = 28u32 + offsets.len() as u32;
+            let pool_size = strings_start + data.len() as u32;
+            let mut pool: Vec<u8> = Vec::new();
+            pool.extend_from_slice(&0x0001u16.to_le_bytes());
+            pool.extend_from_slice(&28u16.to_le_bytes());
+            pool.extend_from_slice(&pool_size.to_le_bytes());
+            pool.extend_from_slice(&(strings.len() as u32).to_le_bytes());
+            pool.extend_from_slice(&0u32.to_le_bytes());
+            pool.extend_from_slice(&0u32.to_le_bytes());
+            pool.extend_from_slice(&strings_start.to_le_bytes());
+            pool.extend_from_slice(&0u32.to_le_bytes());
+            pool.extend_from_slice(&offsets);
+            pool.extend_from_slice(&data);
+            let mut doc: Vec<u8> = Vec::new();
+            doc.extend_from_slice(&0x0003u16.to_le_bytes());
+            doc.extend_from_slice(&8u16.to_le_bytes());
+            doc.extend_from_slice(&((8 + pool.len() + chunks.len()) as u32).to_le_bytes());
+            doc.extend_from_slice(&pool);
+            doc.extend_from_slice(&chunks);
+            doc
+        };
+
+        {
+            let mut w = zip::ZipWriter::new(std::io::Cursor::new(Vec::new()));
+            w.start_file(
+                "AndroidManifest.xml",
+                zip::write::SimpleFileOptions::default()
+                    .compression_method(zip::CompressionMethod::Deflated),
+            )
+            .unwrap();
+            std::io::Write::write_all(&mut w, &axml).unwrap();
+            let apk_bytes = w.finish().unwrap().into_inner();
+            std::fs::write(&apk_path, apk_bytes).unwrap();
+        }
+
+        let (tx, _rx) = crate::events::channel();
+        let rt = ScriptRuntime::new(RuntimeOptions::new(
+            dir.path().to_str().unwrap(),
+            PermissionState::allow_all(),
+            tx,
+        ))
+        .await
+        .unwrap();
+        let path_json = serde_json::to_string(&apk_path).unwrap();
+
+        let info = rt
+            .eval_json_async(&format!(
+                "(async () => await xen.re.apk({path_json}))()"
+            ))
+            .await
+            .unwrap();
+        assert_eq!(info["package"], "com.xen.mini");
+        assert_eq!(info["version_code"], 3);
+        assert_eq!(info["components"].as_array().unwrap().len(), 0);
+
+        // decompile on a non-APK → clean JS error (not a panic).
+        let elf_path = dir.path().join("plain.bin");
+        std::fs::write(&elf_path, [0u8; 16]).unwrap();
+        let elf_json = serde_json::to_string(&elf_path).unwrap();
+        let err = rt
+            .eval_json_async(&format!(
+                "(async () => {{ try {{ await xen.re.decompile({elf_json}); return {{ ok: true }}; }} \
+                 catch (e) {{ return {{ js_error: String(e && e.message || e) }}; }} }})()"
+            ))
+            .await
+            .unwrap();
+        assert!(err["js_error"]
+            .as_str()
+            .unwrap_or_default()
+            .contains("not an APK"));
+
+        rt.shutdown().await;
+        }).await;
+    }
+
     #[test]
     fn clean_path_normalizes() {
         assert_eq!(clean_path(Path::new("/a/b/../c")), "/a/c");

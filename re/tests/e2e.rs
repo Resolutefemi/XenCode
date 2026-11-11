@@ -5,7 +5,7 @@
 //! analyze → hex → strings → disasm → functions pipeline. A real system ELF
 //! is analyzed too when present (portability guard: skipped elsewhere).
 
-use anyhow::Result;
+
 use xencode_re::analyzer::{BinaryKind, Format, SymbolKind};
 use xencode_re::*;
 

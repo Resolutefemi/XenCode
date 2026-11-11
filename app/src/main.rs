@@ -52,6 +52,7 @@ use agent::run::{run_agent, AgentEvent, AgentOptions, Asker, AskFn};
 use agent::session::Session;
 use agent::{commands, permissions, CliOptions, ExecOptions, Resume};
 use anyhow::{bail, Context, Result};
+use std::path::{Path, PathBuf};
 use gfx::{Canvas, Rect};
 use ui::shell::{draw_backdrop, draw_header, draw_panel, draw_sidebar_footer, draw_top_overlay, HeaderTitle, HEADER_H, WIN_H, WIN_W, panel_rect};
 use ui::state::{ChatPage, Collector};
@@ -111,6 +112,23 @@ enum Mode {
     ReExports { file: String, json: bool },
     /// `xencode re disasm <FILE> [--offset N | --entry] [--len N] [--arch X]`.
     ReDisasm { file: String, offset: Option<u64>, len: u64, arch: Option<String>, json: bool },
+    // Phase 7.2 -------------------------------------------------------------
+    /// `xencode re apk <FILE> [--json]` — Android package summary.
+    ReApk { file: String, json: bool },
+    /// `xencode re ipa <FILE> [--json]` — iOS bundle summary.
+    ReIpa { file: String, json: bool },
+    /// `xencode re decompile <FILE> [--out DIR] [--download] [--no-res]
+    /// [--deobf] [-j N] [--json]` — jadx headless decompile + inventory.
+    ReDecompile {
+        file: String,
+        out: Option<String>,
+        download: bool,
+        no_res: bool,
+        deobf: bool,
+        threads: u32,
+        max_files: usize,
+        json: bool,
+    },
     /// `xencode --re-ui <FILE>` — the Phase-7 native RE tab with the
     /// analyzed binary rendered into the workspace.
     ReUi { file: String, out: String },
@@ -259,6 +277,27 @@ fn main() -> Result<()> {
         Mode::ReDisasm { file, offset, len, arch, json } => {
             run_re_disasm(&file, offset, len, arch.as_deref(), json)
         }
+        Mode::ReApk { file, json } => run_re_apk(&file, json),
+        Mode::ReIpa { file, json } => run_re_ipa(&file, json),
+        Mode::ReDecompile {
+            file,
+            out,
+            download,
+            no_res,
+            deobf,
+            threads,
+            max_files,
+            json,
+        } => run_re_decompile(
+            &file,
+            out.as_deref(),
+            download,
+            no_res,
+            deobf,
+            threads,
+            max_files,
+            json,
+        ),
         Mode::ReUi { file, out } => re_ui(&file, &out),
     };
     if let Err(e) = result {
@@ -1699,11 +1738,85 @@ fn parse_re(args: &[String]) -> Result<Mode> {
     let Some(cmd) = args.first() else {
         bail!(
             "usage: xencode re info <FILE> | strings <FILE> | hex <FILE> | symbols <FILE> | \
-             imports <FILE> | exports <FILE> | disasm <FILE>"
+             imports <FILE> | exports <FILE> | disasm <FILE> | apk <FILE> | ipa <FILE> | \
+             decompile <FILE>"
         );
     };
     let rest = &args[1..];
     match cmd.as_str() {
+        "apk" | "ipa" => {
+            let (file, flags) = re_file_flags(rest)?;
+            Ok(if cmd == "apk" {
+                Mode::ReApk { file, json: flags.json }
+            } else {
+                Mode::ReIpa { file, json: flags.json }
+            })
+        }
+        "decompile" => {
+            let mut file = None;
+            let mut out = None;
+            let mut download = false;
+            let mut no_res = false;
+            let mut deobf = false;
+            let mut threads = 0u32;
+            let mut max_files = xencode_re::JadxRun::DEFAULT_MAX_FILES;
+            let mut json = false;
+            let mut i = 0;
+            while i < rest.len() {
+                match rest[i].as_str() {
+                    "--out" if i + 1 < rest.len() => {
+                        out = Some(rest[i + 1].clone());
+                        i += 2;
+                    }
+                    "--download" => {
+                        download = true;
+                        i += 1;
+                    }
+                    "--no-res" => {
+                        no_res = true;
+                        i += 1;
+                    }
+                    "--deobf" => {
+                        deobf = true;
+                        i += 1;
+                    }
+                    "-j" if i + 1 < rest.len() => {
+                        threads = rest[i + 1]
+                            .parse()
+                            .context("-j expects a thread count")?;
+                        i += 2;
+                    }
+                    "--max-files" if i + 1 < rest.len() => {
+                        max_files = rest[i + 1]
+                            .parse()
+                            .context("--max-files expects a number")?;
+                        i += 2;
+                    }
+                    "--json" => {
+                        json = true;
+                        i += 1;
+                    }
+                    other if other.starts_with('-') => {
+                        bail!("unknown re decompile flag: {other}")
+                    }
+                    other if file.is_none() => {
+                        file = Some(other.to_string());
+                        i += 1;
+                    }
+                    other => bail!("unexpected re decompile argument: {other}"),
+                }
+            }
+            Ok(Mode::ReDecompile {
+                file: re_file(file, "re decompile")?,
+                out,
+                download,
+                no_res,
+                deobf,
+                threads,
+                max_files,
+                json,
+            })
+        }
         "info" => {
             let (file, flags) = re_file_flags(rest)?;
             Ok(Mode::ReInfo { file, json: flags.json })
@@ -1834,7 +1947,7 @@ fn parse_re(args: &[String]) -> Result<Mode> {
             })
         }
         other => bail!(
-            "unknown re subcommand `{other}` — expected: info, strings, hex, symbols, imports, exports, disasm"
+            "unknown re subcommand `{other}` — expected: info, strings, hex, symbols, imports, exports, disasm, apk, ipa, decompile"
         ),
     }
 }
@@ -2113,18 +2226,449 @@ fn run_re_disasm(
     Ok(())
 }
 
+/// Read a whole RE input with the shared size cap.
+fn re_read(file: &str) -> Result<Vec<u8>> {
+    let data = std::fs::read(file).with_context(|| format!("read {file}"))?;
+    if data.len() as u64 > xencode_re::MAX_INPUT_BYTES {
+        bail!("{} exceeds the {} analysis cap", file, xencode_re::MAX_INPUT_BYTES);
+    }
+    Ok(data)
+}
+
+/// Byte size in KB/MB for the re summaries.
+fn human_bytes(n: u64) -> String {
+    if n >= 1024 * 1024 {
+        format!("{:.1} MB", n as f64 / (1024.0 * 1024.0))
+    } else if n >= 1024 {
+        format!("{:.1} KB", n as f64 / 1024.0)
+    } else {
+        format!("{n} B")
+    }
+}
+
+/// `xencode re apk <FILE>` — Android package summary: manifest identity,
+/// permissions, components, dex inventory, native libs, signing.
+fn run_re_apk(file: &str, json: bool) -> Result<()> {
+    let data = re_read(file)?;
+    if !xencode_re::is_apk(&data) {
+        bail!("{file} is not an APK (zip without AndroidManifest.xml/classes*.dex)");
+    }
+    let info = xencode_re::analyze_apk(&data, xencode_re::ApkOpts::default())
+        .with_context(|| format!("analyze {file}"))?;
+    if json {
+        println!("{}", serde_json::to_string_pretty(&info)?);
+        return Ok(());
+    }
+
+    println!("file      {file}");
+    println!("package   {}", info.package);
+    if let Some(v) = &info.version_name {
+        print!("version   {v}");
+        if let Some(code) = info.version_code {
+            print!(" (code {code})");
+        }
+        println!();
+    }
+    let sdk = |v: Option<i64>| v.map(|x| x.to_string()).unwrap_or_else(|| "-".into());
+    println!(
+        "sdk       min {} · target {} · compile {}",
+        sdk(info.min_sdk),
+        sdk(info.target_sdk),
+        sdk(info.compile_sdk)
+    );
+    if let Some(label) = &info.app_label {
+        println!("label     {label}");
+    }
+    if !info.permissions.is_empty() {
+        println!("perms     {}", info.permissions.len());
+        for p in info.permissions.iter().take(12) {
+            println!("  - {p}");
+        }
+        if info.permissions.len() > 12 {
+            println!("  … {} more", info.permissions.len() - 12);
+        }
+    }
+    if !info.components.is_empty() {
+        println!("components {}", info.components.len());
+        for c in info.components.iter().take(10) {
+            let mut tags = Vec::new();
+            if c.launcher {
+                tags.push("launcher");
+            }
+            if c.exported == Some(true) {
+                tags.push("exported");
+            }
+            if c.native_methods > 0 {
+                tags.push("jni");
+            }
+            let flags = tags.join(",");
+            println!("  {:<9} {}{}", c.kind, c.name, if flags.is_empty() { String::new() } else { format!("  [{flags}]") });
+        }
+        if info.components.len() > 10 {
+            println!("  … {} more", info.components.len() - 10);
+        }
+    }
+    if !info.dex_files.is_empty() {
+        println!("dex");
+        for d in &info.dex_files {
+            println!(
+                "  {:<14} v{} · {} classes · {} methods · {} strings",
+                d.name, d.version, d.class_count, d.method_count, d.string_count
+            );
+        }
+    }
+    if !info.abis.is_empty() {
+        println!("native    {} ({})", info.native_libs.len(), info.abis.join(", "));
+    }
+    let s = &info.signing;
+    let mut sigs = Vec::new();
+    if s.v1 { sigs.push("v1"); }
+    if s.v2 { sigs.push("v2"); }
+    if s.v3 { sigs.push("v3"); }
+    if s.v3_1 { sigs.push("v3.1"); }
+    println!(
+        "signing   {}",
+        if sigs.is_empty() { "none detected".to_string() } else { sigs.join(" + ") }
+    );
+    println!(
+        "entries   {} · uncompressed {}",
+        info.entries,
+        human_bytes(info.uncompressed_size)
+    );
+    Ok(())
+}
+
+/// `xencode re ipa <FILE>` — iOS bundle summary: bundle identity, embedded
+/// binary (through the 7.1 analyzer), frameworks, provisioning.
+fn run_re_ipa(file: &str, json: bool) -> Result<()> {
+    let data = re_read(file)?;
+    if !xencode_re::is_ipa(&data) {
+        bail!("{file} is not an IPA (zip without Payload/*.app/Info.plist)");
+    }
+    let info = xencode_re::analyze_ipa(&data, xencode_re::IpaOpts::default())
+        .with_context(|| format!("analyze {file}"))?;
+    if json {
+        println!("{}", serde_json::to_string_pretty(&info)?);
+        return Ok(());
+    }
+
+    println!("file      {file}");
+    println!("app dir   {}", info.app_dir);
+    if let Some(id) = &info.bundle_id {
+        println!("bundle    {id}");
+    }
+    if let Some(n) = &info.display_name {
+        print!("name      {n}");
+        if let (Some(v), Some(b)) = (&info.version, &info.build_version) {
+            print!("  {v} (build {b})");
+        }
+        println!();
+    }
+    if let Some(min) = &info.min_os_version {
+        println!("min os    {min}");
+    }
+    if !info.architectures.is_empty() {
+        println!("arch      {}", info.architectures.join(", "));
+    }
+    if let Some(bin) = &info.binary {
+        println!(
+            "binary    {} · entry {} · {} sections · {} symbols",
+            bin.arch,
+            bin.entry_va.map(|v| format!("{v:#x}")).unwrap_or_else(|| "-".into()),
+            bin.sections.len(),
+            bin.symbols.len()
+        );
+    }
+    if !info.frameworks.is_empty() {
+        println!("frameworks {}", info.frameworks.join(", "));
+    }
+    if !info.plugins.is_empty() {
+        println!("plugins   {}", info.plugins.join(", "));
+    }
+    println!(
+        "signing   {} · provisioning {}",
+        if info.code_signature { "code signature" } else { "none detected" },
+        if info.provisioned { "embedded.mobileprovision" } else { "none" }
+    );
+    println!(
+        "entries   {} · uncompressed {}",
+        info.entries,
+        human_bytes(info.uncompressed_size)
+    );
+    Ok(())
+}
+
+/// `xencode re decompile <FILE>` — jadx headless run + output inventory.
+/// The backend is detected (PATH, then the managed install); `--download`
+/// opts into fetching the latest release (~40 MB) on demand.
+#[allow(clippy::too_many_arguments)]
+fn run_re_decompile(
+    file: &str,
+    out: Option<&str>,
+    download: bool,
+    no_res: bool,
+    deobf: bool,
+    threads: u32,
+    max_files: usize,
+    json: bool,
+) -> Result<()> {
+    let data = re_read(file)?;
+    if !xencode_re::is_apk(&data) {
+        bail!("jadx decompiles APKs — {file} is not one (see `xencode re apk`)");
+    }
+    let status = xencode_re::jadx_ensure(&xencode_re::install_root(), download, xencode_re::fetch_url)?;
+    if !json {
+        match (&status.version, &status.path) {
+            (Some(v), Some(p)) => println!("jadx      {v} ({p}{})", if status.managed { ", managed" } else { "" }),
+            _ => println!("jadx      version unknown"),
+        }
+        if let Some(jv) = &status.java_version {
+            println!("java      {jv}");
+        }
+    }
+
+    let out_dir = out
+        .map(PathBuf::from)
+        .unwrap_or_else(|| {
+            let base = Path::new(file)
+                .file_stem()
+                .and_then(|s| s.to_str())
+                .unwrap_or("apk");
+            PathBuf::from(format!("{base}-jadx"))
+        });
+    let opts = xencode_re::JadxOpts { no_res, deobf, threads, max_files };
+    let run = xencode_re::jadx_run(Path::new(file), &out_dir, opts, &status)?;
+
+    if json {
+        println!("{}", serde_json::to_string_pretty(&run)?);
+        return Ok(());
+    }
+    println!(
+        "decompiled {} classes across {} .java files ({} resources) in {:.1}s → exit {}",
+        run.total_java_files,
+        run.java_files.len().min(run.total_java_files as usize),
+        run.resource_files,
+        run.elapsed_ms as f64 / 1000.0,
+        run.exit_code
+    );
+    println!("out       {}", run.out_dir);
+    if !run.warnings.is_empty() {
+        println!("warnings");
+        for w in &run.warnings {
+            println!("  {w}");
+        }
+    }
+    println!();
+    const SHOW: usize = 24;
+    for f in run.java_files.iter().take(SHOW) {
+        println!("  {f}");
+    }
+    if run.java_files.len() > SHOW {
+        println!("  … {} more listed ({} total)", run.java_files.len() - SHOW, run.total_java_files);
+    } else if run.total_java_files as usize > run.java_files.len() {
+        println!("  … {} more (cap {})", run.total_java_files as usize - run.java_files.len(), max_files);
+    }
+    if run.exit_code != 0 {
+        bail!("jadx exited with code {}", run.exit_code);
+    }
+    Ok(())
+}
+
 /// `xencode --re-ui <FILE>` — the Phase-7.1 native RE tab: analyze the real
 /// binary through the XenRE core and render the hex / strings / symbols /
 /// imports views into the workspace (same renderer as the live window).
+/// Phase 7.2: APK/IPA inputs route to the Package view (bundle identity,
+/// permission/component chips); IPAs feed the embedded Mach-O through the
+/// same symbol/section pipeline.
 fn re_ui(file: &str, out: &str) -> Result<()> {
-    let (info, data) = re_analyze(file)?;
+    let data = re_read(file)?;
     let started = std::time::Instant::now();
 
-    // Hex: 12 rows starting at the entry point (or the first exec section).
-    let hex_start_off = info
-        .entry_va
-        .and_then(|va| info.va_to_offset(va))
-        .or_else(|| info.exec_sections().first().and_then(|s| Some(s.file_off)))
+    let apk = if xencode_re::is_apk(&data) {
+        Some(xencode_re::analyze_apk(&data, xencode_re::ApkOpts::default())?)
+    } else {
+        None
+    };
+    let ipa = if apk.is_none() && xencode_re::is_ipa(&data) {
+        Some(xencode_re::analyze_ipa(&data, xencode_re::IpaOpts::default())?)
+    } else {
+        None
+    };
+
+    let mut pkg_rows: Vec<ui::re::ReKv<'static>> = Vec::new();
+    let mut pkg_chips: Vec<ui::re::ReChip<'static>> = Vec::new();
+    let (format_label, arch_label, kind_label, pkg_size): (&str, &str, &str, u64);
+    let bin_info: Option<xencode_re::BinaryInfo>;
+
+    if let Some(a) = &apk {
+        format_label = "APK";
+        arch_label = Box::leak(
+            if a.abis.is_empty() {
+                "java".to_string()
+            } else {
+                a.abis.join(" / ")
+            }
+            .into_boxed_str(),
+        );
+        kind_label = "package";
+        pkg_size = data.len() as u64;
+        pkg_rows.push(ui::re::ReKv {
+            key: "package",
+            value: Box::leak(a.package.clone().into_boxed_str()),
+        });
+        pkg_rows.push(ui::re::ReKv {
+            key: "version",
+            value: Box::leak(
+                match (&a.version_name, a.version_code) {
+                    (Some(v), Some(c)) => format!("{v} (code {c})"),
+                    (Some(v), None) => v.clone(),
+                    (None, Some(c)) => format!("code {c}"),
+                    (None, None) => "—".to_string(),
+                }
+                .into_boxed_str(),
+            ),
+        });
+        pkg_rows.push(ui::re::ReKv {
+            key: "sdk",
+            value: Box::leak(
+                format!(
+                    "min {} · target {} · compile {}",
+                    a.min_sdk.map(|v| v.to_string()).unwrap_or_else(|| "-".into()),
+                    a.target_sdk.map(|v| v.to_string()).unwrap_or_else(|| "-".into()),
+                    a.compile_sdk.map(|v| v.to_string()).unwrap_or_else(|| "-".into()),
+                )
+                .into_boxed_str(),
+            ),
+        });
+        if let Some(label) = &a.app_label {
+            pkg_rows.push(ui::re::ReKv { key: "label", value: Box::leak(label.clone().into_boxed_str()) });
+        }
+        for p in a.permissions.iter().take(8) {
+            pkg_chips.push(ui::re::ReChip { label: Box::leak(p.clone().into_boxed_str()), tone: ui::re::ReChipTone::Subtle });
+        }
+        for c in a.components.iter().take(6) {
+            let tags = [
+                c.launcher.then_some("launcher"),
+                (c.exported == Some(true)).then_some("exported"),
+                (c.native_methods > 0).then_some("jni"),
+            ]
+            .into_iter()
+            .flatten()
+            .collect::<Vec<_>>()
+            .join(",");
+            let label = if tags.is_empty() {
+                format!("{} {}", c.kind, c.name)
+            } else {
+                format!("{} {} [{}]", c.kind, c.name, tags)
+            };
+            pkg_chips.push(ui::re::ReChip { label: Box::leak(label.into_boxed_str()), tone: ui::re::ReChipTone::Sky });
+        }
+        for abi in &a.abis {
+            pkg_chips.push(ui::re::ReChip { label: Box::leak(abi.clone().into_boxed_str()), tone: ui::re::ReChipTone::Green });
+        }
+        for d in a.dex_files.iter().take(4) {
+            let label = format!("{}: {} classes / {} methods", d.name, d.class_count, d.method_count);
+            pkg_chips.push(ui::re::ReChip { label: Box::leak(label.into_boxed_str()), tone: ui::re::ReChipTone::Subtle });
+        }
+        let mut sig = Vec::new();
+        if a.signing.v1 { sig.push("v1"); }
+        if a.signing.v2 { sig.push("v2"); }
+        if a.signing.v3 { sig.push("v3"); }
+        if a.signing.v3_1 { sig.push("v3.1"); }
+        if !sig.is_empty() {
+            pkg_chips.push(ui::re::ReChip { label: Box::leak(format!("signed {}", sig.join("+")).into_boxed_str()), tone: ui::re::ReChipTone::Green });
+        }
+        bin_info = None;
+    } else if let Some(i) = &ipa {
+        format_label = "IPA";
+        arch_label = Box::leak(
+            if i.architectures.is_empty() {
+                "universal".to_string()
+            } else {
+                i.architectures.join(" / ")
+            }
+            .into_boxed_str(),
+        );
+        kind_label = "package";
+        pkg_size = data.len() as u64;
+        pkg_rows.push(ui::re::ReKv { key: "bundle", value: Box::leak(i.bundle_id.clone().unwrap_or_default().into_boxed_str()) });
+        pkg_rows.push(ui::re::ReKv {
+            key: "version",
+            value: Box::leak(
+                match (&i.version, &i.build_version) {
+                    (Some(v), Some(b)) => format!("{v} (build {b})"),
+                    (Some(v), None) => v.clone(),
+                    _ => "—".to_string(),
+                }
+                .into_boxed_str(),
+            ),
+        });
+        if let Some(n) = &i.display_name {
+            pkg_rows.push(ui::re::ReKv { key: "name", value: Box::leak(n.clone().into_boxed_str()) });
+        }
+        if let Some(min) = &i.min_os_version {
+            pkg_rows.push(ui::re::ReKv { key: "min os", value: Box::leak(min.clone().into_boxed_str()) });
+        }
+        for fw in i.frameworks.iter().take(6) {
+            pkg_chips.push(ui::re::ReChip { label: Box::leak(fw.clone().into_boxed_str()), tone: ui::re::ReChipTone::Sky });
+        }
+        for pl in i.plugins.iter().take(4) {
+            pkg_chips.push(ui::re::ReChip { label: Box::leak(pl.clone().into_boxed_str()), tone: ui::re::ReChipTone::Sky });
+        }
+        if i.provisioned {
+            pkg_chips.push(ui::re::ReChip { label: "provisioned", tone: ui::re::ReChipTone::Green });
+        }
+        if i.code_signature {
+            pkg_chips.push(ui::re::ReChip { label: "code signature", tone: ui::re::ReChipTone::Green });
+        }
+        bin_info = i.binary.clone();
+    } else {
+        format_label = "";
+        arch_label = "";
+        kind_label = "";
+        pkg_size = data.len() as u64;
+        bin_info = Some(xencode_re::analyze_file(file)?);
+    }
+
+    render_re_tab(
+        file,
+        out,
+        bin_info,
+        &data,
+        started,
+        pkg_rows,
+        pkg_chips,
+        format_label,
+        arch_label,
+        kind_label,
+        pkg_size,
+    )
+}
+
+/// Render the RE tab canvas from a prepared package/bin state.
+#[allow(clippy::too_many_arguments)]
+fn render_re_tab(
+    file: &str,
+    out: &str,
+    bin_info: Option<xencode_re::BinaryInfo>,
+    data: &[u8],
+    started: std::time::Instant,
+    pkg_rows: Vec<ui::re::ReKv<'static>>,
+    pkg_chips: Vec<ui::re::ReChip<'static>>,
+    format_label: &str,
+    arch_label: &str,
+    kind_label: &str,
+    size: u64,
+) -> Result<()> {
+    // Hex: 12 rows starting at the entry point (or the first exec section);
+    // packages fall back to the first rows of the archive.
+    let hex_start_off = bin_info
+        .as_ref()
+        .and_then(|info| {
+            info.entry_va
+                .and_then(|va| info.va_to_offset(va))
+                .or_else(|| info.exec_sections().first().map(|s| s.file_off))
+        })
         .unwrap_or(0);
     let hex_take = ((12 * xencode_re::DEFAULT_ROW_WIDTH) as u64)
         .min(data.len() as u64 - hex_start_off);
@@ -2140,7 +2684,7 @@ fn re_ui(file: &str, out: &str) -> Result<()> {
     };
 
     // Strings: first 14 runs ≥ 5 bytes across the whole image.
-    let strings: Vec<ui::re::ReString<'_>> = xencode_re::extract_strings(&data, 5)
+    let strings: Vec<ui::re::ReString<'_>> = xencode_re::extract_strings(data, 5)
         .into_iter()
         .take(14)
         .map(|s| ui::re::ReString {
@@ -2150,88 +2694,133 @@ fn re_ui(file: &str, out: &str) -> Result<()> {
         })
         .collect();
 
-    // Symbols: defined functions first (the interesting ones), then the rest.
-    let mut syms: Vec<&xencode_re::Symbol> = info
-        .symbols
-        .iter()
-        .filter(|s| s.defined && !s.name.is_empty())
-        .collect();
-    syms.sort_by_key(|s| std::cmp::Reverse(s.kind == xencode_re::SymbolKind::Func));
-    let symbols: Vec<ui::re::ReSym<'_>> = syms
-        .iter()
-        .take(12)
-        .map(|s| ui::re::ReSym {
-            va: s.va,
-            name: Box::leak(s.name.clone().into_boxed_str()),
-            kind: match s.kind {
-                xencode_re::SymbolKind::Func => "Func",
-                xencode_re::SymbolKind::Object => "Data",
-                _ => "Sym",
-            },
-        })
-        .collect();
+    // Symbols/imports/sections/functions exist only for native images.
+    let empty_syms: Vec<ui::re::ReSym<'_>> = Vec::new();
+    let empty_imports: Vec<ui::re::ReImport<'_>> = Vec::new();
+    let empty_sections: Vec<ui::re::ReSection<'_>> = Vec::new();
+    let empty_fns: Vec<ui::re::ReFunction<'_>> = Vec::new();
 
-    let imports: Vec<ui::re::ReImport<'_>> = info
-        .imports
-        .iter()
-        .take(10)
-        .map(|i| ui::re::ReImport {
-            dll: Box::leak(i.dll.clone().unwrap_or_default().into_boxed_str()),
-            name: Box::leak(i.name.clone().into_boxed_str()),
-        })
-        .collect();
+    let symbols: Vec<ui::re::ReSym<'_>> = if let Some(info) = bin_info.as_ref() {
+        let mut syms: Vec<&xencode_re::Symbol> = info
+            .symbols
+            .iter()
+            .filter(|s| s.defined && !s.name.is_empty())
+            .collect();
+        syms.sort_by_key(|s| std::cmp::Reverse(s.kind == xencode_re::SymbolKind::Func));
+        syms.iter()
+            .take(12)
+            .map(|s| ui::re::ReSym {
+                va: s.va,
+                name: Box::leak(s.name.clone().into_boxed_str()),
+                kind: match s.kind {
+                    xencode_re::SymbolKind::Func => "Func",
+                    xencode_re::SymbolKind::Object => "Data",
+                    _ => "Sym",
+                },
+            })
+            .collect()
+    } else {
+        empty_syms
+    };
 
-    let sections: Vec<ui::re::ReSection<'_>> = info
-        .sections
-        .iter()
-        .filter(|s| s.size > 0)
-        .take(8)
-        .map(|s| ui::re::ReSection {
-            name: Box::leak(s.name.clone().into_boxed_str()),
-            va: s.va,
-            size: s.size,
-            exec: s.flags.exec,
-        })
-        .collect();
+    let imports: Vec<ui::re::ReImport<'_>> = match bin_info.as_ref() {
+        Some(info) => info
+            .imports
+            .iter()
+            .take(10)
+            .map(|i| ui::re::ReImport {
+                dll: Box::leak(i.dll.clone().unwrap_or_default().into_boxed_str()),
+                name: Box::leak(i.name.clone().into_boxed_str()),
+            })
+            .collect(),
+        None => empty_imports,
+    };
 
-    let functions: Vec<ui::re::ReFunction<'_>> = xencode_re::functions(&info)
-        .into_iter()
-        .take(9)
-        .map(|f| ui::re::ReFunction {
-            va: f.va,
-            name: Box::leak(f.name.into_boxed_str()),
-        })
-        .collect();
+    let sections: Vec<ui::re::ReSection<'_>> = match bin_info.as_ref() {
+        Some(info) => info
+            .sections
+            .iter()
+            .filter(|s| s.size > 0)
+            .take(8)
+            .map(|s| ui::re::ReSection {
+                name: Box::leak(s.name.clone().into_boxed_str()),
+                va: s.va,
+                size: s.size,
+                exec: s.flags.exec,
+            })
+            .collect(),
+        None => empty_sections,
+    };
 
-    let status = format!(
-        "{} · {} · {} sections · {} symbols · {} imports · analyzed in {}ms",
-        info.format,
-        info.kind,
-        info.sections.len(),
-        info.symbols.len(),
-        info.imports.len(),
-        started.elapsed().as_millis()
-    );
+    let functions: Vec<ui::re::ReFunction<'_>> = match bin_info.as_ref() {
+        Some(info) => xencode_re::functions(info)
+            .into_iter()
+            .take(9)
+            .map(|f| ui::re::ReFunction {
+                va: f.va,
+                name: Box::leak(f.name.into_boxed_str()),
+            })
+            .collect(),
+        None => empty_fns,
+    };
+
+    let (fmt_s, arch_s, kind_s, entry_s) = match bin_info.as_ref() {
+        Some(info) => (
+            info.format.to_string(),
+            info.arch.to_string(),
+            info.kind.to_string(),
+            info.entry_va
+                .map(|v| format!("{v:#x}"))
+                .unwrap_or_else(|| "—".into()),
+        ),
+        None => (
+            format_label.to_string(),
+            arch_label.to_string(),
+            kind_label.to_string(),
+            "—".to_string(),
+        ),
+    };
+    let status = if bin_info.is_some() {
+        format!(
+            "{} · {} · {} sections · {} symbols · {} imports · analyzed in {}ms",
+            fmt_s,
+            kind_s,
+            sections.len(),
+            bin_info.as_ref().map(|i| i.symbols.len()).unwrap_or(0),
+            imports.len(),
+            started.elapsed().as_millis()
+        )
+    } else {
+        format!(
+            "{} · {} · {} entries · analyzed in {}ms",
+            fmt_s,
+            kind_s,
+            pkg_chips.len() + pkg_rows.len(),
+            started.elapsed().as_millis()
+        )
+    };
 
     let page = ui::re::RePage {
         file,
-        format: Box::leak(info.format.to_string().into_boxed_str()),
-        arch: Box::leak(info.arch.to_string().into_boxed_str()),
-        kind: Box::leak(info.kind.to_string().into_boxed_str()),
-        entry: Box::leak(
-            info.entry_va
-                .map(|v| format!("{v:#x}"))
-                .unwrap_or_else(|| "—".into())
-                .into_boxed_str(),
-        ),
-        size: info.size,
-        tab: ui::re::ReTab::Hex,
+        format: Box::leak(fmt_s.into_boxed_str()),
+        arch: Box::leak(arch_s.into_boxed_str()),
+        kind: Box::leak(kind_s.into_boxed_str()),
+        entry: Box::leak(entry_s.into_boxed_str()),
+        size,
+        // Packages open on the bundle summary; binaries on hex.
+        tab: if pkg_rows.is_empty() {
+            ui::re::ReTab::Hex
+        } else {
+            ui::re::ReTab::Package
+        },
         hex: Box::leak(hex_rows.into_boxed_slice()),
         strings: Box::leak(strings.into_boxed_slice()),
         symbols: Box::leak(symbols.into_boxed_slice()),
         imports: Box::leak(imports.into_boxed_slice()),
         sections: Box::leak(sections.into_boxed_slice()),
         functions: Box::leak(functions.into_boxed_slice()),
+        package_rows: Box::leak(pkg_rows.into_boxed_slice()),
+        package_chips: Box::leak(pkg_chips.into_boxed_slice()),
         status: Box::leak(status.into_boxed_str()),
     };
 

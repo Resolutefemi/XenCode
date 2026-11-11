@@ -1,15 +1,16 @@
-//! The XenRE tab (Phase 7.1) — a native binary-inspection surface.
+//! The XenRE tab (Phase 7.1 + 7.2) — a native binary-inspection surface.
 //!
-//! Left rail: sections + function list. Main area: one of four views —
+//! Left rail: sections + function list. Main area: one of five views —
 //! Hex (offset / bytes / ASCII gutter, mono), Strings (offset + text),
-//! Symbols (address + name + kind) and Imports (dll!name). Same visual
-//! language as the browser tab: 44px toolbar, 28px ghost icon buttons,
-//! mono font for anything address-shaped, dividers from the theme tokens.
+//! Symbols (address + name + kind), Imports (dll!name) and Package
+//! (APK/IPA bundle summary: identity rows, permission/component chips,
+//! dex + native-lib stats). Same visual language as the browser tab:
+//! 44px toolbar, 28px ghost icon buttons, mono font for anything
+//! address-shaped, dividers from the theme tokens.
 
 use crate::fonts::{self, Weight};
 use crate::gfx::{Canvas, Rect};
 use crate::theme::T;
-use crate::ui::shell::draw_icon_button;
 
 /// Toolbar height (file icon + name + format chips + view tabs).
 pub const TOOLBAR_H: f32 = 44.0;
@@ -24,6 +25,7 @@ pub enum ReTab {
     Strings,
     Symbols,
     Imports,
+    Package,
 }
 
 impl ReTab {
@@ -33,9 +35,16 @@ impl ReTab {
             ReTab::Strings => "Strings",
             ReTab::Symbols => "Symbols",
             ReTab::Imports => "Imports",
+            ReTab::Package => "Package",
         }
     }
-    pub const ALL: [ReTab; 4] = [ReTab::Hex, ReTab::Strings, ReTab::Symbols, ReTab::Imports];
+    pub const ALL: [ReTab; 5] = [
+        ReTab::Hex,
+        ReTab::Strings,
+        ReTab::Symbols,
+        ReTab::Imports,
+        ReTab::Package,
+    ];
 }
 
 /// One extracted string for the Strings view.
@@ -72,6 +81,26 @@ pub struct ReFunction<'a> {
     pub name: &'a str,
 }
 
+/// One key/value row in the Package view.
+pub struct ReKv<'a> {
+    pub key: &'a str,
+    pub value: &'a str,
+}
+
+/// One chip in the Package view (permission / component / abi / dex stat).
+pub struct ReChip<'a> {
+    pub label: &'a str,
+    /// sky chips for identity-ish tags, subtle for the rest.
+    pub tone: ReChipTone,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ReChipTone {
+    Sky,
+    Subtle,
+    Green,
+}
+
 /// Render-only state of the RE tab — the same struct a windowed GUI owns.
 pub struct RePage<'a> {
     pub file: &'a str,
@@ -88,6 +117,9 @@ pub struct RePage<'a> {
     pub imports: &'a [ReImport<'a>],
     pub sections: &'a [ReSection<'a>],
     pub functions: &'a [ReFunction<'a>],
+    /// Package view (APK/IPA): empty when the file is a plain binary.
+    pub package_rows: &'a [ReKv<'a>],
+    pub package_chips: &'a [ReChip<'a>],
     /// One-line footer status.
     pub status: &'a str,
 }
@@ -123,6 +155,7 @@ pub fn draw(c: &mut Canvas, area: Rect, page: &RePage<'_>) {
         ReTab::Strings => draw_strings(c, content, page),
         ReTab::Symbols => draw_symbols(c, content, page),
         ReTab::Imports => draw_imports(c, content, page),
+        ReTab::Package => draw_package(c, content, page),
     }
 
     let status = Rect::new(area.x, content.bottom(), area.w, STATUS_H);
@@ -474,6 +507,85 @@ fn draw_imports(c: &mut Canvas, r: Rect, page: &RePage<'_>) {
     }
 }
 
+/// Package view (Phase 7.2): bundle identity rows, then chip flow of
+/// permissions / components / abis / dex stats.
+fn draw_package(c: &mut Canvas, r: Rect, page: &RePage<'_>) {
+    if page.package_rows.is_empty() && page.package_chips.is_empty() {
+        empty_view(c, r, "package", "not an APK/IPA — no bundle manifest");
+        return;
+    }
+    let lh = fonts::line_height(12.0, false);
+    let rows = ((r.h - 16.0) / lh).floor() as usize;
+
+    // Key/value rows first.
+    let mut y = r.y + 8.0;
+    let mut drawn = 0usize;
+    for kv in page.package_rows.iter() {
+        if drawn >= rows {
+            break;
+        }
+        let kw = 84.0;
+        let _ = fonts::draw_mid(c, r.x + 12.0, y + lh / 2.0, kv.key, 11.0, T::SKY(), Weight::Normal, true);
+        let value = fit_text(kv.value, r.w - kw - 36.0, 12.0);
+        let _ = fonts::draw_mid(
+            c,
+            r.x + 12.0 + kw,
+            y + lh / 2.0,
+            &value,
+            12.0,
+            T::FG(),
+            Weight::Normal,
+            false,
+        );
+        y += lh;
+        drawn += 1;
+    }
+
+    // Chip flow under the rows.
+    if drawn < rows && !page.package_chips.is_empty() {
+        y += 6.0;
+        let mut x = r.x + 12.0;
+        for chip in page.package_chips.iter() {
+            let w = fonts::measure(chip.label, 10.0, Weight::Normal, false) + 16.0;
+            if x + w > r.right() - 12.0 {
+                // wrap
+                x = r.x + 12.0;
+                y += 22.0;
+                if y + 16.0 > r.bottom() - 8.0 {
+                    break;
+                }
+            }
+            let rect = Rect::new(x, y, w, 18.0);
+            c.fill_rrect(rect, 9.0, T::SECONDARY());
+            let color = match chip.tone {
+                ReChipTone::Sky => T::SKY(),
+                ReChipTone::Subtle => T::FG_SUBTLE(),
+                ReChipTone::Green => T::GIT_ADDED(),
+            };
+            fonts::draw_mid(c, rect.x + 8.0, y + 9.0, chip.label, 10.0, color, Weight::Normal, false);
+            x += w + 6.0;
+        }
+    }
+
+    // Truncation hint when rows didn't fit.
+    if page.package_rows.len() > drawn {
+        let more = format!(
+            "+{} more rows — `xencode re apk/ipa --json` for the full set",
+            page.package_rows.len() - drawn
+        );
+        fonts::draw_mid(
+            c,
+            r.x + 12.0,
+            (r.bottom() - 12.0).max(r.y + 12.0),
+            &more,
+            10.0,
+            T::FG_SUBTLEST(),
+            Weight::Normal,
+            false,
+        );
+    }
+}
+
 fn empty_view(c: &mut Canvas, r: Rect, icon: &str, hint: &str) {
     c.icon(icon, r.cx() - 12.0, r.cy() - 30.0, 24.0, T::FG_SUBTLEST());
     let w = fonts::measure(hint, 12.0, Weight::Normal, false);
@@ -575,6 +687,28 @@ mod tests {
         let functions: &'static [ReFunction<'static>] = Box::leak(
             vec![ReFunction { va: 0x400078, name: "main" }].into_boxed_slice(),
         );
+        let package_rows: &'static [ReKv<'static>] = Box::leak(
+            vec![
+                ReKv { key: "package", value: "com.xen.demo" },
+                ReKv { key: "version", value: "0.7.0 (code 7)" },
+                ReKv { key: "sdk", value: "min 24 \u{b7} target 34" },
+                ReKv { key: "label", value: "XenDemo" },
+            ]
+            .into_boxed_slice(),
+        );
+        let package_chips: &'static [ReChip<'static>] = Box::leak(
+            vec![
+                ReChip { label: "android.permission.INTERNET", tone: ReChipTone::Subtle },
+                ReChip { label: "android.permission.CAMERA", tone: ReChipTone::Subtle },
+                ReChip { label: "activity com.xen.demo.App [launcher]", tone: ReChipTone::Sky },
+                ReChip { label: "service com.xen.demo.SyncService", tone: ReChipTone::Sky },
+                ReChip { label: "arm64-v8a", tone: ReChipTone::Green },
+                ReChip { label: "x86_64", tone: ReChipTone::Green },
+                ReChip { label: "dex: 2 classes / 3 methods", tone: ReChipTone::Subtle },
+                ReChip { label: "signed v1+v2", tone: ReChipTone::Green },
+            ]
+            .into_boxed_slice(),
+        );
         let _ = HEX;
         RePage {
             file: "/tmp/sample-binary-with-a-really-long-name-that-needs-truncation.elf",
@@ -590,12 +724,14 @@ mod tests {
             imports,
             sections,
             functions,
+            package_rows,
+            package_chips,
             status: "analyzed in 4ms · xenre",
         }
     }
 
     #[test]
-    fn re_tab_draws_all_four_views() {
+    fn re_tab_draws_all_views() {
         for tab in ReTab::ALL {
             let mut page = sample_page();
             page.tab = tab;
