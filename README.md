@@ -80,6 +80,27 @@ cargo build --release
 
 Live window mode (winit + softbuffer) is the next GUI milestone.
 
+## Cloud sync
+
+The desktop app pairs with the **Xencode-backend** companion server (Axum +
+SQLite, private repo: `Resolutefemi/Xencode-backend`) for cross-machine
+session sync, public share links, run-telemetry aggregation and a community
+registry for commands/recipes/hooks:
+
+```bash
+xencode cloud signup femi@xencode.dev '<password>'   # account + token (stored in ~/.xencode/cloud.json)
+xencode cloud push --all          # mirror .xencode/sessions to the cloud
+xencode cloud pull                # restore remote deltas onto this machine
+xencode cloud share <session-id>  # public read-only URL for a transcript
+xencode cloud telemetry           # upload .xencode/telemetry/*.jsonl runs
+xencode cloud status              # health, account, remote inventory
+```
+
+Configuration lives in `~/.xencode/cloud.json` (`url`, `token`, `last_seq`);
+`XENCODE_CLOUD_URL` / `XENCODE_CLOUD_TOKEN` override the file. Delta sync
+uses the server's monotonic change-sequence cursor (`last_seq`), so pulls are
+exact even when pushes land in the same second.
+
 ## Headless agent
 
 ```bash

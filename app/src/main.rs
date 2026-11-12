@@ -161,6 +161,39 @@ enum Mode {
     /// `xencode --re-ui <FILE>` — the Phase-7 native RE tab with the
     /// analyzed binary rendered into the workspace.
     ReUi { file: String, out: String },
+    // Cloud ----------------------------------------------------------------
+    /// `xencode cloud <status|login|signup|logout|push|pull|share|telemetry|publish|search>`
+    /// — sync with the Xencode-backend companion server (Axum, private repo).
+    Cloud { command: CloudCommand },
+}
+
+/// Subcommands of `xencode cloud`.
+enum CloudCommand {
+    /// Connection/account status + remote session inventory.
+    Status,
+    /// Create an account and store its token locally.
+    Signup { email: String, password: String },
+    /// Exchange credentials for a token, stored in ~/.xencode/cloud.json.
+    Login { email: String, password: String },
+    /// Revoke the current token server-side and forget it locally.
+    Logout,
+    /// Push local sessions up: no arg = latest, `--all` = every session,
+    /// or an explicit `<SESSION-ID>`.
+    Push { id: Option<String>, all: bool },
+    /// Pull remote deltas past the stored `last_seq` cursor into the local
+    /// session store.
+    Pull,
+    /// Push one session (if needed) and open a public share link.
+    Share { id: String },
+    /// Revoke a session's public share.
+    Unshare { id: String },
+    /// Upload `.xencode/telemetry/*.jsonl` runs (uploaded runs are tracked
+    /// in `.xencode/telemetry/uploaded.json`).
+    Telemetry,
+    /// Publish a local markdown file to the community registry.
+    Publish { kind: String, name: String, file: String, description: Option<String> },
+    /// Search the public registry.
+    Search { kind: Option<String>, q: Option<String> },
 }
 
 /// `xencode api copy --as` flavor.
@@ -367,6 +400,7 @@ fn main() -> Result<()> {
         }
         // Phase 7 — XenRE subcommands.
         Mode::ReInfo { file, json } => run_re_info(&file, json),
+        Mode::Cloud { command } => run_cloud(command),
         Mode::ReStrings { file, min, utf16_only, json } => {
             run_re_strings(&file, min, utf16_only, json)
         }
@@ -453,6 +487,10 @@ fn parse_args() -> Result<Mode> {
     // `xencode re info|strings|hex|symbols|imports|exports|disasm …` — Phase 7.
     if args.first().map(|s| s.as_str()) == Some("re") {
         return parse_re(&args[1..]);
+    }
+    // `xencode cloud status|login|push|pull|share|telemetry|publish|search …`.
+    if args.first().map(|s| s.as_str()) == Some("cloud") {
+        return parse_cloud(&args[1..]);
     }
 
     let mut out: Option<String> = None;
@@ -4040,4 +4078,411 @@ fn render_re_tab(
     c.px.save_png(out).map_err(|e| anyhow::anyhow!("save {out}: {e:?}"))?;
     println!("rendered {out}");
     Ok(())
+}
+
+// Cloud — companion-backend sync (Xencode-backend, private repo).
+// `xencode cloud <status|signup|login|logout|push|pull|share|unshare|telemetry|publish|search>`.
+
+/// Parse the `cloud` subcommand tree.
+fn parse_cloud(args: &[String]) -> Result<Mode> {
+    let Some(cmd) = args.first() else {
+        bail!(
+            "usage: xencode cloud <status|signup|login|logout|push|pull|share|unshare|telemetry|publish|search>\n\
+             status                                   — connection, account, remote inventory\n\
+             signup <EMAIL> <PASSWORD>                — create an account, store its token\n\
+             login <EMAIL> <PASSWORD>                 — exchange credentials for a token\n\
+             logout                                   — revoke the stored token\n\
+             push [<ID>|--all]                        — push local sessions up\n\
+             pull                                     — pull remote deltas past the cursor\n\
+             share <ID>                               — open a public share link\n\
+             unshare <ID>                             — revoke a share link\n\
+             telemetry                                — upload .xencode/telemetry runs\n\
+             publish <KIND> <NAME> <FILE.md> [--desc D] — publish to the registry\n\
+             search [--kind K] [--q Q]                — search the public registry"
+        );
+    };
+    let rest = &args[1..];
+    let command = match cmd.as_str() {
+        "status" => CloudCommand::Status,
+        "signup" | "login" => {
+            let (email, password) = match rest {
+                [e, p] => (e.clone(), p.clone()),
+                _ => bail!("usage: xencode cloud {cmd} <EMAIL> <PASSWORD>"),
+            };
+            if cmd == "signup" {
+                CloudCommand::Signup { email, password }
+            } else {
+                CloudCommand::Login { email, password }
+            }
+        }
+        "logout" => CloudCommand::Logout,
+        "push" => {
+            let mut id: Option<String> = None;
+            let mut all = false;
+            for arg in rest {
+                match arg.as_str() {
+                    "--all" => all = true,
+                    other if other.starts_with('-') => bail!("unknown cloud push flag: {other}"),
+                    other if id.is_none() => id = Some(other.to_string()),
+                    other => bail!("unexpected argument: {other}"),
+                }
+            }
+            if all && id.is_some() {
+                bail!("cloud push takes either <ID> or --all, not both");
+            }
+            CloudCommand::Push { id, all }
+        }
+        "pull" => CloudCommand::Pull,
+        "share" | "unshare" => {
+            let Some(id) = rest.first() else {
+                bail!("usage: xencode cloud {cmd} <SESSION-ID>");
+            };
+            if cmd == "share" {
+                CloudCommand::Share { id: id.clone() }
+            } else {
+                CloudCommand::Unshare { id: id.clone() }
+            }
+        }
+        "telemetry" => CloudCommand::Telemetry,
+        "publish" => {
+            if rest.len() < 3 || rest[0].starts_with('-') || rest[1].starts_with('-') || rest[2].starts_with('-') {
+                bail!(
+                    "usage: xencode cloud publish <command|recipe|hook|agent> <NAME> <FILE.md> [--desc D]"
+                );
+            }
+            let kind = rest[0].clone();
+            let name = rest[1].clone();
+            let file = rest[2].clone();
+            let mut description: Option<String> = None;
+            let mut i = 3;
+            while i < rest.len() {
+                if rest[i] == "--desc" && i + 1 < rest.len() {
+                    description = Some(rest[i + 1].clone());
+                    i += 2;
+                } else {
+                    bail!("unknown cloud publish flag: {}", rest[i]);
+                }
+            }
+            CloudCommand::Publish { kind, name, file, description }
+        }
+        "search" => {
+            let mut kind: Option<String> = None;
+            let mut q: Option<String> = None;
+            let mut i = 0;
+            while i < rest.len() {
+                match rest[i].as_str() {
+                    "--kind" if i + 1 < rest.len() => {
+                        kind = Some(rest[i + 1].clone());
+                        i += 2;
+                    }
+                    "--q" if i + 1 < rest.len() => {
+                        q = Some(rest[i + 1].clone());
+                        i += 2;
+                    }
+                    other => bail!("unknown cloud search flag: {other}"),
+                }
+            }
+            CloudCommand::Search { kind, q }
+        }
+        other => bail!("unknown cloud subcommand `{other}` — expected status, signup, login, logout, push, pull, share, unshare, telemetry, publish, search"),
+    };
+    Ok(Mode::Cloud { command })
+}
+
+/// Local session store + telemetry dir under the current project.
+fn cloud_session_dir() -> Result<std::path::PathBuf> {
+    Ok(std::env::current_dir()?.join(".xencode").join("sessions"))
+}
+
+/// Uploaded-run tracking for `cloud telemetry`: a JSON array of run ids in
+/// `.xencode/telemetry/uploaded.json`.
+fn telemetry_uploaded(dir: &std::path::Path) -> Result<Vec<String>> {
+    let path = dir.join("uploaded.json");
+    let text = match std::fs::read_to_string(&path) {
+        Ok(text) => text,
+        Err(_) => return Ok(Vec::new()),
+    };
+    Ok(serde_json::from_str(&text).unwrap_or_default())
+}
+
+fn telemetry_mark_uploaded(dir: &std::path::Path, run_ids: &[String]) -> Result<()> {
+    let mut done = telemetry_uploaded(dir)?;
+    done.extend(run_ids.iter().cloned());
+    done.sort();
+    done.dedup();
+    std::fs::write(dir.join("uploaded.json"), serde_json::to_string_pretty(&done)?)?;
+    Ok(())
+}
+
+/// Execute a `cloud` subcommand (sync entry; async work on a block_on runtime).
+fn run_cloud(command: CloudCommand) -> Result<()> {
+    use agent::cloud::{local_sessions, telemetry_run_from_jsonl, CloudClient, CloudConfig};
+    use serde_json::Value;
+
+    let cfg = CloudConfig::load();
+    let client = CloudClient::new(&cfg);
+    let rt = tokio::runtime::Runtime::new().context("start tokio runtime")?;
+    let is_signup = matches!(command, CloudCommand::Signup { .. });
+
+    match command {
+        CloudCommand::Status => {
+            println!("url:    {}", cfg.url);
+            println!("token:  {}", if cfg.token.as_deref().unwrap_or("").is_empty() { "missing — cloud login" } else { "configured" });
+            println!("cursor: last_seq = {}", cfg.last_seq);
+            rt.block_on(async {
+                match client.health().await {
+                    Ok(true) => println!("health: ok"),
+                    Ok(false) => println!("health: unreachable"),
+                    Err(err) => println!("health: error — {err:#}"),
+                }
+                if let Ok(meta) = client.meta().await {
+                    println!("server: {} v{}", meta["service"], meta["version"]);
+                }
+                if !cfg.token.as_deref().unwrap_or("").is_empty() {
+                    if let Ok(me) = client.me().await {
+                        println!("account: {}", me["email"]);
+                    }
+                }
+                if let Ok(remote) = client.list_remote(5).await {
+                    if remote.is_empty() {
+                        println!("remote: no sessions yet");
+                    } else {
+                        println!("remote sessions (5 most recent):");
+                        for s in remote {
+                            println!(
+                                "  {:<22} {:>3} msgs  {:<10} {}",
+                                s.id,
+                                s.message_count,
+                                s.model.as_deref().unwrap_or("-"),
+                                s.title.as_deref().unwrap_or("(untitled)")
+                            );
+                        }
+                    }
+                }
+            });
+            Ok(())
+        }
+
+        CloudCommand::Signup { email, password } | CloudCommand::Login { email, password } => {
+            let action = if is_signup { "signup" } else { "login" };
+            let auth = rt.block_on(async {
+                if is_signup {
+                    client.signup(&email, &password).await
+                } else {
+                    client.login(&email, &password).await
+                }
+            })?;
+            let mut saved = cfg.clone();
+            saved.token = Some(auth.token);
+            saved.save().with_context(|| CloudConfig::path().unwrap_or_default().display().to_string())?;
+            println!("{} ok — account {} ({})", action, auth.email, auth.account_id);
+            println!("token stored to {}", CloudConfig::path()?.display());
+            Ok(())
+        }
+
+        CloudCommand::Logout => {
+            if !cfg.token.as_deref().unwrap_or("").is_empty() {
+                rt.block_on(client.logout())?;
+            }
+            let mut saved = cfg.clone();
+            saved.token = None;
+            saved.save()?;
+            println!("token revoked (server-side when present) and cleared locally");
+            Ok(())
+        }
+
+        CloudCommand::Push { id, all } => {
+            cfg.require_token()?;
+            let dir = cloud_session_dir()?;
+            let targets: Vec<(String, Value)> = if all || id.is_none() {
+                let sessions = local_sessions(&dir)?;
+                if sessions.is_empty() {
+                    bail!("no local sessions under {} — nothing to push", dir.display());
+                }
+                if all {
+                    sessions
+                } else {
+                    // Default: the most recent session id (same rule as --continue).
+                    vec![sessions.last().cloned().expect("non-empty")]
+                }
+            } else {
+                let id = id.expect("checked above");
+                let path = dir.join(format!("{id}.json"));
+                let text = std::fs::read_to_string(&path)
+                    .with_context(|| format!("read {}", path.display()))?;
+                let value: Value = serde_json::from_str(&text).context("session file is not JSON")?;
+                vec![(id, value)]
+            };
+
+            let (created, updated, next_seq) = rt.block_on(async {
+                let mut created = 0usize;
+                let mut updated = 0usize;
+                let mut next_seq = cfg.last_seq;
+                for chunk in targets.chunks(200) {
+                    let payload: Vec<Value> = chunk.iter().map(|(_, v)| v.clone()).collect();
+                    let report = client.sync_push(&payload).await?;
+                    created += report["created"].as_u64().unwrap_or(0) as usize;
+                    updated += report["updated"].as_u64().unwrap_or(0) as usize;
+                    if let Some(seq) = report["next_seq"].as_i64() {
+                        next_seq = next_seq.max(seq);
+                    }
+                }
+                Ok::<_, anyhow::Error>((created, updated, next_seq))
+            })?;
+            let mut saved = cfg.clone();
+            saved.last_seq = saved.last_seq.max(next_seq);
+            saved.save()?;
+            println!(
+                "pushed {} sessions → {} created, {} updated; cursor → seq {}",
+                targets.len(),
+                created,
+                updated,
+                saved.last_seq
+            );
+            Ok(())
+        }
+
+        CloudCommand::Pull => {
+            cfg.require_token()?;
+            let dir = cloud_session_dir()?;
+            let report = rt.block_on(async {
+                let (sessions, next) = client.sync_pull(cfg.last_seq).await?;
+                let mut written = 0usize;
+                let mut kept = 0usize;
+                std::fs::create_dir_all(&dir)?;
+                for session in &sessions {
+                    let Some(id) = session["id"].as_str() else { continue };
+                    let path = dir.join(format!("{id}.json"));
+                    let remote_len =
+                        session["messages"].as_array().map(|a| a.len()).unwrap_or(0);
+                    let local_len = std::fs::read_to_string(&path)
+                        .ok()
+                        .and_then(|t| serde_json::from_str::<Value>(&t).ok())
+                        .and_then(|v| v["messages"].as_array().map(|a| a.len()))
+                        .unwrap_or(0);
+                    if !path.exists() || remote_len > local_len {
+                        std::fs::write(&path, serde_json::to_string_pretty(session)?)?;
+                        written += 1;
+                    } else {
+                        kept += 1;
+                    }
+                }
+                Ok::<_, anyhow::Error>((written, kept, sessions.len(), next))
+            })?;
+            let (written, kept, total, next) = report;
+            let mut saved = cfg.clone();
+            saved.last_seq = next;
+            saved.save()?;
+            println!(
+                "pulled {total} changed sessions → {written} written, {kept} kept local; cursor → seq {next}"
+            );
+            Ok(())
+        }
+
+        CloudCommand::Share { id } => {
+            cfg.require_token()?;
+            let dir = cloud_session_dir()?;
+            let path = dir.join(format!("{id}.json"));
+            let text = std::fs::read_to_string(&path)
+                .with_context(|| format!("read {}", path.display()))?;
+            let session: Value = serde_json::from_str(&text).context("session file is not JSON")?;
+            let share = rt.block_on(async {
+                // The session must exist server-side for the link to resolve;
+                // the PUT is idempotent so this is safe to repeat.
+                let created = client.push_session(&session).await?;
+                if created {
+                    println!("pushed session {id} (new on server)");
+                }
+                client.share(&id).await
+            })?;
+            println!("shared {} → {}", id, share["url"].as_str().unwrap_or("(no url)"));
+            Ok(())
+        }
+
+        CloudCommand::Unshare { id } => {
+            rt.block_on(client.unshare(&id))?;
+            println!("share for {id} revoked");
+            Ok(())
+        }
+
+        CloudCommand::Telemetry => {
+            cfg.require_token()?;
+            let cwd = std::env::current_dir()?;
+            let dir = cwd.join(".xencode").join("telemetry");
+            let done = telemetry_uploaded(&dir)?;
+            let mut runs: Vec<Value> = Vec::new();
+            let mut batch_ids: Vec<String> = Vec::new();
+            if let Ok(rd) = std::fs::read_dir(&dir) {
+                for entry in rd.flatten() {
+                    let name = entry.file_name().to_string_lossy().into_owned();
+                    let Some(run_id) = name.strip_suffix(".jsonl") else { continue };
+                    if done.iter().any(|d| d == run_id) {
+                        continue;
+                    }
+                    let text = std::fs::read_to_string(entry.path())?;
+                    let lines: Vec<&str> = text.lines().collect();
+                    match telemetry_run_from_jsonl(run_id, &lines) {
+                        Ok(run) => {
+                            runs.push(run);
+                            batch_ids.push(run_id.to_string());
+                        }
+                        Err(err) => eprintln!("skipping {run_id}: {err:#}"),
+                    }
+                }
+            }
+            if runs.is_empty() {
+                println!("no unuploaded telemetry runs under {}", dir.display());
+                return Ok(());
+            }
+            let report = rt.block_on(async {
+                let mut stored = 0i64;
+                let mut failed = 0i64;
+                for chunk in runs.chunks(200) {
+                    let reply = client.telemetry_push(chunk).await?;
+                    stored += reply["stored"].as_i64().unwrap_or(0);
+                    failed += reply["failed"].as_i64().unwrap_or(0);
+                }
+                Ok::<_, anyhow::Error>((stored, failed))
+            })?;
+            let (stored, failed) = report;
+            if failed == 0 {
+                telemetry_mark_uploaded(&dir, &batch_ids)?;
+            }
+            println!("telemetry: {stored} runs stored, {failed} failed ({} uploaded total)", batch_ids.len());
+            Ok(())
+        }
+
+        CloudCommand::Publish { kind, name, file, description } => {
+            cfg.require_token()?;
+            let content = std::fs::read_to_string(&file)
+                .with_context(|| format!("read {file}"))?;
+            let reply = rt.block_on(client.registry_publish(&kind, &name, description.as_deref(), &content))?;
+            println!(
+                "published {} {} (v{}) — id {}",
+                reply["kind"], reply["name"], reply["version"], reply["id"]
+            );
+            Ok(())
+        }
+
+        CloudCommand::Search { kind, q } => {
+            let reply = rt.block_on(client.registry_search(kind.as_deref(), q.as_deref()))?;
+            let items = reply["items"].as_array().cloned().unwrap_or_default();
+            if items.is_empty() {
+                println!("no registry items matched");
+                return Ok(());
+            }
+            println!("{:<4} {:<9} {:<24} {:<3} {}", "#", "kind", "name", "v", "author");
+            for (i, item) in items.iter().enumerate() {
+                println!(
+                    "{:<4} {:<9} {:<24} {:<3} {}",
+                    i + 1,
+                    item["kind"].as_str().unwrap_or(""),
+                    item["name"].as_str().unwrap_or(""),
+                    item["version"],
+                    item["author"].as_str().unwrap_or(""),
+                );
+            }
+            Ok(())
+        }
+    }
 }

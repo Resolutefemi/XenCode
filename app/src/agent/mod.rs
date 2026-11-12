@@ -5,6 +5,7 @@
 //! oracle tool and run telemetry.
 
 pub mod checkpoint;
+pub mod cloud;
 pub mod commands;
 pub mod compact;
 pub mod diagnostics;
